@@ -14,6 +14,41 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public class IndexCompatibilityTests
 {
+    [Fact]
+    public async Task RunCompatibilityReindexAsync_WhenStartTransportFails_ThrowsUncertainException()
+    {
+        // Arrange
+        var transportException = new TimeoutException("The reindex response was not received.");
+        var requestInvoker = new InMemoryRequestInvoker([], 500, transportException, "application/json");
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(requestInvoker));
+        var runner = new ElasticReindexTaskRunner(client, new Foundatio.Serializer.SystemTextJsonSerializer(), TimeProvider.System);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert
+        Assert.Contains("is unknown", exception.Message);
+        Assert.Same(transportException, exception.InnerException);
+    }
+
+    [Fact]
+    public async Task RunCompatibilityReindexAsync_WhenAcceptedWithoutTaskId_ThrowsUncertainException()
+    {
+        // Arrange
+        var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
+        var requestInvoker = new InMemoryRequestInvoker(Encoding.UTF8.GetBytes("{}"), 200, null, "application/json", headers);
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(requestInvoker));
+        var runner = new ElasticReindexTaskRunner(client, new Foundatio.Serializer.SystemTextJsonSerializer(), TimeProvider.System);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert
+        Assert.Contains("no task ID", exception.Message);
+    }
+
     [Theory]
     [InlineData(9, 9, IndexCompatibilityState.Current)]
     [InlineData(8, 9, IndexCompatibilityState.RequiresReindex)]

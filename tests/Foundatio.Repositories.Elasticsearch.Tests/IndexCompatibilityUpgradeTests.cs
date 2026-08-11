@@ -504,6 +504,9 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         var allIndexesResponse = await _client.Indices.GetAsync(Indices.All,
             d => d.LimitToNamesAndAliases(), TestCancellationToken);
         Assert.DoesNotContain(compatibilityTarget, allIndexesResponse.Indices.Keys.Select(k => k.ToString()));
+        var retiredVersionAliasResponse = await _client.Indices.GetAsync((Indices)version1.VersionedName,
+            d => d.IgnoreUnavailable(), TestCancellationToken);
+        Assert.Empty(retiredVersionAliasResponse.Indices);
     }
 
     [Fact]

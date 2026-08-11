@@ -53,27 +53,40 @@ internal sealed class ElasticReindexTaskRunner
             ReindexRequestsPerSecond = requestsPerSecond
         };
 
-        var startResponse = await _client.ReindexAsync(d =>
+        ReindexResponse startResponse;
+        try
         {
-            d.Source(source =>
+            startResponse = await _client.ReindexAsync(d =>
             {
-                source.Indices(sourceIndex);
-                if (batchSize.HasValue)
-                    source.Size(batchSize.Value);
-            });
-            d.Dest(destination => destination.Index(targetIndex).OpType(OpType.Create).Pipeline("_none"));
-            d.Conflicts(Conflicts.Abort);
-            d.Refresh();
-            d.Slices(SlicesCalculation.Auto);
-            d.WaitForCompletion(false);
+                d.Source(source =>
+                {
+                    source.Indices(sourceIndex);
+                    if (batchSize.HasValue)
+                        source.Size(batchSize.Value);
+                });
+                d.Dest(destination => destination.Index(targetIndex).OpType(OpType.Create).Pipeline("_none"));
+                d.Conflicts(Conflicts.Abort);
+                d.Refresh();
+                d.Slices(SlicesCalculation.Auto);
+                d.WaitForCompletion(false);
 
-            if (requestsPerSecond.HasValue)
-                d.RequestsPerSecond(requestsPerSecond.Value);
-        }, cancellationToken).AnyContext();
+                if (requestsPerSecond.HasValue)
+                    d.RequestsPerSecond(requestsPerSecond.Value);
+            }, cancellationToken).AnyContext();
+        }
+        catch (Exception ex)
+        {
+            throw CreateUncertainStartException(sourceIndex, targetIndex, ex);
+        }
+
         _logger.LogRequest(startResponse);
 
         if (!startResponse.IsValidResponse || startResponse.Task is null)
-            throw new RepositoryException(startResponse.GetErrorMessage($"Unable to start compatibility reindex from '{sourceIndex}' to '{targetIndex}'."), startResponse.OriginalException());
+        {
+            var startException = startResponse.OriginalException()
+                ?? new RepositoryException(startResponse.GetErrorMessage($"Elasticsearch did not return a task ID for compatibility reindex from '{sourceIndex}' to '{targetIndex}'."));
+            throw CreateUncertainStartException(sourceIndex, targetIndex, startException);
+        }
 
         try
         {
@@ -90,6 +103,13 @@ internal sealed class ElasticReindexTaskRunner
                 reindexException).AnyContext();
             throw;
         }
+    }
+
+    private static ElasticReindexTaskUncertainException CreateUncertainStartException(string sourceIndex, string targetIndex, Exception innerException)
+    {
+        return new ElasticReindexTaskUncertainException(
+            $"The compatibility reindex start outcome for '{sourceIndex}' -> '{targetIndex}' is unknown because no task ID was confirmed. Keep the source write blocked and retain the destination until matching Elasticsearch tasks have been inspected.",
+            innerException);
     }
 
     private async Task<ElasticReindexTaskResult> WaitForCompletionAsync(

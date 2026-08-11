@@ -12,6 +12,7 @@ using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Exceptions;
@@ -151,6 +152,8 @@ public class ElasticReindexer
             // Older compatibility implementations could leave an alias matching the physical source name.
             // It is a migration artifact, not a stable application alias, and must not leak into the new schema.
             aliases.Remove(concreteOldIndex);
+            if (!String.IsNullOrEmpty(workItem.Alias))
+                aliases.Remove(CompatibilityIndexName.GetCanonicalName(concreteOldIndex, workItem.Alias));
             if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.ContainsKey(workItem.Alias))
                 aliases.Add(workItem.Alias, new AliasDefinition());
 
