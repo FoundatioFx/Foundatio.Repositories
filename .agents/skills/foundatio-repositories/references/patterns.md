@@ -234,6 +234,10 @@ await repository.RemoveAllAsync(q => q
 // Batch fetch (returns IReadOnlyCollection<T>)
 var employees = await repository.GetByIdsAsync(ids, o => o.Cache());
 
+// Fail the entire read if any Elasticsearch MGET item reports an error
+var requiredEmployees = await repository.GetByIdsAsync(ids,
+    o => o.ThrowOnMultiGetErrors());
+
 // Existence check
 bool exists = await repository.ExistsAsync(id);
 ```
@@ -253,6 +257,7 @@ bool exists = await repository.ExistsAsync(id);
 | `o => o.Notifications(false)`   | Suppress change notifications                |
 | `o => o.Originals()`            | Track original values for change detection   |
 | `o => o.IncludeSoftDeletes()`   | Include soft-deleted docs in queries         |
+| `o => o.ThrowOnMultiGetErrors()` | Fail `GetByIdsAsync` on any MGET item error  |
 
 ## Index Mapping
 

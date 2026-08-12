@@ -415,6 +415,11 @@ public static class ElasticIndexExtensions
 
     public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
     {
+        return response.ToFindHits(logger, false);
+    }
+
+    internal static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger, bool throwOnError) where T : class
+    {
         foreach (var doc in response.Docs)
         {
             FindHit<T>? findHit = null;
@@ -448,8 +453,14 @@ public static class ElasticIndexExtensions
                 {
                     if (error is null)
                     {
+                        if (throwOnError)
+                            throw new DocumentException("Elasticsearch returned an invalid multi-get error item.");
+
                         return;
                     }
+
+                    if (throwOnError)
+                        throw new DocumentException($"Error getting document {error.Id} from index {error.Index}: {error.Error?.Reason}");
 
                     logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
                 }
