@@ -386,7 +386,7 @@ public class VersionedIndex : Index, IVersionedIndex
     public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
     {
         var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-        return infos.Where(i => GetIndexVersion(i.Name) >= 0).ToArray();
+        return infos.Where(i => OwnsCompatibilityIndex(i.Name)).ToArray();
     }
 
     internal override bool OwnsCompatibilityIndex(string sourceIndex)

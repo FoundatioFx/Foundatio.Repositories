@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -144,12 +143,6 @@ public class DailyIndex : VersionedIndex
         return $"{canonicalPattern},{CompatibilityIndexName.CreatePattern(canonicalPattern)}";
     }
 
-    public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-    {
-        var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-        return infos.Where(i => GetIndexDate(i.Name) != DateTime.MaxValue).ToArray();
-    }
-
     internal override bool OwnsCompatibilityIndex(string sourceIndex)
     {
         return base.OwnsCompatibilityIndex(sourceIndex) && GetIndexDate(sourceIndex) != DateTime.MaxValue;
@@ -255,10 +248,12 @@ public class DailyIndex : VersionedIndex
         return indices.ToArray();
     }
 
-    public override Task DeleteAsync()
+    public override async Task DeleteAsync()
     {
         string canonicalPattern = $"{Name}-v*";
-        return DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)]);
+        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)]).AnyContext();
+        await _aliasCache.RemoveAllAsync().AnyContext();
+        _ensuredDates.Clear();
     }
 
     public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)

@@ -314,6 +314,17 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             if (candidates.Length is 0)
                 continue;
 
+            var conflictingTargets = candidates
+                .GroupBy(candidate => CompatibilityIndexName.Create(candidate.Name, candidate.ServerMajor, compatibilityIndex.Name), StringComparer.Ordinal)
+                .Where(group => group.Skip(1).Any())
+                .Select(group => $"{group.Key} <= {String.Join(", ", group.Select(candidate => candidate.Name))}")
+                .ToArray();
+            if (conflictingTargets.Length > 0)
+            {
+                throw new RepositoryException(
+                    $"Multiple compatibility source indexes for '{idx.Name}' resolve to the same destination: {String.Join("; ", conflictingTargets)}. Resolve the duplicate physical index lineage before retrying; no indexes were changed.");
+            }
+
             foreach (var candidate in candidates)
             {
                 await reindexLock.RenewAsync().AnyContext();

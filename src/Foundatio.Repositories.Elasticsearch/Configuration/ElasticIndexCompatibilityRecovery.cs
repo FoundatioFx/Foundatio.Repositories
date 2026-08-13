@@ -200,7 +200,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
 
         if (!sourceExists && targetExists)
         {
-            if (!targetHasCanonicalSourceAlias)
+            if (!targetHasCanonicalSourceAlias || targetOwnershipConfirmed)
                 return IndexCompatibilityUpgradeRecoveryState.Ambiguous;
 
             return targetWriteBlocked

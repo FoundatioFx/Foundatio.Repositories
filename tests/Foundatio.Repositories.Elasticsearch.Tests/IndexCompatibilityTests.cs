@@ -350,6 +350,21 @@ public class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WhenSourcesShareDestination_ThrowsBeforeMutation()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var index = new ConflictingDestinationIndex(configuration);
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("reindexed-v9-conflicting-destination-v1", exception.Message);
+        Assert.Contains("conflicting-destination-v1", exception.Message);
+        Assert.Contains("reindexed-v8-conflicting-destination-v1", exception.Message);
+        Assert.Equal(2, index.CompatibilityChecks);
+    }
+
+    [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenDetectionIsCanceled_PropagatesCancellation()
     {
         using var configuration = new ElasticConfiguration();
@@ -605,6 +620,37 @@ public class IndexCompatibilityTests
         public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromCanceled<IReadOnlyCollection<IndexCompatibilityInfo>>(new CancellationToken(true));
+        }
+    }
+
+    private sealed class ConflictingDestinationIndex : VersionedIndex<object>
+    {
+        public ConflictingDestinationIndex(IElasticConfiguration configuration) : base(configuration, "conflicting-destination", 1) { }
+
+        public int CompatibilityChecks { get; private set; }
+
+        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+        {
+            CompatibilityChecks++;
+            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+            [
+                new IndexCompatibilityInfo
+                {
+                    Name = VersionedName,
+                    CreatedMajor = 8,
+                    CreatedVersion = "8.0.0",
+                    ServerMajor = 9,
+                    ServerVersion = "9.0.0"
+                },
+                new IndexCompatibilityInfo
+                {
+                    Name = $"reindexed-v8-{VersionedName}",
+                    CreatedMajor = 8,
+                    CreatedVersion = "8.0.0",
+                    ServerMajor = 9,
+                    ServerVersion = "9.0.0"
+                }
+            ]);
         }
     }
 

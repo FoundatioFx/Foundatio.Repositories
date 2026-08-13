@@ -91,6 +91,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             await ReportProgressAsync(0, $"Inspecting {sourceIndex}").AnyContext();
             await EnsureTargetDoesNotExistAsync(targetIndex, cancellationToken).AnyContext();
             sourceState = await GetSourceStateAsync(sourceIndex, cancellationToken).AnyContext();
+            index.ValidateCompatibilityUpgradeSource(sourceIndex, sourceState.Aliases.ContainsKey(index.Name));
             ValidateSource(sourceState);
 
             sourceBlockAttempted = true;
