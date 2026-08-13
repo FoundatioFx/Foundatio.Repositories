@@ -414,9 +414,9 @@ var nextResults = await repository.FindAsync(
 > to sort by) and for indexes managed outside this library (see
 > [Externally-Managed Indexes](index-management.md#externally-managed-indexes)). In both cases,
 > Live mode requires your own stable, unique sort field and throws `QueryValidationException` if
-> none is available. When point-in-time mode has no sortable id tiebreaker, the repository
-> explicitly appends `_shard_doc` after any caller sorts so both forward and backward cursors can
-> reverse the same concrete sort. An explicit unstable sort key remains dangerous in `Live` mode.
+> none is available. Point-in-time mode always makes Elasticsearch's implicit `_shard_doc`
+> tiebreaker explicit after any caller sorts so both forward and backward cursors can reverse the
+> same complete sort tuple. An explicit unstable sort key remains dangerous in `Live` mode.
 
 ## Aggregations
 

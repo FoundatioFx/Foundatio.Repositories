@@ -199,9 +199,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     /// <see cref="Foundatio.Repositories.Elasticsearch.Configuration.IIndex.HasSortableIdField"/>);
     /// Live-mode callers of a search_after query against such a model or index must supply their
     /// own unique, sortable field(s) to keep the cursor stable; the builder throws
-    /// <see cref="QueryValidationException"/> when no sort is available. When no sortable id is
-    /// available, point-in-time mode appends an explicit <c>_shard_doc</c> tiebreaker so forward
-    /// and backward cursors are reversible.
+    /// <see cref="QueryValidationException"/> when no sort is available. Point-in-time mode makes
+    /// Elasticsearch's implicit <c>_shard_doc</c> tiebreaker explicit so forward and backward
+    /// cursors can reverse the complete sort tuple.
     /// </remarks>
     public class SearchAfterQueryBuilder : IElasticQueryBuilder
     {
@@ -288,7 +288,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 if (isLivePaging && !hasIdTiebreaker && sortFields.Count is 0)
                     throw new QueryValidationException("Live search_after paging requires at least one sortable field. Supply an explicit stable sort or use PointInTime mode.");
 
-                if (!isLivePaging && !hasIdTiebreaker && !hasShardDocumentSort)
+                // Elasticsearch implicitly appends _shard_doc ascending to PIT searches. Keep it
+                // explicit so SearchBefore can reverse the complete cursor tuple.
+                if (!isLivePaging && !hasShardDocumentSort)
                 {
                     sortFields.Add(new FieldSort { Field = ShardDocumentSort });
                 }

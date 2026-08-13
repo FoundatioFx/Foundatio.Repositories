@@ -913,7 +913,7 @@ This matters for two reasons:
    }
    ```
 
-   With `HasSortableIdField = false`, no query against this index ever attempts to sort by `id`, so an unmapped or wrongly-typed (dynamically-mapped `text`) `id` field can no longer cause `all shards failed` or `Fielddata is disabled on text fields` errors. Pair Live [search after paging](querying.md#search-after-paging) with your own stable, unique sort field; the query builder throws `QueryValidationException` when Live mode has neither an explicit sort nor an automatic id sort, instead of silently falling back to offset paging.
+   With `HasSortableIdField = false`, no query automatically attempts to sort by `id`, so an unmapped or wrongly-typed (dynamically-mapped `text`) `id` field can no longer break an otherwise unsorted query with `all shards failed` or `Fielddata is disabled on text fields`. An explicit caller-provided `id` sort is still honored. Pair Live [search after paging](querying.md#search-after-paging) with your own stable, unique sort field; the query builder throws `QueryValidationException` when Live mode has neither an explicit sort nor an automatic id sort, instead of silently falling back to offset paging.
 
    If your model has no `id` concept at all — it doesn't implement `IIdentity` — the id tiebreaker is skipped automatically regardless of `HasSortableIdField`, since there is no `Id` property to sort by in the first place.
 
