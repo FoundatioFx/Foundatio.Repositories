@@ -425,6 +425,16 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetByIdsAsync_WithMissingDocumentAndThrowOnMultiGetErrors_ReturnsEmpty()
+    {
+        var identity = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+        Assert.NotNull(identity.Id);
+
+        Assert.Single(await _identityRepository.GetByIdsAsync([identity.Id], o => o.ThrowOnMultiGetErrors()));
+        Assert.Empty(await _identityRepository.GetByIdsAsync(["missing-id"], o => o.ThrowOnMultiGetErrors()));
+    }
+
+    [Fact]
     public async Task GetByIdsWithInvalidIdAsync()
     {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Generate());

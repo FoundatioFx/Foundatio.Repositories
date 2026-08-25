@@ -460,9 +460,9 @@ public static class ElasticIndexExtensions
                     }
 
                     if (throwOnError)
-                        throw new DocumentException($"Error getting document {error.Id} from index {error.Index}: {error.Error?.Reason}");
+                        throw new DocumentException($"Error getting document {error.Id} from index {error.Index}: {error.Error?.Type}: {error.Error?.Reason}");
 
-                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
+                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, type={ErrorType}, reason={Reason}", error.Index, error.Id, error.Error?.Type, error.Error?.Reason);
                 }
             );
             if (findHit is not null)
