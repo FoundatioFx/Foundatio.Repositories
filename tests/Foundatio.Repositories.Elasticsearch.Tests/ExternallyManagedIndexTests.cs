@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
@@ -271,6 +273,47 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
         _configuration.ExternallyManagedLogEvents.MappingResolver.RefreshMapping();
 
         Assert.Equal("message.sort", _configuration.ExternallyManagedLogEvents.MappingResolver.GetSortFieldName("message"));
+    }
+
+    [Fact]
+    public async Task MappingResolver_WithSameDateAndMultipleVersions_PrefersHighestParsedVersion()
+    {
+        // Arrange: two indexes share the newest date and differ only by parsed version number.
+        // "v10" sorts below "v9" in ordinal name order, so this pins numeric (not lexical)
+        // tie-breaking -- and unlike a single-candidate test, it fails if selection ever falls
+        // back to Elasticsearch's response order, which is unspecified.
+        string prefix = "broad-filter-logevents";
+        string today = DateTime.UtcNow.ToString("yyyy.MM.dd");
+        string v9Index = $"{prefix}-v9-{today}";
+        string v10Index = $"{prefix}-v10-{today}";
+
+        await using AsyncDisposableAction cleanup = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{prefix}-v*"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var v9Response = await _client.Indices.CreateAsync(v9Index, d => d
+            .Mappings(m => m.Properties(p => p.Keyword("message"))), TestCancellationToken);
+        var v10Response = await _client.Indices.CreateAsync(v10Index, d => d
+            .Mappings(m => m.Properties(p => p.Text("message", t => t.Fields(f => f.Keyword("sort"))))), TestCancellationToken);
+        Assert.True(v9Response.IsValidResponse, v9Response.DebugInformation);
+        Assert.True(v10Response.IsValidResponse, v10Response.DebugInformation);
+
+        // Act: default GetIndexDate parses "{name}-v{version}-{date}", so both candidates survive
+        // malformed-name exclusion; the broad filter makes them compete on the same date.
+        using var index = new BroadFilterVersionedLogEventIndex(_configuration);
+        string? sortFieldName = index.MappingResolver.GetSortFieldName("message");
+
+        // Assert
+        Assert.Equal("message.sort", sortFieldName);
+    }
+
+    private sealed class BroadFilterVersionedLogEventIndex : DailyIndex<LogEvent>
+    {
+        public BroadFilterVersionedLogEventIndex(IElasticConfiguration configuration)
+            : base(configuration, "broad-filter-logevents", 1, doc => ((LogEvent)doc).Date.UtcDateTime)
+        {
+        }
+
+        protected override string GetIndexMappingFilter() => $"{Name}-*";
     }
 
     [Fact]

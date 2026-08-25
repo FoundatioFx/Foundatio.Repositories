@@ -4,6 +4,7 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
+using Foundatio.Serializer;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -79,5 +80,128 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
             if (!String.IsNullOrEmpty(pointInTimeId))
                 await pointInTime.ClosePointInTimeAsync(pointInTimeId);
         }
+    }
+}
+
+/// <summary>
+/// Pins the cursor semantics of the <c>SearchAfter</c>/<c>SearchBefore</c> option extensions: a null
+/// array reference, an empty array, or an array whose elements are all null clear the stored cursor,
+/// while any array containing at least one non-null value is stored as-is, null elements included.
+/// The token variants have no such filter -- they round-trip whatever sort values the previous page
+/// carried, all-null cursors included. These tests need no Elasticsearch connection.
+/// </summary>
+public sealed class SearchAfterQueryExtensionTests
+{
+    private static readonly ITextSerializer Serializer = new SystemTextJsonSerializer();
+
+    [Fact]
+    public void SearchAfter_WithValues_EnablesPagingAndSetsCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchAfter("a", "b");
+
+        Assert.True(options.ShouldUseSearchAfterPaging());
+        Assert.True(options.HasSearchAfter());
+        Assert.Equal(new object[] { "a", "b" }, options.GetSearchAfter());
+    }
+
+    [Fact]
+    public void SearchAfter_WithNullArrayReference_ClearsCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter(null!);
+
+        Assert.False(options.HasSearchAfter());
+    }
+
+    [Fact]
+    public void SearchAfter_WithEmptyArray_ClearsCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter();
+
+        Assert.False(options.HasSearchAfter());
+    }
+
+    [Fact]
+    public void SearchAfter_WithAllNullValues_ClearsCursor()
+    {
+        // A cursor with no non-null sort value cannot be replayed, so it is treated as absent.
+        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter(new object[] { null! });
+
+        Assert.False(options.HasSearchAfter());
+    }
+
+    [Fact]
+    public void SearchAfter_WithMixedNullValues_SetsCursorPreservingNulls()
+    {
+        // Sort values for documents missing a field arrive as nulls; they must survive so paging
+        // does not silently restart from the first page.
+        var options = new CommandOptions<Employee>().SearchAfter("a", null!);
+
+        Assert.True(options.HasSearchAfter());
+        Assert.Equal(new object[] { "a", null! }, options.GetSearchAfter());
+    }
+
+    [Fact]
+    public void SearchBefore_WithValues_EnablesPagingAndSetsCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchBefore("a", "b");
+
+        Assert.True(options.ShouldUseSearchAfterPaging());
+        Assert.True(options.HasSearchBefore());
+        Assert.Equal(new object[] { "a", "b" }, options.GetSearchBefore());
+    }
+
+    [Fact]
+    public void SearchBefore_WithNullArrayReference_ClearsCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchBefore("a").SearchBefore(null!);
+
+        Assert.False(options.HasSearchBefore());
+    }
+
+    [Fact]
+    public void SearchBefore_WithAllNullValues_ClearsCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchBefore("a").SearchBefore(new object[] { null! });
+
+        Assert.False(options.HasSearchBefore());
+    }
+
+    [Fact]
+    public void SearchBeforeToken_WithAllNullValues_SetsCursorUnlikeRawPath()
+    {
+        // The token path must accept cursors the raw path clears (see SearchAfter_WithAllNullValues_
+        // ClearsCursor): tokens round-trip the exact sort values of the hit being paged from.
+        string token = EncodeToken(new object[] { null! });
+
+        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfterToken(token, Serializer);
+
+        Assert.True(options.HasSearchAfter());
+        Assert.Equal(new object?[] { null }, options.GetSearchAfter());
+    }
+
+    [Fact]
+    public void SearchAfterToken_WithNullToken_ClearsCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfterToken(null, Serializer);
+
+        Assert.False(options.HasSearchAfter());
+    }
+
+    [Fact]
+    public void SearchAfterPaging_Disabled_ResetsModeToLive()
+    {
+        var options = new CommandOptions<Employee>().SearchAfterPaging(SearchAfterPagingMode.PointInTime).SearchAfterPaging(false);
+
+        Assert.False(options.ShouldUseSearchAfterPaging());
+        Assert.Equal(SearchAfterPagingMode.Live, options.GetSearchAfterPagingMode());
+    }
+
+    private static string EncodeToken(object[] values)
+    {
+        string json = Serializer.SerializeToString(values);
+        return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 }

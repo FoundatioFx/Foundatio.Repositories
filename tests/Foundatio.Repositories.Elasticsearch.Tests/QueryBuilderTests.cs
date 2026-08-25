@@ -655,4 +655,33 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
         Assert.Single(sortFields);
         Assert.Equal("name", sortFields[0].Field!.Field.Name);
     }
+
+    [Fact]
+    public async Task BuildAsync_WithDefaultSortTiebreakerAndSearchBefore_ReversesCompleteTuple()
+    {
+        // Arrange: mirrors the real pipeline order -- SortQueryBuilder translates caller sorts,
+        // DefaultSortQueryBuilder (lower priority) appends the id tiebreaker, and
+        // SearchAfterQueryBuilder (highest priority) reverses the accumulated tuple for backward
+        // paging. If any builder ran out of order, the tiebreaker would not be reversed.
+        var resolver = CreateKeywordIdResolver();
+        var query = new RepositoryQuery<Employee>().SortAscending(e => e.Name);
+        var options = new CommandOptions<Employee>()
+            .ElasticIndex(new FakeIndex { MappingResolver = resolver })
+            .SearchAfterPaging()
+            .SearchBefore("cursor");
+        var ctx = new QueryBuilderContext<Employee>(query, options);
+
+        // Act
+        await new SortQueryBuilder().BuildAsync(ctx);
+        await new DefaultSortQueryBuilder().BuildAsync(ctx);
+        await new SearchAfterQueryBuilder().BuildAsync(ctx);
+
+        // Assert
+        var sortFields = GetAppliedSort(ctx);
+        Assert.Equal(2, sortFields.Count);
+        Assert.Equal("name", sortFields[0].Field!.Field.Name);
+        Assert.Equal(SortOrder.Desc, sortFields[0].Field!.Order);
+        Assert.Equal("id", sortFields[1].Field!.Field.Name);
+        Assert.Equal(SortOrder.Desc, sortFields[1].Field!.Order);
+    }
 }

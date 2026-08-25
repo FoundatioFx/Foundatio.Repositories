@@ -462,7 +462,10 @@ public class DailyIndex : VersionedIndex
     /// real server-side mapping instead of falling back entirely to the code-declared mapping.
     /// The filter is authoritative for candidate selection, including the applicable version.
     /// Matching names whose <see cref="GetIndexDate(string)"/> result is <see cref="DateTime.MaxValue"/>
-    /// are treated as malformed and excluded from mapping selection.
+    /// are treated as malformed and excluded from mapping selection. When several candidates share
+    /// the newest date -- possible when a custom filter matches multiple versions or naming schemes
+    /// -- ties break by highest parsed version number (<see cref="VersionedIndex.GetIndexVersion"/>),
+    /// then by index name descending (ordinal), so selection is always deterministic.
     /// </remarks>
     protected virtual string GetIndexMappingFilter()
     {
@@ -487,14 +490,19 @@ public class DailyIndex : VersionedIndex
             throw new RepositoryException(indicesResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), indicesResponse.OriginalException());
         }
 
+        // Candidates sharing the newest date (possible when a custom filter matches multiple
+        // versions or naming schemes) must resolve deterministically: highest parsed version
+        // wins (-1 for unversioned names loses to any real version), then name descending.
         var latestIndex = indicesResponse.Indices.Keys
             .Select(i =>
             {
                 string indexName = i.ToString();
-                return new { DateUtc = GetIndexDate(indexName), Index = indexName };
+                return new { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
             })
             .Where(i => i.DateUtc != DateTime.MaxValue)
             .OrderByDescending(i => i.DateUtc)
+            .ThenByDescending(i => i.Version)
+            .ThenByDescending(i => i.Index, StringComparer.Ordinal)
             .FirstOrDefault();
 
         if (latestIndex == null)

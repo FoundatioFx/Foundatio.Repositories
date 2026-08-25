@@ -33,7 +33,14 @@ namespace Foundatio.Repositories
 
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
-            return options.BuildOption(SearchAfterPagingKey, enabled);
+            options.BuildOption(SearchAfterPagingKey, enabled);
+
+            // Match the mode overload's behavior: disabling resets any previously-set mode so a
+            // later plain re-enable starts from the Live default instead of resurrecting it.
+            if (!enabled)
+                options.BuildOption(SearchAfterPagingModeKey, SearchAfterPagingMode.Live);
+
+            return options;
         }
 
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
@@ -57,10 +64,22 @@ namespace Foundatio.Repositories
             return options.BuildOption(RepoOwnedPointInTimeKey, repoOwned);
         }
 
+        /// <summary>
+        /// Pages results forwards from the supplied sort values, enabling search-after paging.
+        /// </summary>
+        /// <param name="options">The command options.</param>
+        /// <param name="values">The sort values of the last hit on the previous page, in sort order.</param>
+        /// <remarks>
+        /// Passing no values, a null array reference, or an array whose elements are all null clears
+        /// any stored cursor. A cursor needs at least one non-null sort value to be meaningful; when
+        /// paging on a model without an id tiebreaker whose only sort field can be missing (producing
+        /// all-null cursors), use <see cref="SearchAfterToken"/> instead -- tokens round-trip null
+        /// values exactly.
+        /// </remarks>
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions
         {
             options.SearchAfterPaging();
-            if (values is { Length: > 0 } && values.Any(v => v is not null))
+            if (values is { Length: > 0 } && Array.Exists(values, v => v is not null))
             {
                 options.Values.Set(SearchAfterKey, values);
             }
@@ -89,10 +108,22 @@ namespace Foundatio.Repositories
             return options;
         }
 
+        /// <summary>
+        /// Pages results backwards from the supplied sort values, enabling search-after paging in reverse.
+        /// </summary>
+        /// <param name="options">The command options.</param>
+        /// <param name="values">The sort values of the first hit on the next page, in sort order.</param>
+        /// <remarks>
+        /// Passing no values, a null array reference, or an array whose elements are all null clears
+        /// any stored cursor. A cursor needs at least one non-null sort value to be meaningful; when
+        /// paging on a model without an id tiebreaker whose only sort field can be missing (producing
+        /// all-null cursors), use <see cref="SearchBeforeToken"/> instead -- tokens round-trip null
+        /// values exactly.
+        /// </remarks>
         public static T SearchBefore<T>(this T options, params object[] values) where T : ICommandOptions
         {
             options.SearchAfterPaging();
-            if (values is { Length: > 0 } && values.Any(v => v is not null))
+            if (values is { Length: > 0 } && Array.Exists(values, v => v is not null))
             {
                 options.Values.Set(SearchBeforeKey, values);
             }
