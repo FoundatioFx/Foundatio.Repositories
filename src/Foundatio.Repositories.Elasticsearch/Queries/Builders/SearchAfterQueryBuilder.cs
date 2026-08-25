@@ -70,6 +70,7 @@ namespace Foundatio.Repositories
         /// <param name="options">The command options.</param>
         /// <param name="values">The sort values of the last hit on the previous page, in sort order.</param>
         /// <remarks>
+        /// Calling this method always enables search-after paging, even when no cursor is stored.
         /// Passing no values, a null array reference, or an array whose elements are all null clears
         /// any stored cursor. A cursor needs at least one non-null sort value to be meaningful; when
         /// paging on a model without an id tiebreaker whose only sort field can be missing (producing
@@ -114,6 +115,7 @@ namespace Foundatio.Repositories
         /// <param name="options">The command options.</param>
         /// <param name="values">The sort values of the first hit on the next page, in sort order.</param>
         /// <remarks>
+        /// Calling this method always enables search-after paging, even when no cursor is stored.
         /// Passing no values, a null array reference, or an array whose elements are all null clears
         /// any stored cursor. A cursor needs at least one non-null sort value to be meaningful; when
         /// paging on a model without an id tiebreaker whose only sort field can be missing (producing

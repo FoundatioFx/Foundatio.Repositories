@@ -85,10 +85,11 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
 
 /// <summary>
 /// Pins the cursor semantics of the <c>SearchAfter</c>/<c>SearchBefore</c> option extensions: a null
-/// array reference, an empty array, or an array whose elements are all null clear the stored cursor,
-/// while any array containing at least one non-null value is stored as-is, null elements included.
-/// The token variants have no such filter -- they round-trip whatever sort values the previous page
-/// carried, all-null cursors included. These tests need no Elasticsearch connection.
+/// array reference or an empty array clears any stored cursor, while arrays containing values are
+/// stored as-is. Clearing via an all-null cursor and preserving mixed-null cursors is pinned by
+/// <c>SearchAfterQueryExtensionsTests</c>; the token variants have no such filter -- they round-trip
+/// whatever sort values the previous page carried, all-null cursors included. These tests need no
+/// Elasticsearch connection.
 /// </summary>
 public sealed class SearchAfterQueryExtensionTests
 {
@@ -121,26 +122,6 @@ public sealed class SearchAfterQueryExtensionTests
     }
 
     [Fact]
-    public void SearchAfter_WithAllNullValues_ClearsCursor()
-    {
-        // A cursor with no non-null sort value cannot be replayed, so it is treated as absent.
-        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter(new object[] { null! });
-
-        Assert.False(options.HasSearchAfter());
-    }
-
-    [Fact]
-    public void SearchAfter_WithMixedNullValues_SetsCursorPreservingNulls()
-    {
-        // Sort values for documents missing a field arrive as nulls; they must survive so paging
-        // does not silently restart from the first page.
-        var options = new CommandOptions<Employee>().SearchAfter("a", null!);
-
-        Assert.True(options.HasSearchAfter());
-        Assert.Equal(new object[] { "a", null! }, options.GetSearchAfter());
-    }
-
-    [Fact]
     public void SearchBefore_WithValues_EnablesPagingAndSetsCursor()
     {
         var options = new CommandOptions<Employee>().SearchBefore("a", "b");
@@ -159,18 +140,11 @@ public sealed class SearchAfterQueryExtensionTests
     }
 
     [Fact]
-    public void SearchBefore_WithAllNullValues_ClearsCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchBefore("a").SearchBefore(new object[] { null! });
-
-        Assert.False(options.HasSearchBefore());
-    }
-
-    [Fact]
     public void SearchBeforeToken_WithAllNullValues_SetsCursorUnlikeRawPath()
     {
-        // The token path must accept cursors the raw path clears (see SearchAfter_WithAllNullValues_
-        // ClearsCursor): tokens round-trip the exact sort values of the hit being paged from.
+        // The token path must accept cursors the raw path clears (all-null cursors are removed by
+        // SearchAfter/SearchBefore): tokens round-trip the exact sort values of the hit being
+        // paged from.
         string token = EncodeToken(new object[] { null! });
 
         var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfterToken(token, Serializer);
