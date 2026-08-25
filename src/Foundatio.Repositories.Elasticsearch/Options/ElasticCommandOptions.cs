@@ -15,6 +15,15 @@ namespace Foundatio.Repositories
         internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
         internal const string TrackTotalHitsKey = "@TrackTotalHits";
+        internal const string ThrowOnMultiGetErrorsKey = "@ThrowOnMultiGetErrors";
+
+        /// <summary>
+        /// Throws when Elasticsearch returns an error for any item in a multi-get response.
+        /// </summary>
+        public static T ThrowOnMultiGetErrors<T>(this T options, bool enabled = true) where T : ICommandOptions
+        {
+            return options.BuildOption(ThrowOnMultiGetErrorsKey, enabled);
+        }
 
         public static T TrackTotalHits<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -151,6 +160,11 @@ namespace Foundatio.Repositories.Options
         public static bool ShouldUseSnapshotPaging(this ICommandOptions options)
         {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SnapshotPagingKey, false);
+        }
+
+        public static bool ShouldThrowOnMultiGetErrors(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.ThrowOnMultiGetErrorsKey, false);
         }
 
         public static bool HasSnapshotScrollId(this ICommandOptions options)

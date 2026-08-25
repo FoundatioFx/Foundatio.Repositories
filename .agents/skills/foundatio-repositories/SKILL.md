@@ -131,6 +131,7 @@ IReadOnlyRepository<T>
 - **`ImmediateConsistency()` is for tests only**: It triggers an Elasticsearch index refresh after writes. Never use in production.
 - **`ExistsAsync(query)` is a dirty read**: Uses the Search API (`size: 0`), NOT the realtime Document Exists API. After a write without `ImmediateConsistency`, it can return stale results.
 - **`ExistsAsync(id)` is real-time even with soft deletes**: Uses the GET API with a source filter for `IsDeleted`.
+- **Use `ThrowOnMultiGetErrors()` for safety-critical batch reads**: By default, `GetByIdsAsync` logs and omits per-item Elasticsearch MGET errors for backward compatibility. When a missing result can trigger deletion, authorization, or another irreversible action, enable this option so closed/unavailable index errors throw instead of looking like missing documents.
 - **Register repositories as singletons**: Repository instances maintain internal state (index configuration, cache references).
 - **`FieldEquals` with multiple values is OR**: `.FieldEquals(e => e.Field, "A", "B")` produces an OR filter, not AND.
 - **`FieldContains` is token matching, NOT wildcard**: `FieldContains(f => f.Name, "Er")` will NOT match "Eric". Use `FilterExpression("field:pattern*")` for prefix/wildcard matching.

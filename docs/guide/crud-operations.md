@@ -75,6 +75,16 @@ var employees = await repository.GetByIdsAsync(ids);
 Console.WriteLine($"Found {employees.Count} employees");
 ```
 
+By default, the Elasticsearch provider logs and omits individual MGET items that report an error. This preserves compatibility for time-series repositories where an unavailable physical index may be treated like missing data. If a missing result drives deletion, authorization, or another irreversible decision, require an all-or-error read:
+
+```csharp
+var employees = await repository.GetByIdsAsync(
+    ids,
+    o => o.ThrowOnMultiGetErrors());
+```
+
+`ThrowOnMultiGetErrors()` throws `DocumentException` before returning results or caching not-found markers when any MGET item reports an error. Documents explicitly returned with `found: false` remain ordinary missing documents.
+
 ### Get All Documents
 
 ```csharp

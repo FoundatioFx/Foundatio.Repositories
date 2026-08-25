@@ -402,6 +402,39 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetByIdsAsync_WithClosedIndexAndThrowOnMultiGetErrors_ThrowsDocumentException()
+    {
+        var identity = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+        var closeResponse = await _client.Indices.CloseAsync(_configuration.Identities.Name, TestCancellationToken);
+        Assert.True(closeResponse.IsValidResponse, closeResponse.DebugInformation);
+
+        try
+        {
+            Assert.Empty(await _identityRepository.GetByIdsAsync([identity.Id]));
+            await Assert.ThrowsAsync<DocumentException>(() =>
+                _identityRepository.GetByIdsAsync([identity.Id], o => o.Cache().ThrowOnMultiGetErrors()));
+            Assert.Equal(0, _cache.Count);
+        }
+        finally
+        {
+            var openResponse = await _client.Indices.OpenAsync(_configuration.Identities.Name, TestCancellationToken);
+            Assert.True(openResponse.IsValidResponse, openResponse.DebugInformation);
+        }
+
+        Assert.Single(await _identityRepository.GetByIdsAsync([identity.Id], o => o.Cache().ThrowOnMultiGetErrors()));
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithMissingDocumentAndThrowOnMultiGetErrors_ReturnsEmpty()
+    {
+        var identity = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+        Assert.NotNull(identity.Id);
+
+        Assert.Single(await _identityRepository.GetByIdsAsync([identity.Id], o => o.ThrowOnMultiGetErrors()));
+        Assert.Empty(await _identityRepository.GetByIdsAsync(["missing-id"], o => o.ThrowOnMultiGetErrors()));
+    }
+
+    [Fact]
     public async Task GetByIdsWithInvalidIdAsync()
     {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Generate());
@@ -517,6 +550,17 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id, nowLog.Id });
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithMixedTimeSeriesItemErrorAndThrowOnMultiGetErrors_ThrowsDocumentException()
+    {
+        var existingLog = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.ImmediateConsistency());
+        string missingIndexId = ObjectId.GenerateNewId(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc)).ToString();
+
+        Assert.Single(await _dailyRepository.GetByIdsAsync([existingLog.Id, missingIndexId]));
+        await Assert.ThrowsAsync<DocumentException>(() =>
+            _dailyRepository.GetByIdsAsync([existingLog.Id, missingIndexId], o => o.ThrowOnMultiGetErrors()));
     }
 
     [Fact]
