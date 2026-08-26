@@ -39,6 +39,89 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         Assert.False((await _client.Indices.ExistsAsync(version1.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
+    [Fact]
+    public async Task GetIndexCompatibilityAsync_IncludesGeneratedErrorPartition_AndUpgradesIt()
+    {
+        // Arrange
+        string name = $"compat-error-partition-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+        string errorPartition = $"{index.VersionedName}-error";
+        var createResponse = await _client.Indices.CreateAsync(errorPartition, cancellationToken: TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        // Act
+        var compatibility = await index.GetIndexCompatibilityAsync(TestCancellationToken);
+        var errorInfo = Assert.Single(compatibility, i => String.Equals(i.Name, errorPartition, StringComparison.Ordinal));
+        Assert.True(errorInfo.RequiresReindexBeforeNextMajorUpgrade);
+        string errorTarget = CompatibilityIndexName.Create(errorPartition, errorInfo.ServerMajor);
+
+        await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
+
+        // Assert
+        Assert.True((await _client.Indices.ExistsAsync(errorTarget, cancellationToken: TestCancellationToken)).Exists);
+        var aliasResponse = await _client.Indices.GetAsync((Indices)errorPartition, cancellationToken: TestCancellationToken);
+        Assert.Equal(errorTarget, aliasResponse.Indices.Keys.Single().ToString());
+        Assert.DoesNotContain(await index.GetIndexCompatibilityAsync(TestCancellationToken), i => i.RequiresReindexBeforeNextMajorUpgrade);
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_DoesNotTouchPhysicalIndexesOwnedBySiblingConfiguration()
+    {
+        // Arrange
+        string name = $"compat-sibling-{Guid.NewGuid():N}";
+        using var configuration = new ElasticConfiguration();
+        var events = new ForcedIncompatibleVersionedEmployeeIndex(configuration, name, 1);
+        var natural = new ForcedIncompatibleVersionedEmployeeIndex(configuration, $"reindexed-v8-{name}", 1);
+        await using AsyncDisposableAction cleanup = new(async () =>
+        {
+            await events.DeleteAsync();
+            await natural.DeleteAsync();
+        });
+        configuration.AddIndex(events);
+        configuration.AddIndex(natural);
+        await events.ConfigureAsync();
+        await natural.ConfigureAsync();
+        Assert.True((await _client.Indices.ExistsAsync(natural.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+
+        var preflight = await events.GetIndexCompatibilityAsync(TestCancellationToken);
+
+        // Act & Assert
+        var info = Assert.Single(preflight);
+        Assert.Equal(events.VersionedName, info.Name);
+        string targetIndex = CompatibilityIndexName.Create(events.VersionedName, info.ServerMajor);
+
+        await configuration.UpgradeIndexCompatibilityAsync([events], cancellationToken: TestCancellationToken);
+
+        Assert.True((await _client.Indices.ExistsAsync(natural.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        var upgradedAlias = await _client.Indices.GetAsync((Indices)events.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.Equal(targetIndex, upgradedAlias.Indices.Keys.Single().ToString());
+        Assert.DoesNotContain(await events.GetIndexCompatibilityAsync(TestCancellationToken), i => i.RequiresReindexBeforeNextMajorUpgrade);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_DoesNotDeletePhysicalIndexesOwnedBySiblingConfiguration()
+    {
+        // Arrange
+        string name = $"compat-sibling-delete-{Guid.NewGuid():N}";
+        using var configuration = new ElasticConfiguration();
+        var events = new ForcedIncompatibleVersionedEmployeeIndex(configuration, name, 1);
+        var natural = new ForcedIncompatibleVersionedEmployeeIndex(configuration, $"reindexed-v8-{name}", 1);
+        await using AsyncDisposableAction _ = new(() => natural.DeleteAsync());
+        configuration.AddIndex(events);
+        configuration.AddIndex(natural);
+        await events.ConfigureAsync();
+        await natural.ConfigureAsync();
+
+        // Act
+        await events.DeleteAsync();
+
+        // Assert
+        Assert.False((await _client.Indices.ExistsAsync(events.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(natural.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
     public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();

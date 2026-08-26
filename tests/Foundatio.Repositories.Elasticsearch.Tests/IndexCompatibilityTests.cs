@@ -6,8 +6,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
+using Foundatio.Caching;
+using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Exceptions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -124,6 +127,126 @@ public class IndexCompatibilityTests
             "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
 
         Assert.Contains("search_phase_execution_exception: source failed", exception.Message);
+    }
+
+    [Fact]
+    public async Task UpgradeAsync_WhenCreateFromOutcomeIsUnknown_RetainsTargetAndFailsClosed()
+    {
+        // Arrange
+        var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(404, """{"error":{"type":"index_not_found_exception","reason":"no such index [reindexed-v9-employees]"},"status":404}"""),
+            new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
+            new StubResponse(200, """{"employees":{"settings":{}}}"""),
+            new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}"""),
+            new StubResponse(200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
+            new StubResponse(500, "", new TimeoutException("The _create_from response was not received.")));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
+        using var index = new Index<object>(new ElasticConfiguration(), "employees");
+        var compatibility = new IndexCompatibilityInfo
+        {
+            Name = "employees",
+            CreatedMajor = 8,
+            ServerMajor = 9,
+            ServerVersion = "9.0.0"
+        };
+        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ElasticCompatibilityOperationUncertainException>(() =>
+            upgrader.UpgradeAsync(index, compatibility, reindexLock!, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert: cleanup must not run after an unknown create outcome, so no further requests are issued.
+        Assert.Contains("creation outcome", exception.Message);
+        Assert.Contains("_create_from response was not received", exception.InnerException?.Message);
+    }
+
+    [Fact]
+    public async Task CancelAndConfirmAsync_WhenCancelIsPartialAndTaskRemainsActive_ThrowsUncertain()
+    {
+        // Arrange
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, """{"nodes":{},"node_failures":[{"type":"failed_node_exception","reason":"node unavailable"}]}"""),
+            new StubResponse(200, """{"completed":false,"task":{"node":"node","id":1,"action":"indices:data/write/reindex","status":{"total":5,"created":1},"running_time_in_nanos":1,"cancellable":true,"cancelled":true,"headers":{}}}"""));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() =>
+            ElasticReindexTaskCancellation.CancelAndConfirmAsync(
+                client,
+                NullLogger.Instance,
+                new TaskId("node:1"),
+                "employees-v1",
+                "reindexed-v9-employees-v1",
+                new RepositoryException("original failure")));
+
+        // Assert
+        Assert.Contains("remained active", exception.InnerException?.Message);
+        Assert.Contains("partial node or task failures", exception.InnerException?.Message);
+    }
+
+    [Fact]
+    public Task CancelAndConfirmAsync_WhenCancelIsPartialButTaskIsGone_CompletesWithoutUncertainty()
+    {
+        // Arrange
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, """{"nodes":{},"node_failures":[{"type":"failed_node_exception","reason":"task isn't running"}]}"""),
+            new StubResponse(404, """{"error":{"type":"resource_not_found_exception","reason":"task node:1 isn't running and hasn't stored its results"},"status":404}"""));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+
+        // Act & Assert
+        return ElasticReindexTaskCancellation.CancelAndConfirmAsync(
+            client,
+            NullLogger.Instance,
+            new TaskId("node:1"),
+            "employees-v1",
+            "reindexed-v9-employees-v1",
+            new RepositoryException("original failure"));
+    }
+
+    [Fact]
+    public async Task CancelAndConfirmAsync_WhenStatusCannotBeVerified_ThrowsUncertain()
+    {
+        // Arrange
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, "{}"),
+            new StubResponse(500, """{"error":{"type":"illegal_state_exception","reason":"status unavailable"},"status":500}"""));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() =>
+            ElasticReindexTaskCancellation.CancelAndConfirmAsync(
+                client,
+                NullLogger.Instance,
+                new TaskId("node:1"),
+                "employees-v1",
+                "reindexed-v9-employees-v1",
+                new RepositoryException("original failure")));
+
+        // Assert
+        Assert.Contains("Unable to verify termination", exception.InnerException?.Message);
+    }
+
+    [Fact]
+    public Task CancelAndConfirmAsync_WhenTaskTerminatesAfterCleanCancel_CompletesWithoutUncertainty()
+    {
+        // Arrange
+        var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, "{}"),
+            new StubResponse(404, """{"error":{"type":"resource_not_found_exception","reason":"task node:1 isn't running and hasn't stored its results"},"status":404}"""));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+
+        // Act & Assert
+        return ElasticReindexTaskCancellation.CancelAndConfirmAsync(
+            client,
+            NullLogger.Instance,
+            new TaskId("node:1"),
+            "employees-v1",
+            "reindexed-v9-employees-v1",
+            new RepositoryException("original failure"));
     }
 
     [Theory]
@@ -436,8 +559,10 @@ public class IndexCompatibilityTests
 
     [Theory]
     [InlineData("employees", true)]
+    [InlineData("employees-error", true)]
     [InlineData("reindexed-v9-employees", true)]
     [InlineData("customers", false)]
+    [InlineData("employees-error2", false)]
     public void OwnsCompatibilityIndex_ForPlainIndex_RequiresConfiguredCanonicalName(string sourceIndex, bool expected)
     {
         using var index = new Index<object>(new ElasticConfiguration(), "employees");
@@ -447,8 +572,11 @@ public class IndexCompatibilityTests
 
     [Theory]
     [InlineData("employees-v1", true)]
+    [InlineData("employees-v1-error", true)]
     [InlineData("reindexed-v9-employees-v2", true)]
+    [InlineData("reindexed-v9-employees-v2-error", true)]
     [InlineData("employees-v1-other", false)]
+    [InlineData("employees-v1-errors", false)]
     [InlineData("customers-v1", false)]
     public void OwnsCompatibilityIndex_ForVersionedIndex_RequiresExactOwnedVersion(string sourceIndex, bool expected)
     {
@@ -477,14 +605,42 @@ public class IndexCompatibilityTests
 
     [Theory]
     [InlineData("logs-v1-2026.08.11", true)]
+    [InlineData("logs-v1-2026.08.11-error", true)]
     [InlineData("reindexed-v9-logs-v2-2026.08.11", true)]
     [InlineData("logs-v1-not-a-date", false)]
+    [InlineData("logs-v1-not-a-date-error", false)]
     [InlineData("other-v1-2026.08.11", false)]
     public void OwnsCompatibilityIndex_ForDailyIndex_RequiresOwnedDatedPartition(string sourceIndex, bool expected)
     {
         using var index = new DailyIndex<object>(new ElasticConfiguration(), "logs", 2);
 
         Assert.Equal(expected, index.OwnsCompatibilityIndex(sourceIndex));
+    }
+
+    [Fact]
+    public void OwnsCompatibilityIndexExclusively_WhenSiblingNativelyClaimsName_YieldsToSibling()
+    {
+        // Arrange
+        using var configuration = new ElasticConfiguration();
+        using var events = new VersionedIndex<object>(configuration, "events", 1);
+        using var natural = new VersionedIndex<object>(configuration, "reindexed-v8-events", 1);
+        configuration.AddIndex(events);
+        configuration.AddIndex(natural);
+
+        // Assert
+        Assert.False(events.OwnsCompatibilityIndexExclusively(natural.VersionedName));
+        Assert.True(natural.OwnsCompatibilityIndexExclusively(natural.VersionedName));
+        Assert.True(events.OwnsCompatibilityIndexExclusively(events.VersionedName));
+        Assert.False(natural.OwnsCompatibilityIndexExclusively(events.VersionedName));
+    }
+
+    [Fact]
+    public void OwnsCompatibilityIndexExclusively_WhenSelfNotRegistered_KeepsStructuralOwnership()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var events = new VersionedIndex<object>(configuration, "events", 1);
+
+        Assert.True(events.OwnsCompatibilityIndexExclusively(events.VersionedName));
     }
 
     [Fact]
@@ -517,6 +673,14 @@ public class IndexCompatibilityTests
 
         // Assert
         Assert.Equal("employees-v*,reindexed-v*-employees-v*", pattern);
+    }
+
+    [Fact]
+    public void GetCompatibilityIndexPattern_ForPlainIndex_IncludesGeneratedErrorPartition()
+    {
+        var index = new TestPlainIndex(new ElasticConfiguration(), "employees");
+
+        Assert.Equal("employees,employees-error", index.GetCompatibilityIndexPatternPublic());
     }
 
     [Fact]
@@ -582,6 +746,13 @@ public class IndexCompatibilityTests
         public TestVersionedIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
 
         public int GetIndexVersionPublic(string name) => GetIndexVersion(name);
+
+        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
+    }
+
+    private sealed class TestPlainIndex : Index<object>
+    {
+        public TestPlainIndex(ElasticConfiguration configuration, string name) : base(configuration, name) { }
 
         public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
     }
@@ -731,7 +902,7 @@ public class IndexCompatibilityTests
         }
     }
 
-    private sealed record StubResponse(int StatusCode, string Content);
+    private sealed record StubResponse(int StatusCode, string Content, Exception? Exception = null);
 
     private sealed class SequenceRequestInvoker : IRequestInvoker
     {
@@ -768,7 +939,12 @@ public class IndexCompatibilityTests
                 throw new InvalidOperationException("No response configured for request.");
 
             var response = _responses.Dequeue();
-            return new InMemoryRequestInvoker(Encoding.UTF8.GetBytes(response.Content), response.StatusCode, null, "application/json", _headers);
+            return new InMemoryRequestInvoker(
+                response.Exception is null ? Encoding.UTF8.GetBytes(response.Content) : [],
+                response.StatusCode,
+                response.Exception,
+                "application/json",
+                _headers);
         }
 
         public void Dispose()
