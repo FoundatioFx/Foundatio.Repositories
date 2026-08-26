@@ -211,21 +211,8 @@ public class VersionedIndex : Index, IVersionedIndex
 
     public override async Task DeleteAsync()
     {
-        int currentVersion = await GetCurrentVersionAsync();
-        var indexesToDelete = new List<string>();
-        if (currentVersion != Version)
-        {
-            indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
-            indexesToDelete.Add(String.Concat(Name, "-v", currentVersion, "-error"));
-            indexesToDelete.Add(CompatibilityIndexName.CreatePattern(String.Concat(Name, "-v", currentVersion)));
-            indexesToDelete.Add(CompatibilityIndexName.CreatePattern(String.Concat(Name, "-v", currentVersion, "-error")));
-        }
-
-        indexesToDelete.Add(VersionedName);
-        indexesToDelete.Add(String.Concat(VersionedName, "-error"));
-        indexesToDelete.Add(CompatibilityIndexName.CreatePattern(VersionedName));
-        indexesToDelete.Add(CompatibilityIndexName.CreatePattern(String.Concat(VersionedName, "-error")));
-        await DeleteIndexesAsync(indexesToDelete.ToArray()).AnyContext();
+        string canonicalPattern = $"{Name}-v*";
+        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexExclusively).AnyContext();
     }
 
     public ReindexWorkItem CreateReindexWorkItem(int currentVersion)
@@ -281,9 +268,9 @@ public class VersionedIndex : Index, IVersionedIndex
             return;
 
         var currentIndexes = await GetIndexesAsync(currentVersion).AnyContext();
-        var currentIndex = currentIndexes.SingleOrDefault()
-            ?? throw new RepositoryException($"Unable to identify the physical index for schema version {currentVersion} of '{Name}'.");
-        var reindexWorkItem = CreateReindexWorkItem(currentVersion) with { OldIndex = currentIndex.Index };
+        if (currentIndexes.Count is not 1)
+            throw new RepositoryException($"Unable to identify a single physical index for schema version {currentVersion} of '{Name}'; found {currentIndexes.Count}.");
+        var reindexWorkItem = CreateReindexWorkItem(currentVersion) with { OldIndex = currentIndexes[0].Index };
 
         Func<int, string?, Task> wrappedCallback = async (progress, message) =>
         {
@@ -386,12 +373,12 @@ public class VersionedIndex : Index, IVersionedIndex
     public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
     {
         var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-        return infos.Where(i => OwnsCompatibilityIndex(i.Name)).ToArray();
+        return infos.Where(i => OwnsCompatibilityIndexExclusively(i.Name)).ToArray();
     }
 
     internal override bool OwnsCompatibilityIndex(string sourceIndex)
     {
-        string canonicalName = CompatibilityIndexName.GetCanonicalName(sourceIndex, Name);
+        string canonicalName = CompatibilityIndexName.GetCanonicalName(CompatibilityIndexName.StripErrorSuffix(sourceIndex), Name);
         int sourceVersion = GetIndexVersion(canonicalName);
         return sourceVersion >= 0
             && (HasMultipleIndexes || String.Equals(canonicalName, $"{Name}-v{sourceVersion}", StringComparison.Ordinal));

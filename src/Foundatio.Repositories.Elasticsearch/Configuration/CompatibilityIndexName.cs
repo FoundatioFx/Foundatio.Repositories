@@ -5,6 +5,20 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 internal static class CompatibilityIndexName
 {
     private const string Prefix = "reindexed-v";
+    private const string ErrorSuffix = "-error";
+
+    /// <summary>
+    /// Strips the <c>-error</c> suffix that the shared reindexer appends when a document cannot be copied,
+    /// so generated error partitions resolve to their owning physical index name.
+    /// </summary>
+    public static string StripErrorSuffix(string index)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(index);
+
+        return index.EndsWith(ErrorSuffix, StringComparison.Ordinal) && index.Length > ErrorSuffix.Length
+            ? index[..^ErrorSuffix.Length]
+            : index;
+    }
 
     public static string Create(string sourceIndex, int serverMajor)
     {

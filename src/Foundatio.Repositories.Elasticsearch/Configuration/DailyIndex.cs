@@ -125,8 +125,11 @@ public class DailyIndex : VersionedIndex
 
     protected override DateTime GetIndexDate(string index)
     {
-        string nameToParse = CompatibilityIndexName.GetCanonicalName(index, Name);
+        return ParseIndexDate(CompatibilityIndexName.GetCanonicalName(index, Name));
+    }
 
+    private DateTime ParseIndexDate(string nameToParse)
+    {
         int version = GetIndexVersion(nameToParse);
         if (version < 0)
             version = Version;
@@ -145,7 +148,9 @@ public class DailyIndex : VersionedIndex
 
     internal override bool OwnsCompatibilityIndex(string sourceIndex)
     {
-        return base.OwnsCompatibilityIndex(sourceIndex) && GetIndexDate(sourceIndex) != DateTime.MaxValue;
+        string stripped = CompatibilityIndexName.StripErrorSuffix(sourceIndex);
+        return base.OwnsCompatibilityIndex(sourceIndex)
+            && ParseIndexDate(CompatibilityIndexName.GetCanonicalName(stripped, Name)) != DateTime.MaxValue;
     }
 
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
@@ -251,7 +256,7 @@ public class DailyIndex : VersionedIndex
     public override async Task DeleteAsync()
     {
         string canonicalPattern = $"{Name}-v*";
-        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)]).AnyContext();
+        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexExclusively).AnyContext();
         await _aliasCache.RemoveAllAsync().AnyContext();
         _ensuredDates.Clear();
     }

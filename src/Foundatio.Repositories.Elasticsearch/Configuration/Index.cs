@@ -314,7 +314,7 @@ public class Index : IIndexCompatibility, IHaveLogger
         return DeleteIndexesAsync(new[] { name });
     }
 
-    protected virtual async Task DeleteIndexesAsync(string[] names)
+    protected virtual async Task DeleteIndexesAsync(string[] names, Func<string, bool>? indexFilter = null)
     {
         if (names == null || names.Length == 0)
             throw new ArgumentNullException(nameof(names));
@@ -332,7 +332,11 @@ public class Index : IIndexCompatibility, IHaveLogger
             throw new RepositoryException(getResponse.GetErrorMessage($"Error resolving indexes {String.Join(",", names)}"), getResponse.OriginalException());
         }
 
-        var indexNames = getResponse.Indices?.Keys.ToList() ?? [];
+        IEnumerable<string> resolvedNames = getResponse.Indices?.Keys.Select(k => k.ToString()) ?? [];
+        if (indexFilter is not null)
+            resolvedNames = resolvedNames.Where(indexFilter);
+
+        var indexNames = resolvedNames.ToList();
         if (indexNames.Count == 0)
             return;
 
@@ -424,7 +428,9 @@ public class Index : IIndexCompatibility, IHaveLogger
     /// </summary>
     protected virtual string GetCompatibilityIndexPattern()
     {
-        return Name;
+        // The reindexer writes copy failures to a sibling "<name>-error" physical index without aliases, so it
+        // must be discovered by name or compatibility preflight would silently skip an old-format partition.
+        return $"{Name},{String.Concat(Name, "-error")}";
     }
 
     /// <summary>
@@ -479,13 +485,51 @@ public class Index : IIndexCompatibility, IHaveLogger
 
     internal virtual bool OwnsCompatibilityIndex(string sourceIndex)
     {
-        string canonicalName = CompatibilityIndexName.GetCanonicalName(sourceIndex, Name);
+        string canonicalName = CompatibilityIndexName.GetCanonicalName(CompatibilityIndexName.StripErrorSuffix(sourceIndex), Name);
         return String.Equals(canonicalName, Name, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Returns whether this configured index owns <paramref name="sourceIndex"/> and no other configured index
+    /// claims it more strongly. A family that contains the name natively (without stripping a generated
+    /// compatibility prefix) outranks a family that only matches after stripping; among native families the
+    /// longest configured name wins. This keeps a legitimately named index such as <c>reindexed-v8-events</c>
+    /// from being claimed — and later reindexed or deleted — by a configuration named <c>events</c>.
+    /// </summary>
+    internal bool OwnsCompatibilityIndexExclusively(string sourceIndex)
+    {
+        if (!OwnsCompatibilityIndex(sourceIndex))
+            return false;
+
+        foreach (IIndex other in Configuration.Indexes)
+        {
+            if (ReferenceEquals(other, this) || other is not Index otherIndex)
+                continue;
+
+            if (!otherIndex.OwnsCompatibilityIndex(sourceIndex))
+                continue;
+
+            bool mineNative = IsNativeFamilyMember(sourceIndex, Name);
+            bool theirsNative = IsNativeFamilyMember(sourceIndex, otherIndex.Name);
+            if (theirsNative && (!mineNative || otherIndex.Name.Length > Name.Length))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsNativeFamilyMember(string indexName, string configuredName)
+    {
+        if (String.IsNullOrEmpty(indexName) || String.IsNullOrEmpty(configuredName))
+            return false;
+
+        return String.Equals(indexName, configuredName, StringComparison.Ordinal)
+            || indexName.StartsWith($"{configuredName}-", StringComparison.Ordinal);
     }
 
     internal virtual void ValidateCompatibilityUpgradeSource(string sourceIndex, bool ownsLogicalAlias)
     {
-        if (!OwnsCompatibilityIndex(sourceIndex))
+        if (!OwnsCompatibilityIndexExclusively(sourceIndex))
             throw new RepositoryException($"Index '{sourceIndex}' does not belong to configured index '{Name}'.");
     }
 

@@ -377,7 +377,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
     private static void ValidateCompatibilityRecoverySource(Index index, string sourceIndex)
     {
         ElasticIndexCompatibilityRecovery.ValidateConcreteSourceName(sourceIndex);
-        if (!index.OwnsCompatibilityIndex(sourceIndex))
+        if (!index.OwnsCompatibilityIndexExclusively(sourceIndex))
             throw new ArgumentException($"Compatibility recovery source '{sourceIndex}' does not belong to configured index '{index.Name}'.", nameof(sourceIndex));
     }
 
