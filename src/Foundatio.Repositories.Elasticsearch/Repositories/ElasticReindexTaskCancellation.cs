@@ -1,8 +1,10 @@
 using System;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
-using Foundatio.Parsers.ElasticQueries.Extensions;
+using Elastic.Transport;
+using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
@@ -23,26 +25,39 @@ internal static class ElasticReindexTaskCancellation
         try
         {
             using var cleanupCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var response = await client.Tasks.CancelAsync(c => c.TaskId(taskId).WaitForCompletion(), cleanupCancellation.Token).AnyContext();
-            logger.LogRequest(response);
+            var path = new EndpointPath(HttpMethod.POST, $"/_tasks/{Uri.EscapeDataString(taskId.FullyQualifiedId)}/_cancel?wait_for_completion=true");
+            var response = await client.Transport.RequestAsync<ElasticsearchStringResponse>(path, null, null, null, cleanupCancellation.Token).AnyContext();
+            if (!response.IsValidResponse)
+                logger.LogWarning("Cancel reindex task {TaskId} for {SourceIndex} -> {TargetIndex} returned an invalid response: {DebugInformation}", taskId.FullyQualifiedId, sourceIndex, targetIndex, response.DebugInformation);
+
             if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode is not 404)
-                throw new RepositoryException(response.GetErrorMessage($"Unable to confirm termination of reindex task '{taskId.FullyQualifiedId}'."), response.OriginalException());
+                throw new RepositoryException($"Unable to confirm termination of reindex task '{taskId.FullyQualifiedId}'. {response.DebugInformation}");
+
+            // A partial cancellation response (node_failures/task_failures) means some nodes were never asked to
+            // stop, so this response alone cannot prove termination. Elasticsearch also reports failed-node
+            // entries when the task finished before the cancel arrived, so a partial response is only recorded
+            // here; termination itself is decided exclusively by the authoritative task status read below.
+            bool partialCancellation = ReportsPartialCancellation(response);
 
             var status = await client.Tasks.GetAsync(taskId.FullyQualifiedId, cleanupCancellation.Token).AnyContext();
             if (status.ApiCallDetails.HttpStatusCode is 404)
             {
                 logger.LogRequest(status);
+                return;
             }
-            else if (status.IsValidResponse)
+
+            if (status.IsValidResponse)
             {
                 logger.LogRequest(status);
                 if (!status.Completed)
-                    throw new RepositoryException($"Reindex task '{taskId.FullyQualifiedId}' remained active after cancellation completed.");
+                    throw new RepositoryException($"Reindex task '{taskId.FullyQualifiedId}' remained active after cancellation completed.{(partialCancellation ? " The cancellation request reported partial node or task failures." : String.Empty)}");
+
+                return;
             }
-            else
-            {
-                throw new RepositoryException(status.GetErrorMessage($"Unable to verify termination of reindex task '{taskId.FullyQualifiedId}'."), status.OriginalException());
-            }
+
+            throw new RepositoryException(
+                $"Unable to verify termination of reindex task '{taskId.FullyQualifiedId}'.{(partialCancellation ? " The cancellation request reported partial node or task failures." : String.Empty)}",
+                status.OriginalException());
         }
         catch (Exception cancellationException)
         {
@@ -51,5 +66,14 @@ internal static class ElasticReindexTaskCancellation
                 $"Reindex task '{taskId.FullyQualifiedId}' for '{sourceIndex}' -> '{targetIndex}' may still be running. Do not delete either index until the task is confirmed terminated.",
                 new AggregateException(taskException, cancellationException));
         }
+    }
+
+    private static bool ReportsPartialCancellation(ElasticsearchStringResponse response)
+    {
+        if (String.IsNullOrEmpty(response.Body))
+            return false;
+
+        using var document = JsonDocument.Parse(response.Body);
+        return ElasticTaskResponseParser.HasPartialTaskListFailures(document.RootElement);
     }
 }

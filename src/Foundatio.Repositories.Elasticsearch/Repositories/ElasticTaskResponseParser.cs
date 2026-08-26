@@ -19,4 +19,24 @@ internal static class ElasticTaskResponseParser
             ? default
             : element.Deserialize<T>(Options);
     }
+
+    /// <summary>
+    /// Returns whether an Elasticsearch task listing or cancellation response reported partial failures. A
+    /// non-array value or any array entry means the response omitted results, so task state is unknown.
+    /// </summary>
+    public static bool HasPartialTaskListFailures(JsonElement response)
+    {
+        if (response.ValueKind is not JsonValueKind.Object)
+            return true;
+
+        return HasFailureCollection(response, "node_failures") || HasFailureCollection(response, "task_failures");
+    }
+
+    private static bool HasFailureCollection(JsonElement response, string propertyName)
+    {
+        if (!response.TryGetProperty(propertyName, out var failures))
+            return false;
+
+        return failures.ValueKind is not JsonValueKind.Array || failures.GetArrayLength() > 0;
+    }
 }

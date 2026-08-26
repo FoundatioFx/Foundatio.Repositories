@@ -143,9 +143,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
 
     internal static int? ParseActiveReindexTaskCount(JsonElement response, string sourceIndex, string targetIndex)
     {
-        if (response.ValueKind is not JsonValueKind.Object
-            || HasTaskListingFailures(response, "node_failures")
-            || HasTaskListingFailures(response, "task_failures")
+        if (ElasticTaskResponseParser.HasPartialTaskListFailures(response)
             || !response.TryGetProperty("nodes", out var nodes)
             || nodes.ValueKind is not JsonValueKind.Object)
             return null;
@@ -172,14 +170,6 @@ internal sealed class ElasticIndexCompatibilityRecovery
         }
 
         return count;
-    }
-
-    private static bool HasTaskListingFailures(JsonElement response, string propertyName)
-    {
-        if (!response.TryGetProperty(propertyName, out var failures))
-            return false;
-
-        return failures.ValueKind is not JsonValueKind.Array || failures.GetArrayLength() > 0;
     }
 
     private static IndexCompatibilityUpgradeRecoveryState Classify(
