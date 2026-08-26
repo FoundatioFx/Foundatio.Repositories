@@ -212,7 +212,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             }
 
             string? uncertainCutoverMessage = null;
-            bool cleanupUnsafe = upgradeException is ElasticReindexTaskUncertainException;
+            bool cleanupUnsafe = upgradeException is ElasticReindexTaskUncertainException or ElasticCompatibilityOperationUncertainException;
             if (cutoverAttempted && !cutoverCompleted)
             {
                 topologyUncertain = true;
@@ -367,10 +367,32 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             }
         };
 
-        var response = await _client.Indices.CreateFromAsync(request, cancellationToken).AnyContext();
-        _logger.LogRequest(response);
-        if (!response.IsValidResponse || !response.Acknowledged || !String.Equals(response.Index, targetIndex, StringComparison.Ordinal))
-            throw new RepositoryException(response.GetErrorMessage($"Unable to create compatibility destination index '{targetIndex}' from '{sourceIndex}'."), response.OriginalException());
+        try
+        {
+            var response = await _client.Indices.CreateFromAsync(request, cancellationToken).AnyContext();
+            _logger.LogRequest(response);
+
+            // Any unsuccessful outcome leaves uncertainty: a lost response may have committed on the server, and
+            // even a definitive error response cannot prove a partial creation attempt left nothing behind.
+            // Treat every failed create like an ambiguous reindex start: retain the destination and the source
+            // write block until both indexes have been inspected instead of attempting automatic cleanup.
+            if (!response.IsValidResponse || !response.Acknowledged || !String.Equals(response.Index, targetIndex, StringComparison.Ordinal))
+            {
+                throw new ElasticCompatibilityOperationUncertainException(
+                    $"The compatibility destination creation outcome for '{sourceIndex}' -> '{targetIndex}' is unknown. Keep the source write blocked and retain the destination until both indexes have been inspected.",
+                    response.OriginalException() ?? new RepositoryException(response.GetErrorMessage($"Unable to create compatibility destination index '{targetIndex}' from '{sourceIndex}'.")));
+            }
+        }
+        catch (RepositoryException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new ElasticCompatibilityOperationUncertainException(
+                $"The compatibility destination creation outcome for '{sourceIndex}' -> '{targetIndex}' is unknown because no response was received. Keep the source write blocked and retain the destination until both indexes have been inspected.",
+                ex);
+        }
     }
 
     private async Task AddOwnershipAliasAsync(string targetIndex, CancellationToken cancellationToken)
@@ -707,4 +729,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         Completed,
         Uncertain
     }
+}
+
+internal sealed class ElasticCompatibilityOperationUncertainException : RepositoryException
+{
+    public ElasticCompatibilityOperationUncertainException(string message, Exception innerException) : base(message, innerException) { }
 }
