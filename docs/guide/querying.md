@@ -390,6 +390,14 @@ var nextResults = await repository.FindAsync(
     o => o.SearchAfterToken(results.GetSearchAfterToken()));
 ```
 
+`SearchAfter(...)` and `SearchAfterToken(...)` select forward paging and clear any backward
+cursor. `SearchBefore(...)` and `SearchBeforeToken(...)` do the reverse. Calling
+`SearchAfterPaging(false)` ends the local paging session by clearing both cursors, the paging
+mode, and any stored point-in-time state, so re-enabling starts a new Live session. If you stop a
+point-in-time traversal early, close the result first with
+`ISupportPointInTime.ClosePointInTimeAsync(results)`; otherwise Elasticsearch retains it until its
+keep-alive expires.
+
 > [!WARNING]
 > **Avoid unstable sort keys (`_doc`, `_score`) with search after paging.** These keys are only
 > stable *within* a point-in-time. In the default `Live` mode the underlying `search_after` cursor

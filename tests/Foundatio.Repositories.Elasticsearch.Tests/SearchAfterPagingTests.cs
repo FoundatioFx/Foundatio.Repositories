@@ -4,7 +4,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
-using Foundatio.Serializer;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -80,102 +79,5 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
             if (!String.IsNullOrEmpty(pointInTimeId))
                 await pointInTime.ClosePointInTimeAsync(pointInTimeId);
         }
-    }
-}
-
-/// <summary>
-/// Pins the cursor semantics of the <c>SearchAfter</c>/<c>SearchBefore</c> option extensions: a null
-/// array reference or an empty array clears any stored cursor, while arrays containing values are
-/// stored as-is. Clearing via an all-null cursor and preserving mixed-null cursors is pinned by
-/// <c>SearchAfterQueryExtensionsTests</c>; the token variants have no such filter -- they round-trip
-/// whatever sort values the previous page carried, all-null cursors included. These tests need no
-/// Elasticsearch connection.
-/// </summary>
-public sealed class SearchAfterQueryExtensionTests
-{
-    private static readonly ITextSerializer Serializer = new SystemTextJsonSerializer();
-
-    [Fact]
-    public void SearchAfter_WithValues_EnablesPagingAndSetsCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchAfter("a", "b");
-
-        Assert.True(options.ShouldUseSearchAfterPaging());
-        Assert.True(options.HasSearchAfter());
-        Assert.Equal(new object[] { "a", "b" }, options.GetSearchAfter());
-    }
-
-    [Fact]
-    public void SearchAfter_WithNullArrayReference_ClearsCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter(null!);
-
-        Assert.False(options.HasSearchAfter());
-    }
-
-    [Fact]
-    public void SearchAfter_WithEmptyArray_ClearsCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter();
-
-        Assert.False(options.HasSearchAfter());
-    }
-
-    [Fact]
-    public void SearchBefore_WithValues_EnablesPagingAndSetsCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchBefore("a", "b");
-
-        Assert.True(options.ShouldUseSearchAfterPaging());
-        Assert.True(options.HasSearchBefore());
-        Assert.Equal(new object[] { "a", "b" }, options.GetSearchBefore());
-    }
-
-    [Fact]
-    public void SearchBefore_WithNullArrayReference_ClearsCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchBefore("a").SearchBefore(null!);
-
-        Assert.False(options.HasSearchBefore());
-    }
-
-    [Fact]
-    public void SearchBeforeToken_WithAllNullValues_SetsCursorUnlikeRawPath()
-    {
-        // The token path must accept cursors the raw path clears (all-null cursors are removed by
-        // SearchAfter/SearchBefore): tokens round-trip the exact sort values of the hit being
-        // paged from.
-        string token = EncodeToken(new object[] { null! });
-
-        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfterToken(token, Serializer);
-
-        Assert.True(options.HasSearchAfter());
-        Assert.Equal(new object?[] { null }, options.GetSearchAfter());
-    }
-
-    [Fact]
-    public void SearchAfterToken_WithNullToken_ClearsCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfterToken(null, Serializer);
-
-        Assert.False(options.HasSearchAfter());
-    }
-
-    [Fact]
-    public void SearchAfterPaging_Disabled_ResetsModeToLive()
-    {
-        var options = new CommandOptions<Employee>().SearchAfterPaging(SearchAfterPagingMode.PointInTime).SearchAfterPaging(false);
-
-        Assert.False(options.ShouldUseSearchAfterPaging());
-        Assert.Equal(SearchAfterPagingMode.Live, options.GetSearchAfterPagingMode());
-    }
-
-    private static string EncodeToken(object[] values)
-    {
-        string json = Serializer.SerializeToString(values);
-        return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json))
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
     }
 }

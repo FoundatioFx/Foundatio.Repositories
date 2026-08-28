@@ -148,6 +148,8 @@ Always use `SearchAfterPaging()` for deep pagination. Never use offset-based `.P
 
 The repository appends the id's sort-safe mapped field (for example `id.sort`) as a tiebreaker when the model implements `IIdentity` and the index guarantees that field is sortable. Otherwise, Live mode requires an explicit stable, unique sort and throws `QueryValidationException` when none exists. Point-in-time mode always makes Elasticsearch's implicit `_shard_doc` tiebreaker explicit after caller sorts, keeping the complete sort tuple reversible for backward cursors.
 
+Forward and backward cursors are mutually exclusive: setting `SearchAfter(...)` or `SearchAfterToken(...)` clears `SearchBefore`, and vice versa. `SearchAfterPaging(false)` clears the complete local paging session, including cursors and stored point-in-time state. Close an abandoned point-in-time result with `ISupportPointInTime.ClosePointInTimeAsync(results)` before disabling; otherwise it remains open until its keep-alive expires.
+
 ```csharp
 var results = await repository.GetAllAsync(o => o.SearchAfterPaging().PageLimit(500));
 do

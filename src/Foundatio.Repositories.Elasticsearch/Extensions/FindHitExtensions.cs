@@ -16,25 +16,25 @@ public static class FindHitExtensions
         return hit?.Data?.GetString(ElasticDataKeys.Index);
     }
 
-    public static object[]? GetSorts<T>(this FindHit<T> hit)
+    public static object?[]? GetSorts<T>(this FindHit<T> hit)
     {
         if (hit is null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object? sorts))
-            return Array.Empty<object>();
+            return Array.Empty<object?>();
 
         // Handle different collection types - new ES client returns IReadOnlyCollection<FieldValue>
-        if (sorts is object[] sortsArray)
+        if (sorts is object?[] sortsArray)
             return sortsArray;
 
         if (sorts is IEnumerable<FieldValue> fieldValues)
         {
             // Extract actual values from FieldValue objects
-            return fieldValues.Select(GetFieldValueAsObject).ToArray()!;
+            return fieldValues.Select(GetFieldValueAsObject).ToArray();
         }
 
-        if (sorts is IEnumerable<object> sortsList)
+        if (sorts is IEnumerable<object?> sortsList)
             return sortsList.ToArray();
 
-        return Array.Empty<object>();
+        return Array.Empty<object?>();
     }
 
     private static object? GetFieldValueAsObject(FieldValue fv)
@@ -94,8 +94,8 @@ public static class FindHitExtensions
 
     public static string? GetSortToken<T>(this FindHit<T> hit, ITextSerializer serializer)
     {
-        object[]? sorts = hit?.GetSorts();
-        if (sorts == null || sorts.Length == 0)
+        object?[]? sorts = hit?.GetSorts();
+        if (sorts is null || sorts.Length is 0)
             return null;
 
         return Encode(serializer.SerializeToString(sorts));
@@ -141,9 +141,9 @@ public static class FindHitExtensions
         return sortList;
     }
 
-    public static object[]? DecodeSortToken(string sortToken, ITextSerializer serializer)
+    public static object?[]? DecodeSortToken(string sortToken, ITextSerializer serializer)
     {
-        return serializer.Deserialize<object[]>(Decode(sortToken));
+        return serializer.Deserialize<object?[]>(Decode(sortToken));
     }
 
     private static string Encode(string text)

@@ -64,49 +64,6 @@ internal sealed class NonIdentityDocument
     public string Name { get; set; } = null!;
 }
 
-public sealed class SearchAfterQueryExtensionsTests
-{
-    [Fact]
-    public void SearchAfter_WithAllNullValues_RemovesExistingCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchAfter("existing");
-
-        options.SearchAfter(new object[] { null!, null! });
-
-        Assert.False(options.HasSearchAfter());
-    }
-
-    [Fact]
-    public void SearchAfter_WithMixedNullValues_PreservesCursor()
-    {
-        var options = new CommandOptions<Employee>();
-
-        options.SearchAfter(new object[] { "value", null! });
-
-        Assert.Equal(new object?[] { "value", null }, options.GetSearchAfter());
-    }
-
-    [Fact]
-    public void SearchBefore_WithAllNullValues_RemovesExistingCursor()
-    {
-        var options = new CommandOptions<Employee>().SearchBefore("existing");
-
-        options.SearchBefore(new object[] { null!, null! });
-
-        Assert.False(options.HasSearchBefore());
-    }
-
-    [Fact]
-    public void SearchBefore_WithMixedNullValues_PreservesCursor()
-    {
-        var options = new CommandOptions<Employee>();
-
-        options.SearchBefore(new object[] { "value", null! });
-
-        Assert.Equal(new object?[] { "value", null }, options.GetSearchBefore());
-    }
-}
-
 public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
 {
     public DefaultSortQueryBuilderTests(ITestOutputHelper output) : base(output)

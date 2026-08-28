@@ -33,20 +33,19 @@ namespace Foundatio.Repositories
 
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
-            options.BuildOption(SearchAfterPagingKey, enabled);
-
-            // Match the mode overload's behavior: disabling resets any previously-set mode so a
-            // later plain re-enable starts from the Live default instead of resurrecting it.
             if (!enabled)
-                options.BuildOption(SearchAfterPagingModeKey, SearchAfterPagingMode.Live);
+                return ResetPagingSession(options);
 
-            return options;
+            return options.BuildOption(SearchAfterPagingKey, true);
         }
 
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
         {
-            options.BuildOption(SearchAfterPagingKey, enabled);
-            return options.BuildOption(SearchAfterPagingModeKey, enabled ? mode : SearchAfterPagingMode.Live);
+            if (!enabled)
+                return ResetPagingSession(options);
+
+            options.BuildOption(SearchAfterPagingKey, true);
+            return options.BuildOption(SearchAfterPagingModeKey, mode);
         }
 
         public static T PointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
@@ -77,36 +76,21 @@ namespace Foundatio.Repositories
         /// all-null cursors), use <see cref="SearchAfterToken"/> instead -- tokens round-trip null
         /// values exactly.
         /// </remarks>
-        public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions
+        public static T SearchAfter<T>(this T options, params object?[]? values) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
-            if (values is { Length: > 0 } && Array.Exists(values, v => v is not null))
-            {
-                options.Values.Set(SearchAfterKey, values);
-            }
-            else
-            {
-                options.Values.Remove(SearchAfterKey);
-            }
-
-            return options;
+            bool hasCursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null);
+            return SetCursor(options, SearchAfterKey, SearchBeforeKey, values, hasCursor);
         }
 
         public static T SearchAfterToken<T>(this T options, string? searchAfterToken, ITextSerializer serializer) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
-            if (!String.IsNullOrEmpty(searchAfterToken))
-            {
-                object[]? values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
-                if (values is not null)
-                    options.Values.Set(SearchAfterKey, values);
-            }
-            else
-            {
-                options.Values.Remove(SearchAfterKey);
-            }
+            ArgumentNullException.ThrowIfNull(serializer);
 
-            return options;
+            object?[]? values = null;
+            if (!String.IsNullOrEmpty(searchAfterToken))
+                values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
+
+            return SetCursor(options, SearchAfterKey, SearchBeforeKey, values, values is not null);
         }
 
         /// <summary>
@@ -122,35 +106,45 @@ namespace Foundatio.Repositories
         /// all-null cursors), use <see cref="SearchBeforeToken"/> instead -- tokens round-trip null
         /// values exactly.
         /// </remarks>
-        public static T SearchBefore<T>(this T options, params object[] values) where T : ICommandOptions
+        public static T SearchBefore<T>(this T options, params object?[]? values) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
-            if (values is { Length: > 0 } && Array.Exists(values, v => v is not null))
-            {
-                options.Values.Set(SearchBeforeKey, values);
-            }
-            else
-            {
-                options.Values.Remove(SearchBeforeKey);
-            }
-
-            return options;
+            bool hasCursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null);
+            return SetCursor(options, SearchBeforeKey, SearchAfterKey, values, hasCursor);
         }
 
         public static T SearchBeforeToken<T>(this T options, string? searchBeforeToken, ITextSerializer serializer) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
-            if (!String.IsNullOrEmpty(searchBeforeToken))
-            {
-                object[]? values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
-                if (values is not null)
-                    options.Values.Set(SearchBeforeKey, values);
-            }
-            else
-            {
-                options.Values.Remove(SearchBeforeKey);
-            }
+            ArgumentNullException.ThrowIfNull(serializer);
 
+            object?[]? values = null;
+            if (!String.IsNullOrEmpty(searchBeforeToken))
+                values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
+
+            return SetCursor(options, SearchBeforeKey, SearchAfterKey, values, values is not null);
+        }
+
+        private static T SetCursor<T>(T options, string cursorKey, string oppositeCursorKey, object?[]? values, bool hasCursor) where T : ICommandOptions
+        {
+            options.SearchAfterPaging();
+            options.Values.Remove(oppositeCursorKey);
+
+            if (hasCursor && values is not null)
+                options.Values.Set(cursorKey, values);
+            else
+                options.Values.Remove(cursorKey);
+
+            return options;
+        }
+
+        private static T ResetPagingSession<T>(T options) where T : ICommandOptions
+        {
+            options.BuildOption(SearchAfterPagingKey, false);
+            options.BuildOption(SearchAfterPagingModeKey, SearchAfterPagingMode.Live);
+            options.Values.Remove(SearchAfterKey);
+            options.Values.Remove(SearchBeforeKey);
+            options.Values.Remove(PointInTimeIdKey);
+            options.Values.Remove(RepoOwnedPointInTimeKey);
+            options.Values.Remove(UnstableSortWarnedKey);
             return options;
         }
     }
@@ -190,25 +184,25 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey, false);
         }
 
-        public static object[]? GetSearchAfter(this ICommandOptions options)
+        public static object?[]? GetSearchAfter(this ICommandOptions options)
         {
-            return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
+            return options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchAfterKey);
         }
 
         public static bool HasSearchAfter(this ICommandOptions options)
         {
-            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
+            object?[]? sorts = options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchAfterKey);
             return sorts is { Length: > 0 };
         }
 
-        public static object[]? GetSearchBefore(this ICommandOptions options)
+        public static object?[]? GetSearchBefore(this ICommandOptions options)
         {
-            return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
+            return options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchBeforeKey);
         }
 
         public static bool HasSearchBefore(this ICommandOptions options)
         {
-            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
+            object?[]? sorts = options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchBeforeKey);
             return sorts is { Length: > 0 };
         }
     }
