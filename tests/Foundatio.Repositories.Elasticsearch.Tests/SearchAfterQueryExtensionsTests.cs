@@ -2,8 +2,10 @@ using System;
 using System.Text;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Serializer;
 using Xunit;
@@ -168,6 +170,25 @@ public sealed class SearchAfterQueryExtensionsTests
         var options = new CommandOptions<Employee>();
 
         Assert.Throws<ArgumentNullException>(() => options.SearchBeforeToken("token", null!));
+    }
+
+    [Fact]
+    public void CursorArrayReturnTypes_RemainSourceCompatible()
+    {
+        var afterOptions = new CommandOptions<Employee>().SearchAfter("after");
+        var beforeOptions = new CommandOptions<Employee>().SearchBefore("before");
+        var hit = new FindHit<Employee>(null, null, 0);
+        hit.Data[ElasticDataKeys.Sorts] = new object?[] { null };
+
+        object[]? after = afterOptions.GetSearchAfter();
+        object[]? before = beforeOptions.GetSearchBefore();
+        object[]? decoded = FindHitExtensions.DecodeSortToken(EncodeToken([null]), Serializer);
+        object[]? sorts = hit.GetSorts();
+
+        Assert.Equal(new object[] { "after" }, after);
+        Assert.Equal(new object[] { "before" }, before);
+        Assert.Equal(new object?[] { null }, decoded);
+        Assert.Equal(new object?[] { null }, sorts);
     }
 
     [Fact]

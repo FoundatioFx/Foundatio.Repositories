@@ -78,8 +78,8 @@ namespace Foundatio.Repositories
         /// </remarks>
         public static T SearchAfter<T>(this T options, params object?[]? values) where T : ICommandOptions
         {
-            bool hasCursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null);
-            return SetCursor(options, SearchAfterKey, SearchBeforeKey, values, hasCursor);
+            object?[]? cursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null) ? values : null;
+            return SetCursor(options, SearchAfterKey, SearchBeforeKey, cursor);
         }
 
         public static T SearchAfterToken<T>(this T options, string? searchAfterToken, ITextSerializer serializer) where T : ICommandOptions
@@ -90,7 +90,7 @@ namespace Foundatio.Repositories
             if (!String.IsNullOrEmpty(searchAfterToken))
                 values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
 
-            return SetCursor(options, SearchAfterKey, SearchBeforeKey, values, values is not null);
+            return SetCursor(options, SearchAfterKey, SearchBeforeKey, values);
         }
 
         /// <summary>
@@ -108,8 +108,8 @@ namespace Foundatio.Repositories
         /// </remarks>
         public static T SearchBefore<T>(this T options, params object?[]? values) where T : ICommandOptions
         {
-            bool hasCursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null);
-            return SetCursor(options, SearchBeforeKey, SearchAfterKey, values, hasCursor);
+            object?[]? cursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null) ? values : null;
+            return SetCursor(options, SearchBeforeKey, SearchAfterKey, cursor);
         }
 
         public static T SearchBeforeToken<T>(this T options, string? searchBeforeToken, ITextSerializer serializer) where T : ICommandOptions
@@ -120,15 +120,15 @@ namespace Foundatio.Repositories
             if (!String.IsNullOrEmpty(searchBeforeToken))
                 values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
 
-            return SetCursor(options, SearchBeforeKey, SearchAfterKey, values, values is not null);
+            return SetCursor(options, SearchBeforeKey, SearchAfterKey, values);
         }
 
-        private static T SetCursor<T>(T options, string cursorKey, string oppositeCursorKey, object?[]? values, bool hasCursor) where T : ICommandOptions
+        private static T SetCursor<T>(T options, string cursorKey, string oppositeCursorKey, object?[]? values) where T : ICommandOptions
         {
             options.SearchAfterPaging();
             options.Values.Remove(oppositeCursorKey);
 
-            if (hasCursor && values is not null)
+            if (values is not null)
                 options.Values.Set(cursorKey, values);
             else
                 options.Values.Remove(cursorKey);
@@ -184,25 +184,25 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey, false);
         }
 
-        public static object?[]? GetSearchAfter(this ICommandOptions options)
+        public static object[]? GetSearchAfter(this ICommandOptions options)
         {
-            return options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchAfterKey);
+            return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
         }
 
         public static bool HasSearchAfter(this ICommandOptions options)
         {
-            object?[]? sorts = options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchAfterKey);
+            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
             return sorts is { Length: > 0 };
         }
 
-        public static object?[]? GetSearchBefore(this ICommandOptions options)
+        public static object[]? GetSearchBefore(this ICommandOptions options)
         {
-            return options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchBeforeKey);
+            return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
         }
 
         public static bool HasSearchBefore(this ICommandOptions options)
         {
-            object?[]? sorts = options.SafeGetOption<object?[]>(SearchAfterQueryExtensions.SearchBeforeKey);
+            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
             return sorts is { Length: > 0 };
         }
     }
