@@ -542,7 +542,7 @@ public class ElasticReindexer
             }
 
             var existingState = existingIndices.Values.Single();
-            if (HasErrorIndexOwnershipAlias(existingState.Aliases))
+            if (existingState.Aliases.HasExactHiddenAlias(ErrorIndexOwnershipAlias))
                 return true;
 
             _logger.LogError("Refusing to write reindex failures to existing index {ErrorIndex} because it does not have the Foundatio ownership marker", errorIndex);
@@ -566,19 +566,6 @@ public class ElasticReindexer
 
         _logger.LogRequest(createResponse);
         return true;
-    }
-
-    internal static bool HasErrorIndexOwnershipAlias(IReadOnlyDictionary<string, Alias>? aliases)
-    {
-        if (aliases is null || !aliases.TryGetValue(ErrorIndexOwnershipAlias, out var alias))
-            return false;
-
-        return alias.IsHidden is true
-            && alias.IsWriteIndex is null
-            && alias.Filter is null
-            && alias.IndexRouting is null
-            && alias.Routing is null
-            && alias.SearchRouting is null;
     }
 
     private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure)

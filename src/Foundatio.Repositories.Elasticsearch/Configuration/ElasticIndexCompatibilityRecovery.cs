@@ -56,13 +56,26 @@ internal sealed class ElasticIndexCompatibilityRecovery
         IndexState? targetState = null;
         bool sourceExists = response.Indices is not null && response.Indices.TryGetValue(sourceIndex, out sourceState);
         bool targetExists = response.Indices is not null && response.Indices.TryGetValue(targetIndex, out targetState);
+        bool hasUnexpectedResolvedIndexes = response.Indices?.Keys.Any(name =>
+            !String.Equals(name, sourceIndex, StringComparison.Ordinal)
+            && !String.Equals(name, targetIndex, StringComparison.Ordinal)) is true;
         string[] sourceAliases = sourceExists ? sourceState?.Aliases?.Keys.Select(k => k.ToString()).Order(StringComparer.Ordinal).ToArray() ?? [] : [];
         string[] targetAliases = targetExists ? targetState?.Aliases?.Keys.Select(k => k.ToString()).Order(StringComparer.Ordinal).ToArray() ?? [] : [];
         string canonicalSourceAlias = CompatibilityIndexName.GetCanonicalName(sourceIndex, index.Name);
         bool targetHasCanonicalSourceAlias = targetAliases.Contains(canonicalSourceAlias, StringComparer.Ordinal);
-        bool targetOwnershipConfirmed = targetExists && ElasticIndexCompatibilityUpgrader.HasOwnershipAlias(targetState?.Aliases);
+        bool targetOwnershipConfirmed = targetExists && (targetState?.Aliases).HasExactHiddenAlias(ElasticIndexCompatibilityUpgrader.OwnershipAlias);
         bool sourceWriteBlocked = sourceExists && ReadWriteBlock(sourceState?.Settings);
         bool targetWriteBlocked = targetExists && ReadWriteBlock(targetState?.Settings);
+
+        if (index.IsGeneratedErrorIndex(sourceIndex))
+        {
+            bool ownershipConfirmed = response.Indices is null
+                || response.Indices.Count is 0
+                || response.Indices.Values.All(state => state?.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias) is true);
+            if (!ownershipConfirmed)
+                throw new ArgumentException($"Compatibility recovery source '{sourceIndex}' does not have the Foundatio error-index ownership marker.", nameof(sourceIndex));
+        }
+
         int? activeReindexTasks = await GetActiveReindexTaskCountAsync(sourceIndex, targetIndex, cancellationToken).AnyContext();
 
         return new IndexCompatibilityUpgradeStatus
@@ -70,7 +83,9 @@ internal sealed class ElasticIndexCompatibilityRecovery
             IndexName = index.Name,
             SourceIndex = sourceIndex,
             TargetIndex = targetIndex,
-            State = Classify(sourceExists, targetExists, sourceWriteBlocked, targetWriteBlocked, targetAliases.Length, targetHasCanonicalSourceAlias, targetOwnershipConfirmed, activeReindexTasks),
+            State = hasUnexpectedResolvedIndexes
+                ? IndexCompatibilityUpgradeRecoveryState.Ambiguous
+                : Classify(sourceExists, targetExists, sourceWriteBlocked, targetWriteBlocked, targetAliases.Length, targetHasCanonicalSourceAlias, targetOwnershipConfirmed, activeReindexTasks),
             SourceExists = sourceExists,
             TargetExists = targetExists,
             SourceWriteBlocked = sourceWriteBlocked,

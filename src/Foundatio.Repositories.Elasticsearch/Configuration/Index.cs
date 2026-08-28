@@ -467,7 +467,7 @@ public class Index : IIndexCompatibility, IHaveLogger
             if (!OwnsCompatibilityIndexExclusively(kvp.Key))
                 continue;
 
-            if (IsGeneratedErrorIndex(kvp.Key) && !ElasticReindexer.HasErrorIndexOwnershipAlias(kvp.Value?.Aliases))
+            if (IsGeneratedErrorIndex(kvp.Key) && !(kvp.Value?.Aliases).HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
             {
                 throw new RepositoryException(
                     $"Index '{kvp.Key}' looks like a generated reindex error index for '{Name}', but it does not have the Foundatio ownership marker. Rename or remove the conflicting index, or add the marker only after verifying its provenance; no indexes were changed.");
@@ -577,7 +577,7 @@ public class Index : IIndexCompatibility, IHaveLogger
         if (!OwnsCompatibilityIndexExclusively(sourceIndex))
             return false;
 
-        return !IsGeneratedErrorIndex(sourceIndex) || ElasticReindexer.HasErrorIndexOwnershipAlias(aliases);
+        return !IsGeneratedErrorIndex(sourceIndex) || aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias);
     }
 
     internal virtual void ValidateCompatibilityUpgradeSource(string sourceIndex, bool ownsLogicalAlias)

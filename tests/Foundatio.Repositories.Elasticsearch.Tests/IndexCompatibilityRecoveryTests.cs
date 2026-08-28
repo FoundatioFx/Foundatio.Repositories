@@ -132,6 +132,27 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task InspectIndexCompatibilityUpgradeAsync_WhenSourceNameResolvesUnexpectedIndex_IsAmbiguous()
+    {
+        string name = $"compat-recovery-source-alias-{Guid.NewGuid():N}";
+        using var index = new VersionedIndex<object>(_configuration, name, 2);
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+        string sourceIndex = $"{name}-v1";
+        var aliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+            .Index(index.VersionedName)
+            .Alias(sourceIndex))), TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+
+        var status = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, TestCancellationToken);
+
+        Assert.Equal(IndexCompatibilityUpgradeRecoveryState.Ambiguous, status.State);
+        Assert.False(status.SourceExists);
+        Assert.False(status.TargetExists);
+        Assert.False(status.CanRecover);
+    }
+
+    [Fact]
     public async Task RecoverIndexCompatibilityUpgradeAsync_WithCompletedTargetStillOwned_FailsClosed()
     {
         string name = $"compat-recovery-impossible-completed-{Guid.NewGuid():N}";

@@ -10,6 +10,7 @@ using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -721,20 +722,20 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
-    public void HasErrorIndexOwnershipAlias_RequiresExactHiddenMarkerDefinition()
+    public void HasExactHiddenAlias_RequiresExactMarkerDefinition()
     {
-        Assert.True(ElasticReindexer.HasErrorIndexOwnershipAlias(new Dictionary<string, Alias>
+        Assert.True(new Dictionary<string, Alias>
         {
             [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true }
-        }));
-        Assert.False(ElasticReindexer.HasErrorIndexOwnershipAlias(new Dictionary<string, Alias>
+        }.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
+        Assert.False(new Dictionary<string, Alias>
         {
             [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = false }
-        }));
-        Assert.False(ElasticReindexer.HasErrorIndexOwnershipAlias(new Dictionary<string, Alias>
+        }.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
+        Assert.False(new Dictionary<string, Alias>
         {
             [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true, Routing = "foreign" }
-        }));
+        }.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
     }
 
     [Fact]

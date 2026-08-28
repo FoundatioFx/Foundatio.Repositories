@@ -140,7 +140,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             {
                 throw new RepositoryException($"Compatibility destination index '{targetIndex}' did not preserve the source mapping and restorable settings exactly. The source remains intact and write blocked.");
             }
-            if (targetState.Aliases.Count is not 1 || !HasOwnershipAlias(targetState.Aliases))
+            if (targetState.Aliases.Count is not 1 || !targetState.Aliases.HasExactHiddenAlias(OwnershipAlias))
                 throw new RepositoryException($"Compatibility destination index '{targetIndex}' received unexpected aliases before cutover. The source remains intact and write blocked.");
             await ReportProgressAsync(92, $"Validated {reindexResult.Total:N0} documents and restored index settings").AnyContext();
 
@@ -581,7 +581,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         if (!sourceExists && targetExists && AliasDefinitionsMatch(expectedAliases, targetAliases))
             return CutoverTopology.Completed;
 
-        if (sourceExists && targetExists && HasOwnershipAlias(targetAliases) && targetAliases.Count is 1)
+        if (sourceExists && targetExists && targetAliases.HasExactHiddenAlias(OwnershipAlias) && targetAliases.Count is 1)
             return CutoverTopology.NotStarted;
 
         return CutoverTopology.Uncertain;
@@ -714,19 +714,6 @@ internal sealed class ElasticIndexCompatibilityUpgrader
     private static object? GetValue(Union<int, string>? value)
     {
         return value?.Match<object?>(first => first, second => second);
-    }
-
-    internal static bool HasOwnershipAlias(IReadOnlyDictionary<string, Alias>? aliases)
-    {
-        if (aliases is null || !aliases.TryGetValue(OwnershipAlias, out var alias))
-            return false;
-
-        return alias.IsHidden is true
-            && alias.IsWriteIndex is null
-            && alias.Filter is null
-            && alias.IndexRouting is null
-            && alias.Routing is null
-            && alias.SearchRouting is null;
     }
 
     private static string CreateRestorableSettingsSignature(IndexSettings settings)
