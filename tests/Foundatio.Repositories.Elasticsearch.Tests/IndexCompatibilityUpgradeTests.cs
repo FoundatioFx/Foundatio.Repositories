@@ -1,11 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
-using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Transport;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -14,13 +11,12 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
-using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
+public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
 {
     public IndexCompatibilityUpgradeTests(ITestOutputHelper output) : base(output) { }
 
@@ -40,6 +36,24 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task DeleteAsync_WithUnmarkedErrorSuffixCollision_LeavesCollisionUntouched()
+    {
+        string name = $"compat-delete-unmarked-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
+        string unmarkedIndex = $"{index.VersionedName}-error";
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{index.VersionedName},{unmarkedIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        await index.ConfigureAsync();
+        var createResponse = await _client.Indices.CreateAsync(unmarkedIndex, cancellationToken: TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        await index.DeleteAsync();
+
+        Assert.False((await _client.Indices.ExistsAsync(index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(unmarkedIndex, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
     public async Task GetIndexCompatibilityAsync_IncludesGeneratedErrorPartition_AndUpgradesIt()
     {
         // Arrange
@@ -48,7 +62,8 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
         await index.ConfigureAsync();
         string errorPartition = $"{index.VersionedName}-error";
-        var createResponse = await _client.Indices.CreateAsync(errorPartition, cancellationToken: TestCancellationToken);
+        var createResponse = await _client.Indices.CreateAsync(errorPartition,
+            d => d.Aliases(a => a.Add(ElasticReindexer.ErrorIndexOwnershipAlias, new Alias { IsHidden = true })), TestCancellationToken);
         Assert.True(createResponse.IsValidResponse);
 
         // Act
@@ -67,13 +82,41 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetIndexCompatibilityAsync_WithUnmarkedErrorSuffixIndex_FailsClosed()
+    {
+        // Arrange
+        string name = $"compat-unmarked-error-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
+        string unmarkedIndex = $"{index.VersionedName}-error";
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await index.DeleteAsync();
+            await _client.Indices.DeleteAsync(unmarkedIndex, d => d.IgnoreUnavailable(), TestCancellationToken);
+        });
+        await index.ConfigureAsync();
+        var createResponse = await _client.Indices.CreateAsync(unmarkedIndex, cancellationToken: TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() => index.GetIndexCompatibilityAsync(TestCancellationToken));
+
+        // Assert
+        Assert.Contains("ownership marker", exception.Message);
+        Assert.True((await _client.Indices.ExistsAsync(unmarkedIndex, cancellationToken: TestCancellationToken)).Exists);
+
+        var recoveryException = await Assert.ThrowsAsync<ArgumentException>(() =>
+            _configuration.InspectIndexCompatibilityUpgradeAsync(index, unmarkedIndex, TestCancellationToken));
+        Assert.Contains("ownership marker", recoveryException.Message);
+    }
+
+    [Fact]
     public async Task UpgradeIndexCompatibilityAsync_DoesNotTouchPhysicalIndexesOwnedBySiblingConfiguration()
     {
         // Arrange
         string name = $"compat-sibling-{Guid.NewGuid():N}";
-        using var configuration = new ElasticConfiguration();
+        using var configuration = new EndpointAwareElasticConfiguration();
         var events = new ForcedIncompatibleVersionedEmployeeIndex(configuration, name, 1);
-        var natural = new ForcedIncompatibleVersionedEmployeeIndex(configuration, $"reindexed-v8-{name}", 1);
+        var natural = new ForcedIncompatibleVersionedEmployeeIndex(configuration, $"reindexed-v7-{name}", 1);
         await using AsyncDisposableAction cleanup = new(async () =>
         {
             await events.DeleteAsync();
@@ -105,7 +148,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     {
         // Arrange
         string name = $"compat-sibling-delete-{Guid.NewGuid():N}";
-        using var configuration = new ElasticConfiguration();
+        using var configuration = new EndpointAwareElasticConfiguration();
         var events = new ForcedIncompatibleVersionedEmployeeIndex(configuration, name, 1);
         var natural = new ForcedIncompatibleVersionedEmployeeIndex(configuration, $"reindexed-v8-{name}", 1);
         await using AsyncDisposableAction _ = new(() => natural.DeleteAsync());
@@ -119,6 +162,31 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.False((await _client.Indices.ExistsAsync(events.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(natural.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
+    public async Task SchemaReindexAsync_DoesNotDiscoverPhysicalIndexesOwnedBySiblingConfiguration()
+    {
+        string name = $"schema-sibling-{Guid.NewGuid():N}";
+        using var configuration = new EndpointAwareElasticConfiguration();
+        var version1 = new ForcedIncompatibleVersionedEmployeeIndex(configuration, name, 1);
+        var version2 = new ForcedIncompatibleVersionedEmployeeIndex(configuration, name, 2);
+        var natural = new ForcedIncompatibleVersionedEmployeeIndex(configuration, $"reindexed-v7-{name}", 1);
+        configuration.AddIndex(version2);
+        configuration.AddIndex(natural);
+        await using AsyncDisposableAction cleanup = new(async () =>
+        {
+            await version2.DeleteAsync();
+            await natural.DeleteAsync();
+        });
+        await version1.ConfigureAsync();
+        await natural.ConfigureAsync();
+        await version2.ConfigureAsync();
+
+        await version2.ReindexAsync();
+
+        Assert.True((await _client.Indices.ExistsAsync(version2.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.True((await _client.Indices.ExistsAsync(natural.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
@@ -345,16 +413,16 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
         Assert.Equal(1, configuration.InfoRequestCount);
-        Assert.Equal(1, configuration.CompatibilitySettingsRequestCount);
+        Assert.Equal(1, configuration.CompatibilityMetadataRequestCount);
 
         await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
         Assert.Equal(2, configuration.InfoRequestCount);
-        Assert.Equal(2, configuration.CompatibilitySettingsRequestCount);
+        Assert.Equal(2, configuration.CompatibilityMetadataRequestCount);
     }
 
     [Fact]
-    public async Task GetIndexCompatibilityAsync_WithMultipleDailyPartitions_StillUsesOneSettingsRequest()
+    public async Task GetIndexCompatibilityAsync_WithMultipleDailyPartitions_StillUsesOneMetadataRequest()
     {
         using var configuration = new RequestCountingElasticConfiguration();
         string name = $"compat-daily-request-count-{Guid.NewGuid():N}";
@@ -374,7 +442,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
 
         Assert.Equal(2, compatibility.Count);
         Assert.Equal(1, configuration.InfoRequestCount);
-        Assert.Equal(1, configuration.CompatibilitySettingsRequestCount);
+        Assert.Equal(1, configuration.CompatibilityMetadataRequestCount);
     }
 
     [Fact]
@@ -415,7 +483,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         await configuration.ConfigureIndexesAsync([index]);
 
         Assert.Equal(0, configuration.InfoRequestCount);
-        Assert.Equal(0, configuration.CompatibilitySettingsRequestCount);
+        Assert.Equal(0, configuration.CompatibilityMetadataRequestCount);
     }
 
     [Fact]
@@ -909,161 +977,4 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         Assert.DoesNotContain(CompatibilityIndexName.Create(name, 8), allIndexesResponse.Indices.Keys.Select(k => k.ToString()));
     }
 
-    private class ForcedIncompatibleEmployeeIndex : Index<Employee>
-    {
-        public ForcedIncompatibleEmployeeIndex(IElasticConfiguration configuration, string name) : base(configuration, name) { }
-
-        public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
-        {
-            map.Properties(p => p.SetupDefaults());
-        }
-
-        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos, Name);
-        }
-    }
-
-    private sealed class ForcedIncompatibleVersionedEmployeeIndex : VersionedIndex<Employee>
-    {
-        public ForcedIncompatibleVersionedEmployeeIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
-
-        public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
-        {
-            map.Properties(p => p.SetupDefaults());
-        }
-
-        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos, Name);
-        }
-    }
-
-    private sealed class ForcedIncompatibleDailyEmployeeIndex : DailyIndex<Employee>
-    {
-        public ForcedIncompatibleDailyEmployeeIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
-
-        public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
-        {
-            base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
-        }
-
-        public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
-        {
-            map.Properties(p => p.SetupDefaults());
-        }
-
-        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos, Name);
-        }
-    }
-
-    private sealed class ForcedIncompatibleDynamicEmployeeIndex : DynamicIndex<Employee>
-    {
-        public ForcedIncompatibleDynamicEmployeeIndex(IElasticConfiguration configuration, string name) : base(configuration, name) { }
-
-        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos, Name);
-        }
-    }
-
-    private sealed class ForcedIncompatibleMonthlyEmployeeIndex : MonthlyIndex<Employee>
-    {
-        public ForcedIncompatibleMonthlyEmployeeIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
-
-        public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
-        {
-            base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
-        }
-
-        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos, Name);
-        }
-    }
-
-    private sealed class AlwaysIncompatibleEmployeeIndex : Index<Employee>
-    {
-        public AlwaysIncompatibleEmployeeIndex(IElasticConfiguration configuration, string name) : base(configuration, name) { }
-
-        public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
-        {
-            map.Properties(p => p.SetupDefaults());
-        }
-
-        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return infos.Select(i => i with { CreatedMajor = i.ServerMajor - 1 }).ToArray();
-        }
-    }
-
-    private sealed class UnsupportedCreateFromVersionEmployeeIndex : ForcedIncompatibleEmployeeIndex
-    {
-        public UnsupportedCreateFromVersionEmployeeIndex(IElasticConfiguration configuration, string name) : base(configuration, name) { }
-
-        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return infos.Select(i => i with { CreatedMajor = 7, ServerMajor = 8, ServerVersion = "8.17.9" }).ToArray();
-        }
-    }
-
-    private static IReadOnlyCollection<IndexCompatibilityInfo> ForceOriginalIndexesIncompatible(
-        IReadOnlyCollection<IndexCompatibilityInfo> infos,
-        string configuredIndexName)
-    {
-        return infos.Select(i => String.Equals(i.Name, CompatibilityIndexName.Create(i.Name, i.ServerMajor, configuredIndexName), StringComparison.Ordinal)
-            ? i
-            : i with { CreatedMajor = i.ServerMajor - 1 }).ToArray();
-    }
-
-    private sealed class RequestCountingElasticConfiguration : ElasticConfiguration
-    {
-        private int _infoRequestCount;
-        private int _compatibilitySettingsRequestCount;
-
-        public int InfoRequestCount => _infoRequestCount;
-        public int CompatibilitySettingsRequestCount => _compatibilitySettingsRequestCount;
-
-        protected override void ConfigureSettings(ElasticsearchClientSettings settings)
-        {
-            base.ConfigureSettings(settings);
-            settings.OnRequestCompleted(call =>
-            {
-                var uri = call.Uri;
-                if (uri is null)
-                    return;
-
-                if (uri.AbsolutePath is "/")
-                    Interlocked.Increment(ref _infoRequestCount);
-
-                if (uri.Query.Contains("features=settings", StringComparison.Ordinal))
-                    Interlocked.Increment(ref _compatibilitySettingsRequestCount);
-            });
-        }
-
-        public void ResetRequestCounts()
-        {
-            Interlocked.Exchange(ref _infoRequestCount, 0);
-            Interlocked.Exchange(ref _compatibilitySettingsRequestCount, 0);
-        }
-    }
-
-    private sealed class RequestCountingIndex : Index<object>
-    {
-        public RequestCountingIndex(IElasticConfiguration configuration, string name) : base(configuration, name) { }
-
-        public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
-        {
-            base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
-        }
-    }
 }

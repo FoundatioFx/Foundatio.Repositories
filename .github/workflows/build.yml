@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
       - name: Restore and build compatibility tests
@@ -95,21 +95,3 @@ jobs:
           FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR=9 dotnet test \
             --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj \
             --no-build -- --filter-class '*IndexCompatibilityCrossMajorTests' --parallel none --output Detailed
-      - name: Collect compatibility feature coverage on Elasticsearch 9
-        run: |
-          dotnet test \
-            --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj \
-            --no-build -- \
-            --filter-class '*IndexCompatibilityTests' \
-            --filter-class '*IndexCompatibilityUpgradeTests' \
-            --filter-class '*IndexCompatibilityCrossMajorTests' \
-            --parallel none \
-            --coverage \
-            --coverage-output-format cobertura \
-            --coverage-output compatibility-coverage.cobertura.xml \
-            --output Detailed
-      - uses: actions/upload-artifact@v4
-        with:
-          name: index-compatibility-coverage
-          path: '**/compatibility-coverage.cobertura.xml'
-          if-no-files-found: error

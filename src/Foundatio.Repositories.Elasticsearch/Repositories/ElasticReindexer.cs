@@ -28,6 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch;
 
 public class ElasticReindexer
 {
+    internal const string ErrorIndexOwnershipAlias = ".foundatio-reindex-error";
     private readonly ElasticsearchClient _client;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
@@ -530,19 +531,33 @@ public class ElasticReindexer
     private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem)
     {
         string errorIndex = $"{workItem.NewIndex}-error";
-        var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
-        _logger.LogRequest(existsResponse);
-
-        if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.Exists)
-            return true;
-
-        if (!existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.ApiCallDetails.HttpStatusCode is not 404)
+        var existingResponse = await _client.Indices.GetAsync((Indices)errorIndex, d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        if (existingResponse.IsValidResponse && existingResponse.Indices is { Count: > 0 } existingIndices)
         {
-            _logger.LogErrorRequest(existsResponse, "Error checking if error index exists");
+            _logger.LogRequest(existingResponse);
+            if (existingIndices.Count is not 1)
+            {
+                _logger.LogError("Refusing to write reindex failures through {ErrorIndex} because it resolves to {IndexCount} indexes", errorIndex, existingIndices.Count);
+                return false;
+            }
+
+            var existingState = existingIndices.Values.Single();
+            if (HasErrorIndexOwnershipAlias(existingState.Aliases))
+                return true;
+
+            _logger.LogError("Refusing to write reindex failures to existing index {ErrorIndex} because it does not have the Foundatio ownership marker", errorIndex);
             return false;
         }
 
-        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Mappings(md => md.Dynamic(DynamicMapping.False))).AnyContext();
+        if (!existingResponse.IsValidResponse && existingResponse.ElasticsearchServerError?.Status is not 404)
+        {
+            _logger.LogErrorRequest(existingResponse, "Error checking if error index exists");
+            return false;
+        }
+
+        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d
+            .Mappings(md => md.Dynamic(DynamicMapping.False))
+            .Aliases(a => a.Add(ErrorIndexOwnershipAlias, new Alias { IsHidden = true }))).AnyContext();
         if (!createResponse.IsValidResponse)
         {
             _logger.LogErrorRequest(createResponse, "Unable to create error index");
@@ -551,6 +566,19 @@ public class ElasticReindexer
 
         _logger.LogRequest(createResponse);
         return true;
+    }
+
+    internal static bool HasErrorIndexOwnershipAlias(IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        if (aliases is null || !aliases.TryGetValue(ErrorIndexOwnershipAlias, out var alias))
+            return false;
+
+        return alias.IsHidden is true
+            && alias.IsWriteIndex is null
+            && alias.Filter is null
+            && alias.IndexRouting is null
+            && alias.Routing is null
+            && alias.SearchRouting is null;
     }
 
     private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure)

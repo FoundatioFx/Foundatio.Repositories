@@ -600,28 +600,56 @@ internal sealed class ElasticIndexCompatibilityUpgrader
     {
         using var cleanupCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var failures = new List<Exception>();
+        bool targetAbsenceConfirmed = !targetCreated;
 
         if (targetCreated)
         {
+            Exception? deleteFailure = null;
             try
             {
                 var deleteResponse = await _client.Indices.DeleteAsync(targetIndex, d => d.IgnoreUnavailable(), cleanupCancellation.Token).AnyContext();
-                if (deleteResponse.IsValidResponse || deleteResponse.ElasticsearchServerError?.Status is 404)
+                if ((deleteResponse.IsValidResponse && deleteResponse.Acknowledged) || deleteResponse.ElasticsearchServerError?.Status is 404)
                     _logger.LogRequest(deleteResponse);
                 else
                 {
                     _logger.LogErrorRequest(deleteResponse, "Failed to remove compatibility destination index {TargetIndex} during cleanup", targetIndex);
-                    failures.Add(new RepositoryException(deleteResponse.GetErrorMessage($"Failed to remove compatibility destination index '{targetIndex}' during cleanup."), deleteResponse.OriginalException()));
+                    deleteFailure = new RepositoryException(deleteResponse.GetErrorMessage($"Failed to remove compatibility destination index '{targetIndex}' during cleanup."), deleteResponse.OriginalException());
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Exception removing compatibility destination index {TargetIndex} during cleanup", targetIndex);
+                deleteFailure = ex;
+            }
+
+            try
+            {
+                var existsResponse = await _client.Indices.ExistsAsync(targetIndex, cleanupCancellation.Token).AnyContext();
+                _logger.LogRequest(existsResponse);
+                if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode)
+                {
+                    targetAbsenceConfirmed = !existsResponse.Exists;
+                }
+                else if (existsResponse.ApiCallDetails.HttpStatusCode is 404)
+                {
+                    targetAbsenceConfirmed = true;
+                }
+                else
+                {
+                    failures.Add(new RepositoryException(existsResponse.GetErrorMessage($"Unable to confirm that compatibility destination index '{targetIndex}' was removed during cleanup."), existsResponse.OriginalException()));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to confirm removal of compatibility destination index {TargetIndex} during cleanup", targetIndex);
                 failures.Add(ex);
             }
+
+            if (!targetAbsenceConfirmed)
+                failures.Add(deleteFailure ?? new RepositoryException($"Compatibility destination index '{targetIndex}' still exists after cleanup. The source write block was retained."));
         }
 
-        if (sourceBlockAdded)
+        if (sourceBlockAdded && targetAbsenceConfirmed)
         {
             try
             {
@@ -629,7 +657,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                     d => d.Settings(s => s.Blocks(b => b.Write(false))), cleanupCancellation.Token).AnyContext();
                 if (unblockResponse.IsValidResponse && unblockResponse.Acknowledged)
                     _logger.LogRequest(unblockResponse);
-                else if (unblockResponse.ElasticsearchServerError?.Status is not 404)
+                else
                 {
                     _logger.LogErrorRequest(unblockResponse, "Failed to remove write block from compatibility source index {SourceIndex} during cleanup", sourceIndex);
                     failures.Add(new RepositoryException(unblockResponse.GetErrorMessage($"Failed to remove the write block from compatibility source index '{sourceIndex}' during cleanup."), unblockResponse.OriginalException()));

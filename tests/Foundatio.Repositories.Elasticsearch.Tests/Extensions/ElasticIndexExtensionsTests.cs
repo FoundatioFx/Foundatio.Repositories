@@ -96,6 +96,33 @@ public sealed class ElasticIndexExtensionsTests : ElasticRepositoryTestBase
         }
     }
 
+    [Fact]
+    public async Task LimitToIndexCompatibility_ReturnsCreatedVersionAndAliasesWithoutMappings()
+    {
+        string name = $"index-compatibility-{Guid.NewGuid():N}";
+        string alias = $"{name}-alias";
+        await using AsyncDisposableAction cleanup = new(async () =>
+            await _client.Indices.DeleteAsync(name, d => d.IgnoreUnavailable(), TestCancellationToken));
+        var createResponse = await _client.Indices.CreateAsync(name, d => d
+            .Aliases(a => a.Add(alias, _ => { }))
+            .Mappings(m => m.Properties(p => p.Keyword("value"))), TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        var response = await _client.Indices.GetAsync((Indices)name, d => d.LimitToIndexCompatibility(), TestCancellationToken);
+
+        Assert.True(response.IsValidResponse);
+        var state = Assert.Single(response.Indices).Value;
+        Assert.NotNull(state.Settings?.Index?.Version?.Created);
+        Assert.True(state.Aliases?.ContainsKey(alias));
+        Assert.NotNull(response.ApiCallDetails.Uri);
+        Assert.Contains("features=", response.ApiCallDetails.Uri.Query);
+        Assert.Contains("aliases", response.ApiCallDetails.Uri.Query);
+        Assert.Contains("settings", response.ApiCallDetails.Uri.Query);
+        Assert.NotNull(response.ApiCallDetails.ResponseBodyInBytes);
+        using var responseBody = JsonDocument.Parse(response.ApiCallDetails.ResponseBodyInBytes);
+        AssertEmptyObjectIfPresent(responseBody.RootElement.GetProperty(name), "mappings");
+    }
+
     private static void AssertEmptyObjectIfPresent(JsonElement indexState, string propertyName)
     {
         if (indexState.TryGetProperty(propertyName, out var value))

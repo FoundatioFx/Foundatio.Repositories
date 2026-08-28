@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -212,7 +211,7 @@ public class VersionedIndex : Index, IVersionedIndex
     public override async Task DeleteAsync()
     {
         string canonicalPattern = $"{Name}-v*";
-        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexExclusively).AnyContext();
+        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexForDestructiveOperation).AnyContext();
     }
 
     public ReindexWorkItem CreateReindexWorkItem(int currentVersion)
@@ -369,16 +368,9 @@ public class VersionedIndex : Index, IVersionedIndex
         return $"{canonicalPattern},{CompatibilityIndexName.CreatePattern(canonicalPattern)}";
     }
 
-    /// <inheritdoc />
-    public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+    internal override bool OwnsCompatibilityIndexCore(string sourceIndex)
     {
-        var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-        return infos.Where(i => OwnsCompatibilityIndexExclusively(i.Name)).ToArray();
-    }
-
-    internal override bool OwnsCompatibilityIndex(string sourceIndex)
-    {
-        string canonicalName = CompatibilityIndexName.GetCanonicalName(CompatibilityIndexName.StripErrorSuffix(sourceIndex), Name);
+        string canonicalName = CompatibilityIndexName.GetCanonicalName(sourceIndex, Name);
         int sourceVersion = GetIndexVersion(canonicalName);
         return sourceVersion >= 0
             && (HasMultipleIndexes || String.Equals(canonicalName, $"{Name}-v{sourceVersion}", StringComparison.Ordinal));
@@ -427,6 +419,7 @@ public class VersionedIndex : Index, IVersionedIndex
         var aliasIndices = aliasResponse.Values;
 #endif
         var indices = response.Indices.Keys
+            .Where(i => OwnsCompatibilityIndexExclusively(i.ToString()) && !IsGeneratedErrorIndex(i.ToString()))
             .Where(i => version < 0 || GetIndexVersion(i.ToString()) == version)
             .Select(i =>
             {

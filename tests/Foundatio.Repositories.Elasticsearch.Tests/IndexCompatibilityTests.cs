@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Lock;
@@ -15,7 +16,7 @@ using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public class IndexCompatibilityTests
+public partial class IndexCompatibilityTests
 {
     [Fact]
     public async Task RunCompatibilityReindexAsync_WhenStartTransportFails_ThrowsUncertainException()
@@ -161,6 +162,45 @@ public class IndexCompatibilityTests
         // Assert: cleanup must not run after an unknown create outcome, so no further requests are issued.
         Assert.Contains("creation outcome", exception.Message);
         Assert.Contains("_create_from response was not received", exception.InnerException?.Message);
+    }
+
+    [Fact]
+    public async Task UpgradeAsync_WhenTargetCleanupCannotBeConfirmed_KeepsSourceWriteBlocked()
+    {
+        // Arrange
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(404, """{"error":{"type":"index_not_found_exception","reason":"no such index [reindexed-v9-employees]"},"status":404}"""),
+            new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
+            new StubResponse(200, """{"employees":{"settings":{}}}"""),
+            new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}"""),
+            new StubResponse(200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
+            new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"index":"reindexed-v9-employees"}"""),
+            new StubResponse(200, """{"reindexed-v9-employees":{"aliases":{"unexpected":{}},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
+            new StubResponse(200, """{"reindexed-v9-employees":{"settings":{}}}"""),
+            new StubResponse(500, """{"error":{"type":"master_not_discovered_exception","reason":"delete outcome unknown"},"status":500}"""),
+            new StubResponse(200, """{"acknowledged":true}"""));
+        var requestPaths = new List<string>();
+        var settings = new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker)
+            .OnRequestCompleted(call => requestPaths.Add($"{call.HttpMethod} {call.Uri?.AbsolutePath}"));
+        var client = new ElasticsearchClient(settings);
+        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
+        using var index = new Index<object>(new ElasticConfiguration(), "employees");
+        var compatibility = new IndexCompatibilityInfo
+        {
+            Name = "employees",
+            CreatedMajor = 8,
+            ServerMajor = 9,
+            ServerVersion = "9.0.0"
+        };
+        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        await Assert.ThrowsAsync<RepositoryException>(() =>
+            upgrader.UpgradeAsync(index, compatibility, reindexLock!, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert: exposing the source to writes is unsafe while the destination may still exist.
+        Assert.DoesNotContain("PUT /employees/_settings", requestPaths);
     }
 
     [Fact]
@@ -339,6 +379,20 @@ public class IndexCompatibilityTests
         Assert.Null(count);
     }
 
+    [Theory]
+    [InlineData("{\"nodes\":{\"node-1\":null}}")]
+    [InlineData("{\"nodes\":{\"node-1\":{}}}")]
+    [InlineData("{\"nodes\":{\"node-1\":{\"tasks\":[]}}}")]
+    [InlineData("{\"nodes\":{\"node-1\":{\"tasks\":{\"node-1:1\":null}}}}")]
+    public void ParseActiveReindexTaskCount_WithMalformedNodeShape_ReturnsUnknown(string responseBody)
+    {
+        using var document = JsonDocument.Parse(responseBody);
+
+        int? count = ElasticIndexCompatibilityRecovery.ParseActiveReindexTaskCount(document.RootElement, "employees", "reindexed-v9-employees");
+
+        Assert.Null(count);
+    }
+
     [Fact]
     public void ShardsSucceeded_AcceptsUnassignedReplicasButRejectsFailures()
     {
@@ -484,7 +538,7 @@ public class IndexCompatibilityTests
         Assert.Contains("reindexed-v9-conflicting-destination-v1", exception.Message);
         Assert.Contains("conflicting-destination-v1", exception.Message);
         Assert.Contains("reindexed-v8-conflicting-destination-v1", exception.Message);
-        Assert.Equal(2, index.CompatibilityChecks);
+        Assert.Equal(1, index.CompatibilityChecks);
     }
 
     [Fact]
@@ -507,6 +561,22 @@ public class IndexCompatibilityTests
 
         Assert.Contains("different Elasticsearch configuration", exception.Message);
         Assert.Equal(0, index.CompatibilityChecks);
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WithLaterForeignIndex_ValidatesEntireBatchBeforeInspection()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var other = new ElasticConfiguration();
+        using var first = new CountingCompatibilityIndex(configuration);
+        using var foreign = new CountingCompatibilityIndex(other);
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            configuration.UpgradeIndexCompatibilityAsync([first, foreign], cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("different Elasticsearch configuration", exception.Message);
+        Assert.Equal(0, first.CompatibilityChecks);
+        Assert.Equal(0, foreign.CompatibilityChecks);
     }
 
     [Fact]
@@ -630,8 +700,41 @@ public class IndexCompatibilityTests
         // Assert
         Assert.False(events.OwnsCompatibilityIndexExclusively(natural.VersionedName));
         Assert.True(natural.OwnsCompatibilityIndexExclusively(natural.VersionedName));
+        const string repeatedlyWrappedSibling = "reindexed-v9-reindexed-v8-events-v1";
+        Assert.False(events.OwnsCompatibilityIndexExclusively(repeatedlyWrappedSibling));
+        Assert.True(natural.OwnsCompatibilityIndexExclusively(repeatedlyWrappedSibling));
         Assert.True(events.OwnsCompatibilityIndexExclusively(events.VersionedName));
         Assert.False(natural.OwnsCompatibilityIndexExclusively(events.VersionedName));
+    }
+
+    [Fact]
+    public void OwnsCompatibilityIndexExclusively_WhenSiblingNameEndsInError_YieldsToExactSibling()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var events = new Index<object>(configuration, "events");
+        using var errors = new Index<object>(configuration, "events-error");
+        configuration.AddIndex(events);
+        configuration.AddIndex(errors);
+
+        Assert.False(events.OwnsCompatibilityIndexExclusively(errors.Name));
+        Assert.True(errors.OwnsCompatibilityIndexExclusively(errors.Name));
+    }
+
+    [Fact]
+    public void HasErrorIndexOwnershipAlias_RequiresExactHiddenMarkerDefinition()
+    {
+        Assert.True(ElasticReindexer.HasErrorIndexOwnershipAlias(new Dictionary<string, Alias>
+        {
+            [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true }
+        }));
+        Assert.False(ElasticReindexer.HasErrorIndexOwnershipAlias(new Dictionary<string, Alias>
+        {
+            [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = false }
+        }));
+        Assert.False(ElasticReindexer.HasErrorIndexOwnershipAlias(new Dictionary<string, Alias>
+        {
+            [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true, Routing = "foreign" }
+        }));
     }
 
     [Fact]
@@ -732,224 +835,4 @@ public class IndexCompatibilityTests
         Assert.Equal(DateTime.MaxValue, date);
     }
 
-    private sealed class TestDailyIndex : Foundatio.Repositories.Elasticsearch.Configuration.DailyIndex
-    {
-        public TestDailyIndex(IElasticConfiguration configuration, string name, int version = 1) : base(configuration, name, version) { }
-
-        public DateTime GetIndexDatePublic(string index) => GetIndexDate(index);
-
-        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
-    }
-
-    private sealed class TestVersionedIndex : VersionedIndex
-    {
-        public TestVersionedIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
-
-        public int GetIndexVersionPublic(string name) => GetIndexVersion(name);
-
-        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
-    }
-
-    private sealed class TestPlainIndex : Index<object>
-    {
-        public TestPlainIndex(ElasticConfiguration configuration, string name) : base(configuration, name) { }
-
-        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
-    }
-
-    private sealed class BecomesCompatibleIndex : Index<object>
-    {
-        public BecomesCompatibleIndex(IElasticConfiguration configuration) : base(configuration, "becomes-compatible") { }
-
-        public int CompatibilityChecks { get; private set; }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            CompatibilityChecks++;
-            IReadOnlyCollection<IndexCompatibilityInfo> result = CompatibilityChecks is 1
-                ?
-                [
-                    new IndexCompatibilityInfo
-                    {
-                        Name = Name,
-                        CreatedMajor = 8,
-                        CreatedVersion = "8.0.0",
-                        ServerMajor = 9,
-                        ServerVersion = "9.0.0"
-                    }
-                ]
-                : [];
-
-            return Task.FromResult(result);
-        }
-    }
-
-    private sealed class CanceledCompatibilityIndex : Index<object>
-    {
-        public CanceledCompatibilityIndex(IElasticConfiguration configuration) : base(configuration, "canceled-compatibility") { }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromCanceled<IReadOnlyCollection<IndexCompatibilityInfo>>(new CancellationToken(true));
-        }
-    }
-
-    private sealed class ConflictingDestinationIndex : VersionedIndex<object>
-    {
-        public ConflictingDestinationIndex(IElasticConfiguration configuration) : base(configuration, "conflicting-destination", 1) { }
-
-        public int CompatibilityChecks { get; private set; }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            CompatibilityChecks++;
-            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
-            [
-                new IndexCompatibilityInfo
-                {
-                    Name = VersionedName,
-                    CreatedMajor = 8,
-                    CreatedVersion = "8.0.0",
-                    ServerMajor = 9,
-                    ServerVersion = "9.0.0"
-                },
-                new IndexCompatibilityInfo
-                {
-                    Name = $"reindexed-v8-{VersionedName}",
-                    CreatedMajor = 8,
-                    CreatedVersion = "8.0.0",
-                    ServerMajor = 9,
-                    ServerVersion = "9.0.0"
-                }
-            ]);
-        }
-    }
-
-    private sealed class CountingCompatibilityIndex : Index<object>
-    {
-        public CountingCompatibilityIndex(IElasticConfiguration configuration) : base(configuration, "counting-compatibility") { }
-
-        public int CompatibilityChecks { get; private set; }
-
-        public override Task ConfigureAsync() => Task.CompletedTask;
-
-        public override Task MaintainAsync(bool includeOptionalTasks = true) => Task.CompletedTask;
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            CompatibilityChecks++;
-            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>([]);
-        }
-    }
-
-    private sealed class UnsupportedCompatibilityIndex : Index<object>
-    {
-        public UnsupportedCompatibilityIndex(IElasticConfiguration configuration) : base(configuration, "unsupported-compatibility") { }
-
-        public int CompatibilityChecks { get; private set; }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            CompatibilityChecks++;
-            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
-            [
-                new IndexCompatibilityInfo
-                {
-                    Name = Name,
-                    CreatedMajor = 7,
-                    CreatedVersion = "7.17.29",
-                    ServerMajor = 9,
-                    ServerVersion = "9.5.0"
-                }
-            ]);
-        }
-    }
-
-    private sealed class UnparseableVersionElasticConfiguration : ElasticConfiguration
-    {
-        public int RequestCount { get; private set; }
-
-        protected override ElasticsearchClient CreateElasticClient()
-        {
-            byte[] response = Encoding.UTF8.GetBytes("""
-                {
-                  "name": "test-node",
-                  "cluster_name": "test-cluster",
-                  "cluster_uuid": "test-cluster-id",
-                  "version": {
-                    "number": "not-a-version",
-                    "build_flavor": "default",
-                    "build_type": "unknown",
-                    "build_hash": "unknown",
-                    "build_date": "2026-01-01T00:00:00.000Z",
-                    "build_snapshot": false,
-                    "lucene_version": "10.0.0",
-                    "minimum_wire_compatibility_version": "8.0.0",
-                    "minimum_index_compatibility_version": "8.0.0"
-                  },
-                  "tagline": "You Know, for Search"
-                }
-                """);
-            var headers = new Dictionary<string, IEnumerable<string>>
-            {
-                ["x-elastic-product"] = ["Elasticsearch"]
-            };
-            var requestInvoker = new InMemoryRequestInvoker(response, 200, null, "application/json", headers);
-            var settings = new ElasticsearchClientSettings(requestInvoker)
-                .OnRequestCompleted(_ => RequestCount++);
-
-            return new ElasticsearchClient(settings);
-        }
-    }
-
-    private sealed record StubResponse(int StatusCode, string Content, Exception? Exception = null);
-
-    private sealed class SequenceRequestInvoker : IRequestInvoker
-    {
-        private static readonly Dictionary<string, IEnumerable<string>> _headers = new()
-        {
-            ["x-elastic-product"] = ["Elasticsearch"]
-        };
-
-        private readonly Queue<StubResponse> _responses;
-        private readonly InMemoryRequestInvoker _responseFactory = new();
-
-        public SequenceRequestInvoker(params StubResponse[] responses)
-        {
-            _responses = new Queue<StubResponse>(responses);
-        }
-
-        public ResponseFactory ResponseFactory => _responseFactory.ResponseFactory;
-
-        public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
-            where TResponse : TransportResponse, new()
-        {
-            return GetResponse().Request<TResponse>(endpoint, boundConfiguration, postData);
-        }
-
-        public Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
-            where TResponse : TransportResponse, new()
-        {
-            return GetResponse().RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken);
-        }
-
-        private InMemoryRequestInvoker GetResponse()
-        {
-            if (_responses.Count is 0)
-                throw new InvalidOperationException("No response configured for request.");
-
-            var response = _responses.Dequeue();
-            return new InMemoryRequestInvoker(
-                response.Exception is null ? Encoding.UTF8.GetBytes(response.Content) : [],
-                response.StatusCode,
-                response.Exception,
-                "application/json",
-                _headers);
-        }
-
-        public void Dispose()
-        {
-            ((IDisposable)_responseFactory).Dispose();
-        }
-    }
 }

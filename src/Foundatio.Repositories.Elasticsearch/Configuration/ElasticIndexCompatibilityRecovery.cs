@@ -137,8 +137,16 @@ internal sealed class ElasticIndexCompatibilityRecovery
             return null;
         }
 
-        using var document = JsonDocument.Parse(response.Body);
-        return ParseActiveReindexTaskCount(document.RootElement, sourceIndex, targetIndex);
+        try
+        {
+            using var document = JsonDocument.Parse(response.Body);
+            return ParseActiveReindexTaskCount(document.RootElement, sourceIndex, targetIndex);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Unable to parse the active reindex task list while inspecting compatibility recovery");
+            return null;
+        }
     }
 
     internal static int? ParseActiveReindexTaskCount(JsonElement response, string sourceIndex, string targetIndex)
@@ -151,11 +159,17 @@ internal sealed class ElasticIndexCompatibilityRecovery
         int count = 0;
         foreach (var node in nodes.EnumerateObject())
         {
+            if (node.Value.ValueKind is not JsonValueKind.Object)
+                return null;
+
             if (!node.Value.TryGetProperty("tasks", out var tasks) || tasks.ValueKind is not JsonValueKind.Object)
-                continue;
+                return null;
 
             foreach (var task in tasks.EnumerateObject())
             {
+                if (task.Value.ValueKind is not JsonValueKind.Object)
+                    return null;
+
                 if (!task.Value.TryGetProperty("description", out var description) || description.ValueKind is not JsonValueKind.String)
                 {
                     count++;

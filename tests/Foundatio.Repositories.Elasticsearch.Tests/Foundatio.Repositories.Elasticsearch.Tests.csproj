@@ -6,7 +6,6 @@
   <ItemGroup>
     <PackageReference Include="Exceptionless.RandomData" Version="2.0.1" />
     <PackageReference Include="Jint" Version="4.16.1" />
-    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.10.0" PrivateAssets="All" />
     <PackageReference Include="TimeZoneConverter" Version="7.2.0" />
   </ItemGroup>
   <ItemGroup>

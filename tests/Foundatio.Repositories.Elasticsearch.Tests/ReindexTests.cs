@@ -379,6 +379,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(index2Exists.Exists);
         var errorIndexExists = await _client.Indices.ExistsAsync($"{version2Index.VersionedName}-error", cancellationToken: TestCancellationToken);
         Assert.True(errorIndexExists.Exists);
+        var errorIndexResponse = await _client.Indices.GetAsync((Indices)$"{version2Index.VersionedName}-error", cancellationToken: TestCancellationToken);
+        Assert.True(errorIndexResponse.IsValidResponse);
+        var errorAliases = errorIndexResponse.Indices.Values.Single().Aliases;
+        Assert.NotNull(errorAliases);
+        Assert.True(errorAliases.TryGetValue(ElasticReindexer.ErrorIndexOwnershipAlias, out var errorOwnershipAlias));
+        Assert.True(errorOwnershipAlias?.IsHidden);
 
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());

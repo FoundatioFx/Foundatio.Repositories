@@ -8,8 +8,8 @@ internal static class CompatibilityIndexName
     private const string ErrorSuffix = "-error";
 
     /// <summary>
-    /// Strips the <c>-error</c> suffix that the shared reindexer appends when a document cannot be copied,
-    /// so generated error partitions resolve to their owning physical index name.
+    /// Strips a syntactically valid <c>-error</c> suffix. Callers must independently verify the shared
+    /// reindexer's hidden ownership marker before treating the result as a generated error partition.
     /// </summary>
     public static string StripErrorSuffix(string index)
     {

@@ -207,7 +207,7 @@ public class Index : IIndexCompatibility, IHaveLogger
     {
         using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())
         {
-            await DeleteIndexAsync(Name).AnyContext();
+            await DeleteIndexesAsync([Name, String.Concat(Name, "-error")], OwnsCompatibilityIndexForDestructiveOperation).AnyContext();
             _isEnsured = false;
         }
     }
@@ -314,7 +314,7 @@ public class Index : IIndexCompatibility, IHaveLogger
         return DeleteIndexesAsync(new[] { name });
     }
 
-    protected virtual async Task DeleteIndexesAsync(string[] names, Func<string, bool>? indexFilter = null)
+    protected virtual async Task DeleteIndexesAsync(string[] names, Func<string, IReadOnlyDictionary<string, Alias>?, bool>? indexFilter = null)
     {
         if (names == null || names.Length == 0)
             throw new ArgumentNullException(nameof(names));
@@ -332,11 +332,10 @@ public class Index : IIndexCompatibility, IHaveLogger
             throw new RepositoryException(getResponse.GetErrorMessage($"Error resolving indexes {String.Join(",", names)}"), getResponse.OriginalException());
         }
 
-        IEnumerable<string> resolvedNames = getResponse.Indices?.Keys.Select(k => k.ToString()) ?? [];
-        if (indexFilter is not null)
-            resolvedNames = resolvedNames.Where(indexFilter);
-
-        var indexNames = resolvedNames.ToList();
+        var indexNames = getResponse.Indices?
+            .Where(kvp => indexFilter is null || indexFilter(kvp.Key, kvp.Value?.Aliases))
+            .Select(kvp => kvp.Key.ToString())
+            .ToList() ?? [];
         if (indexNames.Count == 0)
             return;
 
@@ -428,8 +427,8 @@ public class Index : IIndexCompatibility, IHaveLogger
     /// </summary>
     protected virtual string GetCompatibilityIndexPattern()
     {
-        // The reindexer writes copy failures to a sibling "<name>-error" physical index without aliases, so it
-        // must be discovered by name or compatibility preflight would silently skip an old-format partition.
+        // The reindexer writes copy failures to a sibling "<name>-error" physical index with only a hidden
+        // ownership marker, so it must be discovered by name rather than through a repository-facing alias.
         return $"{Name},{String.Concat(Name, "-error")}";
     }
 
@@ -445,9 +444,9 @@ public class Index : IIndexCompatibility, IHaveLogger
 
         string pattern = GetCompatibilityIndexPattern();
 
-        // Ask for settings rather than aliases so index.version.created comes back in this same response; the
-        // response is keyed by concrete index name, so aliases in the pattern resolve and de-duplicate for free.
-        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexSettings().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable(), cancellationToken).AnyContext();
+        // The response is keyed by concrete index name, so aliases in the pattern resolve and de-duplicate for
+        // free. Include aliases in the same request so generated error indexes can be authenticated before use.
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexCompatibility().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable(), cancellationToken).AnyContext();
         if (!response.IsValidResponse)
         {
             if (response.ElasticsearchServerError?.Status is 404)
@@ -465,6 +464,15 @@ public class Index : IIndexCompatibility, IHaveLogger
         var infos = new List<IndexCompatibilityInfo>(response.Indices.Count);
         foreach (var kvp in response.Indices)
         {
+            if (!OwnsCompatibilityIndexExclusively(kvp.Key))
+                continue;
+
+            if (IsGeneratedErrorIndex(kvp.Key) && !ElasticReindexer.HasErrorIndexOwnershipAlias(kvp.Value?.Aliases))
+            {
+                throw new RepositoryException(
+                    $"Index '{kvp.Key}' looks like a generated reindex error index for '{Name}', but it does not have the Foundatio ownership marker. Rename or remove the conflicting index, or add the marker only after verifying its provenance; no indexes were changed.");
+            }
+
             var versioning = kvp.Value?.Settings?.Index?.Version;
             int? createdMajor = ParseCreatedMajor(versioning?.Created, versioning?.CreatedString);
             if (!createdMajor.HasValue)
@@ -483,10 +491,23 @@ public class Index : IIndexCompatibility, IHaveLogger
         return infos;
     }
 
-    internal virtual bool OwnsCompatibilityIndex(string sourceIndex)
+    internal virtual bool OwnsCompatibilityIndexCore(string sourceIndex)
     {
-        string canonicalName = CompatibilityIndexName.GetCanonicalName(CompatibilityIndexName.StripErrorSuffix(sourceIndex), Name);
+        string canonicalName = CompatibilityIndexName.GetCanonicalName(sourceIndex, Name);
         return String.Equals(canonicalName, Name, StringComparison.Ordinal);
+    }
+
+    internal bool OwnsCompatibilityIndex(string sourceIndex)
+    {
+        return OwnsCompatibilityIndexCore(sourceIndex) || IsGeneratedErrorIndex(sourceIndex);
+    }
+
+    internal bool IsGeneratedErrorIndex(string sourceIndex)
+    {
+        string stripped = CompatibilityIndexName.StripErrorSuffix(sourceIndex);
+        return !String.Equals(stripped, sourceIndex, StringComparison.Ordinal)
+            && !OwnsCompatibilityIndexCore(sourceIndex)
+            && OwnsCompatibilityIndexCore(stripped);
     }
 
     /// <summary>
@@ -503,28 +524,60 @@ public class Index : IIndexCompatibility, IHaveLogger
 
         foreach (IIndex other in Configuration.Indexes)
         {
-            if (ReferenceEquals(other, this) || other is not Index otherIndex)
+            if (ReferenceEquals(other, this))
                 continue;
+
+            if (other is not Index otherIndex)
+            {
+                if (GetCompatibilityPrefixDepth(sourceIndex, other.Name) is not Int32.MaxValue)
+                    return false;
+
+                continue;
+            }
 
             if (!otherIndex.OwnsCompatibilityIndex(sourceIndex))
                 continue;
 
-            bool mineNative = IsNativeFamilyMember(sourceIndex, Name);
-            bool theirsNative = IsNativeFamilyMember(sourceIndex, otherIndex.Name);
-            if (theirsNative && (!mineNative || otherIndex.Name.Length > Name.Length))
+            int mineDepth = GetCompatibilityPrefixDepth(sourceIndex, Name);
+            int theirDepth = GetCompatibilityPrefixDepth(sourceIndex, otherIndex.Name);
+            if (theirDepth < mineDepth
+                || (theirDepth == mineDepth && (otherIndex.Name.Length > Name.Length
+                    || (otherIndex.Name.Length == Name.Length && !String.Equals(otherIndex.Name, Name, StringComparison.Ordinal)))))
                 return false;
         }
 
         return true;
     }
 
-    private static bool IsNativeFamilyMember(string indexName, string configuredName)
+    private static bool IsConfiguredNameOrChild(string indexName, string configuredName)
     {
-        if (String.IsNullOrEmpty(indexName) || String.IsNullOrEmpty(configuredName))
-            return false;
-
         return String.Equals(indexName, configuredName, StringComparison.Ordinal)
             || indexName.StartsWith($"{configuredName}-", StringComparison.Ordinal);
+    }
+
+    private static int GetCompatibilityPrefixDepth(string indexName, string configuredName)
+    {
+        int depth = 0;
+        string candidate = indexName;
+        while (!IsConfiguredNameOrChild(candidate, configuredName))
+        {
+            string canonicalName = CompatibilityIndexName.GetCanonicalName(candidate);
+            if (String.Equals(canonicalName, candidate, StringComparison.Ordinal))
+                return Int32.MaxValue;
+
+            candidate = canonicalName;
+            depth++;
+        }
+
+        return depth;
+    }
+
+    internal bool OwnsCompatibilityIndexForDestructiveOperation(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        if (!OwnsCompatibilityIndexExclusively(sourceIndex))
+            return false;
+
+        return !IsGeneratedErrorIndex(sourceIndex) || ElasticReindexer.HasErrorIndexOwnershipAlias(aliases);
     }
 
     internal virtual void ValidateCompatibilityUpgradeSource(string sourceIndex, bool ownsLogicalAlias)

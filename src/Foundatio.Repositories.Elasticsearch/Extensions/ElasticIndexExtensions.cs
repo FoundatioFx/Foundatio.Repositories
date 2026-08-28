@@ -33,6 +33,11 @@ public static class ElasticIndexExtensions
         return descriptor.Features(Feature.Settings).IncludeDefaults(false);
     }
 
+    internal static GetIndexRequestDescriptor LimitToIndexCompatibility(this GetIndexRequestDescriptor descriptor)
+    {
+        return descriptor.Features(Feature.Aliases, Feature.Settings).IncludeDefaults(false);
+    }
+
     public static SubmitAsyncSearchRequest ToAsyncSearchSubmitRequest<T>(this SearchRequest searchRequest) where T : class, new()
     {
         var asyncSearchRequest = new SubmitAsyncSearchRequest(searchRequest.Indices)

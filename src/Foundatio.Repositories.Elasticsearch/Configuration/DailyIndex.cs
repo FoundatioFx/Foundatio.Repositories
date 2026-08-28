@@ -146,11 +146,10 @@ public class DailyIndex : VersionedIndex
         return $"{canonicalPattern},{CompatibilityIndexName.CreatePattern(canonicalPattern)}";
     }
 
-    internal override bool OwnsCompatibilityIndex(string sourceIndex)
+    internal override bool OwnsCompatibilityIndexCore(string sourceIndex)
     {
-        string stripped = CompatibilityIndexName.StripErrorSuffix(sourceIndex);
-        return base.OwnsCompatibilityIndex(sourceIndex)
-            && ParseIndexDate(CompatibilityIndexName.GetCanonicalName(stripped, Name)) != DateTime.MaxValue;
+        return base.OwnsCompatibilityIndexCore(sourceIndex)
+            && ParseIndexDate(CompatibilityIndexName.GetCanonicalName(sourceIndex, Name)) != DateTime.MaxValue;
     }
 
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
@@ -256,7 +255,7 @@ public class DailyIndex : VersionedIndex
     public override async Task DeleteAsync()
     {
         string canonicalPattern = $"{Name}-v*";
-        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexExclusively).AnyContext();
+        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexForDestructiveOperation).AnyContext();
         await _aliasCache.RemoveAllAsync().AnyContext();
         _ensuredDates.Clear();
     }
@@ -485,6 +484,7 @@ public class DailyIndex : VersionedIndex
         }
 
         var latestIndex = indicesResponse.Indices.Keys
+            .Where(i => OwnsCompatibilityIndexExclusively(i.ToString()) && !IsGeneratedErrorIndex(i.ToString()))
             .Where(i => GetIndexVersion(i.ToString()) == Version)
             .Select(i =>
             {
