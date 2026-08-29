@@ -34,7 +34,7 @@ namespace Foundatio.Repositories
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
             if (!enabled)
-                return ResetPagingSession(options);
+                return DisableSearchAfterPaging(options);
 
             return options.BuildOption(SearchAfterPagingKey, true);
         }
@@ -42,7 +42,10 @@ namespace Foundatio.Repositories
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
         {
             if (!enabled)
-                return ResetPagingSession(options);
+                return DisableSearchAfterPaging(options);
+
+            if (options.ShouldUseSearchAfterPaging() && options.GetSearchAfterPagingMode() != mode)
+                ClearSearchAfterPagingSession(options);
 
             options.BuildOption(SearchAfterPagingKey, true);
             return options.BuildOption(SearchAfterPagingModeKey, mode);
@@ -78,8 +81,7 @@ namespace Foundatio.Repositories
         /// </remarks>
         public static T SearchAfter<T>(this T options, params object?[]? values) where T : ICommandOptions
         {
-            object?[]? cursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null) ? values : null;
-            return SetCursor(options, SearchAfterKey, SearchBeforeKey, cursor);
+            return SetCursor(options, SearchAfterKey, SearchBeforeKey, NormalizeRawCursor(values));
         }
 
         public static T SearchAfterToken<T>(this T options, string? searchAfterToken, ITextSerializer serializer) where T : ICommandOptions
@@ -108,8 +110,7 @@ namespace Foundatio.Repositories
         /// </remarks>
         public static T SearchBefore<T>(this T options, params object?[]? values) where T : ICommandOptions
         {
-            object?[]? cursor = values is { Length: > 0 } && Array.Exists(values, value => value is not null) ? values : null;
-            return SetCursor(options, SearchBeforeKey, SearchAfterKey, cursor);
+            return SetCursor(options, SearchBeforeKey, SearchAfterKey, NormalizeRawCursor(values));
         }
 
         public static T SearchBeforeToken<T>(this T options, string? searchBeforeToken, ITextSerializer serializer) where T : ICommandOptions
@@ -136,16 +137,26 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        private static T ResetPagingSession<T>(T options) where T : ICommandOptions
+        internal static T DisableSearchAfterPaging<T>(this T options) where T : ICommandOptions
         {
+            ClearSearchAfterPagingSession(options);
             options.BuildOption(SearchAfterPagingKey, false);
             options.BuildOption(SearchAfterPagingModeKey, SearchAfterPagingMode.Live);
+            return options;
+        }
+
+        private static void ClearSearchAfterPagingSession(ICommandOptions options)
+        {
             options.Values.Remove(SearchAfterKey);
             options.Values.Remove(SearchBeforeKey);
             options.Values.Remove(PointInTimeIdKey);
             options.Values.Remove(RepoOwnedPointInTimeKey);
             options.Values.Remove(UnstableSortWarnedKey);
-            return options;
+        }
+
+        private static object?[]? NormalizeRawCursor(object?[]? values)
+        {
+            return values is { Length: > 0 } && values.Any(static value => value is not null) ? values : null;
         }
     }
 }
@@ -216,6 +227,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     /// This builder runs last (Int32.MaxValue priority) so it sees all accumulated sorts.
     /// </summary>
     /// <remarks>
+    /// Elasticsearch documents that point-in-time searches add an implicit <c>_shard_doc</c>
+    /// tiebreaker. This builder includes it explicitly because backward paging must reverse the
+    /// complete sort tuple. See
+    /// <see href="https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after">Elasticsearch search-after pagination</see>.
+    ///
     /// Also logs a warning when Live-mode search_after paging is combined with an unstable sort
     /// key (<c>_doc</c> or <c>_score</c>), since those keys are only stable within a Point-In-Time
     /// and can otherwise cause paging to silently skip documents or stop early. Because the same
@@ -322,8 +338,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                     sortFields.Add(new FieldSort { Field = ShardDocumentSort });
                 }
 
+                bool hasSearchAfter = ctx.Options.HasSearchAfter();
+                bool hasSearchBefore = ctx.Options.HasSearchBefore();
+                if (hasSearchAfter && hasSearchBefore)
+                    throw new QueryValidationException("Search-after paging requires exactly one cursor direction; SearchAfter and SearchBefore cannot both be set.");
+
+                object[]? cursor = hasSearchAfter ? ctx.Options.GetSearchAfter() : hasSearchBefore ? ctx.Options.GetSearchBefore() : null;
+                if (cursor is not null && cursor.Length != sortFields.Count)
+                    throw new QueryValidationException($"Search-after cursor contains {cursor.Length} value(s), but the final sort contains {sortFields.Count} field(s).");
+
                 // Reverse sort orders if searching before
-                if (ctx.Options.HasSearchBefore())
+                if (hasSearchBefore)
                 {
                     sortFields = sortFields.Select(s => s.ReverseOrder()!).ToList();
                 }

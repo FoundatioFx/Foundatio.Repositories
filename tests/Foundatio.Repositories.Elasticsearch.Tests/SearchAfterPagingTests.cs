@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
 using Xunit;
@@ -21,6 +22,32 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
+    }
+
+    [Fact]
+    public async Task CountAsync_WithPointInTimeSearchAfterPaging_ThrowsBeforeRequest()
+    {
+        // Arrange
+        var options = new CommandOptions<LogEvent>().SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<QueryValidationException>(() => _repository.CountAsync(new RepositoryQuery<LogEvent>(), options));
+
+        // Assert
+        Assert.Contains(nameof(_repository.CountAsync), exception.Message);
+    }
+
+    [Fact]
+    public async Task ExistsAsync_WithPointInTimeSearchAfterPaging_ThrowsBeforeRequest()
+    {
+        // Arrange
+        var options = new CommandOptions<LogEvent>().SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<QueryValidationException>(() => _repository.ExistsAsync(new RepositoryQuery<LogEvent>(), options));
+
+        // Assert
+        Assert.Contains(nameof(_repository.ExistsAsync), exception.Message);
     }
 
     [Fact]
@@ -79,5 +106,33 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
             if (!String.IsNullOrEmpty(pointInTimeId))
                 await pointInTime.ClosePointInTimeAsync(pointInTimeId);
         }
+    }
+
+    [Fact]
+    public async Task FindAsync_WithSnapshotAndPointInTimeSearchAfterPaging_ThrowsBeforeRequest()
+    {
+        // Arrange
+        var options = new CommandOptions<LogEvent>()
+            .SnapshotPaging()
+            .SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<QueryValidationException>(() => _repository.FindAsync(new RepositoryQuery<LogEvent>(), options));
+
+        // Assert
+        Assert.Contains("cannot be used together", exception.Message);
+    }
+
+    [Fact]
+    public async Task FindOneAsync_WithPointInTimeSearchAfterPaging_ThrowsBeforeRequest()
+    {
+        // Arrange
+        var options = new CommandOptions<LogEvent>().SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<QueryValidationException>(() => _repository.FindOneAsync(new RepositoryQuery<LogEvent>(), options));
+
+        // Assert
+        Assert.Contains(nameof(_repository.FindOneAsync), exception.Message);
     }
 }

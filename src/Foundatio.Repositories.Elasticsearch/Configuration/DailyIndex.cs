@@ -451,7 +451,7 @@ public class DailyIndex : VersionedIndex
     }
 
     /// <summary>
-    /// Gets the wildcard filter used to find the latest server-managed index whose mapping should
+    /// Gets the Elasticsearch index-name pattern used to find the latest server-managed index whose mapping should
     /// be used for field resolution. Defaults to the version-qualified pattern this library uses
     /// when it creates the index itself (<c>{Name}-v{Version}-*</c>).
     /// </summary>
@@ -467,14 +467,11 @@ public class DailyIndex : VersionedIndex
     /// -- ties break by highest parsed version number (<see cref="VersionedIndex.GetIndexVersion"/>),
     /// then by index name descending (ordinal), so selection is always deterministic.
     /// </remarks>
-    protected virtual string GetIndexMappingFilter()
-    {
-        return $"{Name}-v{Version}-*";
-    }
+    protected virtual string MappingIndexPattern => $"{Name}-v{Version}-*";
 
     protected TypeMapping? GetLatestIndexMapping()
     {
-        string filter = GetIndexMappingFilter();
+        string filter = MappingIndexPattern;
 
         void LogNoMatchWarning() => _logger.LogWarning("No indexes matched filter {Filter} when resolving the server-side mapping; field resolution will fall back to the code-declared mapping only", filter);
 
@@ -497,7 +494,7 @@ public class DailyIndex : VersionedIndex
             .Select(i =>
             {
                 string indexName = i.ToString();
-                return new { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
+                return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
             })
             .Where(i => i.DateUtc != DateTime.MaxValue)
             .OrderByDescending(i => i.DateUtc)

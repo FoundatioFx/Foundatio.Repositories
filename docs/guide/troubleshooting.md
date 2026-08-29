@@ -234,7 +234,7 @@ var results = await repository.FindAsync(
     o => o.PageLimit(50).SearchAfterPaging());
 ```
 
-3. **If the index's real mapping is discoverable** (e.g., you control the naming and just need this library to find it), override `GetIndexMappingFilter()` and `GetIndexDate()` together so the mapping resolver can locate and order the real server mappings instead of guessing from the code mapping. See [Externally-Managed Indexes](/guide/index-management#externally-managed-indexes) for the full explanation and code.
+3. **If the index's real mapping is discoverable** (e.g., you control the naming and just need this library to find it), override `MappingIndexPattern` and `GetIndexDate()` together so the mapping resolver can locate and order the real server mappings instead of guessing from the code mapping. See [Externally-Managed Indexes](/guide/index-management#externally-managed-indexes) for the full explanation and code.
 
 > If the model doesn't implement `IIdentity` at all, none of the above is needed: the id tiebreaker is skipped automatically, since there is no `Id` property to sort by in the first place.
 

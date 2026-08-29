@@ -385,9 +385,10 @@ var results = await repository.FindAsync(
     o => o.SearchAfterPaging());
 
 // For subsequent pages, use the token
+ITextSerializer serializer = new SystemTextJsonSerializer();
 var nextResults = await repository.FindAsync(
     q => q.SortDescending(e => e.CreatedUtc),
-    o => o.SearchAfterToken(results.GetSearchAfterToken()));
+    o => o.SearchAfterToken(results.GetSearchAfterToken(), serializer));
 ```
 
 `SearchAfter(...)` and `SearchAfterToken(...)` select forward paging and clear any backward
@@ -397,6 +398,18 @@ mode, and any stored point-in-time state, so re-enabling starts a new Live sessi
 point-in-time traversal early, close the result first with
 `ISupportPointInTime.ClosePointInTimeAsync(results)`; otherwise Elasticsearch retains it until its
 keep-alive expires.
+
+Raw cursor arrays passed to `SearchAfter(...)` or `SearchBefore(...)` treat null, empty, and
+all-null arrays as "clear the cursor." Tokens preserve every decoded sort value, including nulls,
+because a missing field can legitimately produce a null element inside Elasticsearch's sort tuple.
+The cursor must contain exactly one value for each final sort field; malformed cardinality and
+simultaneous forward/backward cursors fail with `QueryValidationException` before a request is sent.
+
+Changing between `Live` and `PointInTime` starts a new paging session and clears cursors, PIT
+ownership/id, and warning state. Reapplying the current mode preserves the active session.
+Snapshot/scroll paging cannot be combined with point-in-time search-after paging. `FindOneAsync`,
+`CountAsync`, and query-based `ExistsAsync` also reject PIT search-after options because scalar
+results cannot return the updated PIT id and cursor required for safe continuation.
 
 > [!WARNING]
 > **Avoid unstable sort keys (`_doc`, `_score`) with search after paging.** These keys are only
@@ -422,7 +435,8 @@ keep-alive expires.
 > to sort by) and for indexes managed outside this library (see
 > [Externally-Managed Indexes](index-management.md#externally-managed-indexes)). In both cases,
 > Live mode requires your own stable, unique sort field and throws `QueryValidationException` if
-> none is available. Point-in-time mode always makes Elasticsearch's implicit `_shard_doc`
+> none is available. [Elasticsearch automatically adds `_shard_doc` to PIT searches](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after);
+> point-in-time mode makes that tiebreaker explicit
 > tiebreaker explicit after any caller sorts so both forward and backward cursors can reverse the
 > same complete sort tuple. An explicit unstable sort key remains dangerous in `Live` mode.
 

@@ -884,7 +884,7 @@ This matters for two reasons:
    ```csharp
    public class ExternallyManagedIndex : DailyIndex<LogEvent>
    {
-       protected override string GetIndexMappingFilter() => $"{Name}-*";
+       protected override string MappingIndexPattern => $"{Name}-*";
 
        protected override DateTime GetIndexDate(string index)
        {

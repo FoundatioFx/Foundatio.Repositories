@@ -38,7 +38,7 @@ public sealed class ExternallyManagedLogEventIndex : DailyIndex<LogEvent>
 
     // The externally-managed index has no version segment (e.g. "externally-managed-logevents-2026.08.03"),
     // so the default "{Name}-v{Version}-*" pattern this library uses for its own indexes never matches.
-    protected override string GetIndexMappingFilter() => $"{Name}-*";
+    protected override string MappingIndexPattern => $"{Name}-*";
 
     // The mapping filter selects candidates; this parser orders them and rejects malformed names.
     protected override DateTime GetIndexDate(string index)

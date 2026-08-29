@@ -31,28 +31,36 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
         await RemoveDataAsync();
     }
 
-    [Fact]
-    public async Task FindAsync_OnExternallyManagedIndexWithNoIdMapping_ReturnsDocuments()
+    private sealed class BroadFilterVersionedLogEventIndex : DailyIndex<LogEvent>
     {
-        // Arrange
-        // Regression test for https://github.com/FoundatioFx/Foundatio.Repositories/issues/305: mirrors a
-        // Logstash-created daily index with no "id" field at all. Before the fix, DefaultSortQueryBuilder
-        // unconditionally injected an id tiebreaker and every FindAsync call failed with "all shards failed".
-        var utcDate = DateTime.UtcNow;
-        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 3);
-
-        try
+        public BroadFilterVersionedLogEventIndex(IElasticConfiguration configuration)
+            : base(configuration, "broad-filter-logevents", 1, doc => ((LogEvent)doc).Date.UtcDateTime)
         {
-            // Act
-            var results = await _externallyManagedLogEventRepository.FindAsync(q => q.Index(utcDate, utcDate));
+        }
 
-            // Assert
-            Assert.Equal(3, results.Documents.Count);
-        }
-        finally
+        protected override string MappingIndexPattern => $"{Name}-*";
+    }
+
+    private async Task<string> IndexRawLogEventsAsync(DateTime utcDate, bool includeId, int count)
+    {
+        string index = $"{_configuration.ExternallyManagedLogEvents.Name}-{utcDate:yyyy.MM.dd}";
+        for (int i = 0; i < count; i++)
         {
-            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
+            var document = new Dictionary<string, object>
+            {
+                ["companyId"] = ObjectId.GenerateNewId().ToString(),
+                ["message"] = $"message {i}",
+                ["value"] = i,
+                ["date"] = utcDate
+            };
+            if (includeId)
+                document["id"] = ObjectId.GenerateNewId().ToString();
+
+            var response = await _client.IndexAsync(document, d => d.Index(index).Refresh(Refresh.True), TestCancellationToken);
+            Assert.True(response.IsValidResponse, response.DebugInformation);
         }
+
+        return index;
     }
 
     [Fact]
@@ -97,6 +105,30 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FindAsync_OnExternallyManagedIndexWithNoIdMapping_ReturnsDocuments()
+    {
+        // Arrange
+        // Regression test for https://github.com/FoundatioFx/Foundatio.Repositories/issues/305: mirrors a
+        // Logstash-created daily index with no "id" field at all. Before the fix, DefaultSortQueryBuilder
+        // unconditionally injected an id tiebreaker and every FindAsync call failed with "all shards failed".
+        var utcDate = DateTime.UtcNow;
+        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 3);
+
+        try
+        {
+            // Act
+            var results = await _externallyManagedLogEventRepository.FindAsync(q => q.Index(utcDate, utcDate));
+
+            // Assert
+            Assert.Equal(3, results.Documents.Count);
+        }
+        finally
+        {
+            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
+        }
+    }
+
+    [Fact]
     public async Task FindAsync_OnExternallyManagedIndexWithTextMappedId_ReturnsDocuments()
     {
         // Arrange
@@ -120,39 +152,18 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task FindAsync_WithSearchAfterPagingOnExternallyManagedIndexWithNoIdMapping_ReturnsAllDocumentsWithoutDuplicates()
+    public async Task FindAsync_OnExternallyManagedIndexWithUnresolvableServerMapping_LogsWarning()
     {
         // Arrange
-        // With no id field, Live paging relies on the caller's stable, unique value sort.
-        var utcDate = DateTime.UtcNow;
-        const int documentCount = 25;
-        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: documentCount);
+        // An explicit sort forces the mapping resolver's first lookup while no matching index exists.
+        int start = Log.LogEntries.Count;
 
-        try
-        {
-            // Act
-            var results = await _externallyManagedLogEventRepository.FindAsync(
-                q => q.Index(utcDate, utcDate).SortAscending("value"),
-                o => o.PageLimit(7).SearchAfterPaging());
-            var viewedValues = new HashSet<int>();
-            int pagedRecords = 0;
-            int pageCount = 0;
-            do
-            {
-                pageCount++;
-                viewedValues.AddRange(results.Documents.Select(d => d.Value));
-                pagedRecords += results.Documents.Count;
-            } while (await results.NextPageAsync());
+        // Act
+        var results = await _externallyManagedLogEventRepository.FindAsync(q => q.SortAscending("value"));
 
-            // Assert
-            Assert.True(pageCount >= 4);
-            Assert.Equal(documentCount, pagedRecords);
-            Assert.Equal(documentCount, viewedValues.Count);
-        }
-        finally
-        {
-            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
-        }
+        // Assert
+        Assert.Empty(results.Documents);
+        Assert.Contains(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains("field resolution will fall back to the code-declared mapping only"));
     }
 
     [Fact]
@@ -169,35 +180,6 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
                     o => o.PageLimit(1).SearchAfterPaging()));
 
             Assert.Contains("requires at least one sortable field", exception.Message);
-        }
-        finally
-        {
-            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
-        }
-    }
-
-    [Fact]
-    public async Task FindAsync_WithPointInTimeSearchAfterPagingOnExternallyManagedIndexWithoutSort_ReturnsAllDocuments()
-    {
-        var utcDate = DateTime.UtcNow;
-        const int documentCount = 10;
-        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: documentCount);
-
-        try
-        {
-            var results = await _externallyManagedLogEventRepository.FindAsync(
-                q => q.Index(utcDate, utcDate),
-                o => o.PageLimit(3).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
-            var viewedValues = new HashSet<int>();
-            int pagedRecords = 0;
-            do
-            {
-                viewedValues.AddRange(results.Documents.Select(d => d.Value));
-                pagedRecords += results.Documents.Count;
-            } while (await results.NextPageAsync());
-
-            Assert.Equal(documentCount, pagedRecords);
-            Assert.Equal(documentCount, viewedValues.Count);
         }
         finally
         {
@@ -244,6 +226,71 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
             if (!String.IsNullOrEmpty(pointInTimeId))
                 await pointInTime.ClosePointInTimeAsync(pointInTimeId);
 
+            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task FindAsync_WithPointInTimeSearchAfterPagingOnExternallyManagedIndexWithoutSort_ReturnsAllDocuments()
+    {
+        var utcDate = DateTime.UtcNow;
+        const int documentCount = 10;
+        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: documentCount);
+
+        try
+        {
+            var results = await _externallyManagedLogEventRepository.FindAsync(
+                q => q.Index(utcDate, utcDate),
+                o => o.PageLimit(3).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+            var viewedValues = new HashSet<int>();
+            int pagedRecords = 0;
+            do
+            {
+                viewedValues.AddRange(results.Documents.Select(d => d.Value));
+                pagedRecords += results.Documents.Count;
+            } while (await results.NextPageAsync());
+
+            Assert.Equal(documentCount, pagedRecords);
+            Assert.Equal(documentCount, viewedValues.Count);
+        }
+        finally
+        {
+            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task FindAsync_WithSearchAfterPagingOnExternallyManagedIndexWithNoIdMapping_ReturnsAllDocumentsWithoutDuplicates()
+    {
+        // Arrange
+        // With no id field, Live paging relies on the caller's stable, unique value sort.
+        var utcDate = DateTime.UtcNow;
+        const int documentCount = 25;
+        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: documentCount);
+
+        try
+        {
+            // Act
+            var results = await _externallyManagedLogEventRepository.FindAsync(
+                q => q.Index(utcDate, utcDate).SortAscending("value"),
+                o => o.PageLimit(7).SearchAfterPaging());
+            var viewedValues = new HashSet<int>();
+            int pagedRecords = 0;
+            int pageCount = 0;
+            do
+            {
+                pageCount++;
+                viewedValues.AddRange(results.Documents.Select(d => d.Value));
+                pagedRecords += results.Documents.Count;
+            } while (await results.NextPageAsync());
+
+            // Assert
+            Assert.True(pageCount >= 4);
+            Assert.Equal(documentCount, pagedRecords);
+            Assert.Equal(documentCount, viewedValues.Count);
+        }
+        finally
+        {
             await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
         }
     }
@@ -306,50 +353,37 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
         Assert.Equal("message.sort", sortFieldName);
     }
 
-    private sealed class BroadFilterVersionedLogEventIndex : DailyIndex<LogEvent>
-    {
-        public BroadFilterVersionedLogEventIndex(IElasticConfiguration configuration)
-            : base(configuration, "broad-filter-logevents", 1, doc => ((LogEvent)doc).Date.UtcDateTime)
-        {
-        }
-
-        protected override string GetIndexMappingFilter() => $"{Name}-*";
-    }
-
     [Fact]
-    public async Task FindAsync_OnExternallyManagedIndexWithUnresolvableServerMapping_LogsWarning()
+    public async Task ReadOperations_OnExternallyManagedIndexWithNoIdMapping_RemainScopedAndReturnDocuments()
     {
         // Arrange
-        // An explicit sort forces the mapping resolver's first lookup while no matching index exists.
-        int start = Log.LogEntries.Count;
+        var utcDate = DateTime.UtcNow;
+        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 3);
+        string alias = _configuration.ExternallyManagedLogEvents.Name;
 
-        // Act
-        var results = await _externallyManagedLogEventRepository.FindAsync(q => q.SortAscending("value"));
-
-        // Assert
-        Assert.Empty(results.Documents);
-        Assert.Contains(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains("field resolution will fall back to the code-declared mapping only"));
-    }
-
-    private async Task<string> IndexRawLogEventsAsync(DateTime utcDate, bool includeId, int count)
-    {
-        string index = $"{_configuration.ExternallyManagedLogEvents.Name}-{utcDate:yyyy.MM.dd}";
-        for (int i = 0; i < count; i++)
+        try
         {
-            var document = new Dictionary<string, object>
-            {
-                ["companyId"] = ObjectId.GenerateNewId().ToString(),
-                ["message"] = $"message {i}",
-                ["value"] = i,
-                ["date"] = utcDate
-            };
-            if (includeId)
-                document["id"] = ObjectId.GenerateNewId().ToString();
+            var aliasResponse = await _client.Indices.UpdateAliasesAsync(x => x.Actions(
+                a => a.Add(ad => ad.Alias(alias).Index(index))), cancellationToken: TestCancellationToken);
+            Assert.True(aliasResponse.IsValidResponse, aliasResponse.DebugInformation);
 
-            var response = await _client.IndexAsync(document, d => d.Index(index).Refresh(Refresh.True), TestCancellationToken);
-            Assert.True(response.IsValidResponse, response.DebugInformation);
+            // Act
+            var projected = await _externallyManagedLogEventRepository.FindAsAsync<LogEvent>(q => q.Index(utcDate, utcDate));
+            var first = await _externallyManagedLogEventRepository.FindOneAsync(q => q.Index(utcDate, utcDate));
+            var count = await _externallyManagedLogEventRepository.CountAsync(q => q.Index(utcDate, utcDate));
+            bool exists = await _externallyManagedLogEventRepository.ExistsAsync(q => q.Index(utcDate, utcDate));
+            var all = await _externallyManagedLogEventRepository.GetAllAsync();
+
+            // Assert
+            Assert.Equal(3, projected.Documents.Count);
+            Assert.NotNull(first.Document);
+            Assert.Equal(3, count.Total);
+            Assert.True(exists);
+            Assert.Equal(3, all.Documents.Count);
         }
-
-        return index;
+        finally
+        {
+            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
+        }
     }
 }
