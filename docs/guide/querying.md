@@ -407,9 +407,12 @@ simultaneous forward/backward cursors fail with `QueryValidationException` befor
 
 Changing between `Live` and `PointInTime` starts a new paging session and clears cursors, PIT
 ownership/id, and warning state. Reapplying the current mode preserves the active session.
-Snapshot/scroll paging cannot be combined with point-in-time search-after paging. `FindOneAsync`,
-`CountAsync`, and query-based `ExistsAsync` also reject PIT search-after options because scalar
-results cannot return the updated PIT id and cursor required for safe continuation.
+Calling `PointInTimeId(...)` establishes a caller-owned PIT, even when the options previously held
+a repository-owned PIT; close the active repository-owned PIT before replacing its ID so the old
+PIT is not retained until expiry. Snapshot/scroll paging cannot be combined with search-after
+paging in either mode. `FindOneAsync`, `CountAsync`, and all `ExistsAsync` overloads also reject PIT
+search-after options because scalar results cannot return the updated PIT id and cursor required
+for safe continuation.
 
 > [!WARNING]
 > **Avoid unstable sort keys (`_doc`, `_score`) with search after paging.** These keys are only
@@ -436,9 +439,9 @@ results cannot return the updated PIT id and cursor required for safe continuati
 > [Externally-Managed Indexes](index-management.md#externally-managed-indexes)). In both cases,
 > Live mode requires your own stable, unique sort field and throws `QueryValidationException` if
 > none is available. [Elasticsearch automatically adds `_shard_doc` to PIT searches](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after);
-> point-in-time mode makes that tiebreaker explicit
-> tiebreaker explicit after any caller sorts so both forward and backward cursors can reverse the
-> same complete sort tuple. An explicit unstable sort key remains dangerous in `Live` mode.
+> point-in-time mode makes that tiebreaker explicit after any caller sorts so both forward and
+> backward cursors can reverse the same complete sort tuple. An explicit unstable sort key remains
+> dangerous in `Live` mode.
 
 ## Aggregations
 

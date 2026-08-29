@@ -1200,6 +1200,35 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FindAsync_WithPointInTimePagingAndBeforeQueryFailureOnNextPage_ClosesPointInTime()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
+        long baselineScrollCount = await GetCurrentScrollCountAsync();
+        int queryCount = 0;
+        _employeeRepository.BeforeQuery.AddHandler((_, _) =>
+        {
+            queryCount++;
+            return queryCount is 2
+                ? Task.FromException(new InvalidOperationException("before-query failure"))
+                : Task.CompletedTask;
+        });
+
+        var results = await _employeeRepository.FindAsync(
+            q => q.SortDescending(d => d.Name),
+            o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => results.NextPageAsync());
+
+        // Assert
+        Assert.Equal("before-query failure", exception.Message);
+        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+    }
+
+    [Fact]
     public async Task FindAsync_WithPointInTimePaging_SupportsBidirectionalWebCursorNavigation()
     {
         // Arrange

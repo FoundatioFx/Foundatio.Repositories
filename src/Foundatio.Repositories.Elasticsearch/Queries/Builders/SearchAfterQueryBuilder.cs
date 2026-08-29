@@ -21,14 +21,15 @@ namespace Foundatio.Repositories
         PointInTime
     }
 
+    internal sealed record PointInTimeState(string Id, bool IsRepositoryOwned);
+
     public static class SearchAfterQueryExtensions
     {
         internal const string SearchAfterPagingKey = "@SearchAfterPaging";
         internal const string SearchAfterPagingModeKey = "@SearchAfterPagingMode";
         internal const string SearchAfterKey = "@SearchAfter";
         internal const string SearchBeforeKey = "@SearchBefore";
-        internal const string PointInTimeIdKey = "@PointInTimeId";
-        internal const string RepoOwnedPointInTimeKey = "@RepoOwnedPointInTime";
+        internal const string PointInTimeStateKey = "@PointInTimeState";
         internal const string UnstableSortWarnedKey = "@SearchAfterUnstableSortWarned";
 
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
@@ -51,19 +52,28 @@ namespace Foundatio.Repositories
             return options.BuildOption(SearchAfterPagingModeKey, mode);
         }
 
+        /// <summary>
+        /// Sets a caller-owned Elasticsearch point-in-time ID, or clears it when no ID is supplied.
+        /// </summary>
+        /// <remarks>
+        /// Caller-owned points in time are never closed automatically by the repository. Replacing
+        /// a repository-owned ID transfers lifecycle responsibility to the caller; close the active
+        /// repository-owned point in time before replacing it to avoid retaining it until expiry.
+        /// </remarks>
         public static T PointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
         {
-            if (!String.IsNullOrEmpty(pointInTimeId))
-                options.Values.Set(PointInTimeIdKey, pointInTimeId);
-            else
-                options.Values.Remove(PointInTimeIdKey);
-
-            return options;
+            return SetPointInTimeState(options, pointInTimeId, false);
         }
 
-        internal static T RepoOwnedPointInTime<T>(this T options, bool repoOwned = true) where T : ICommandOptions
+        internal static T RepositoryOwnedPointInTimeId<T>(this T options, string pointInTimeId) where T : ICommandOptions
         {
-            return options.BuildOption(RepoOwnedPointInTimeKey, repoOwned);
+            ArgumentException.ThrowIfNullOrEmpty(pointInTimeId);
+            return SetPointInTimeState(options, pointInTimeId, true);
+        }
+
+        internal static T UpdatePointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
+        {
+            return SetPointInTimeState(options, pointInTimeId, options.IsRepoOwnedPointInTime());
         }
 
         /// <summary>
@@ -149,14 +159,23 @@ namespace Foundatio.Repositories
         {
             options.Values.Remove(SearchAfterKey);
             options.Values.Remove(SearchBeforeKey);
-            options.Values.Remove(PointInTimeIdKey);
-            options.Values.Remove(RepoOwnedPointInTimeKey);
+            options.Values.Remove(PointInTimeStateKey);
             options.Values.Remove(UnstableSortWarnedKey);
         }
 
         private static object?[]? NormalizeRawCursor(object?[]? values)
         {
             return values is { Length: > 0 } && values.Any(static value => value is not null) ? values : null;
+        }
+
+        private static T SetPointInTimeState<T>(T options, string? pointInTimeId, bool isRepositoryOwned) where T : ICommandOptions
+        {
+            if (!String.IsNullOrEmpty(pointInTimeId))
+                options.Values.Set(PointInTimeStateKey, new PointInTimeState(pointInTimeId, isRepositoryOwned));
+            else
+                options.Values.Remove(PointInTimeStateKey);
+
+            return options;
         }
     }
 }
@@ -182,7 +201,7 @@ namespace Foundatio.Repositories.Options
 
         public static string? GetPointInTimeId(this ICommandOptions options)
         {
-            return options.SafeGetOption<string?>(SearchAfterQueryExtensions.PointInTimeIdKey);
+            return options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeStateKey)?.Id;
         }
 
         public static bool HasPointInTimeId(this ICommandOptions options)
@@ -192,7 +211,7 @@ namespace Foundatio.Repositories.Options
 
         internal static bool IsRepoOwnedPointInTime(this ICommandOptions options)
         {
-            return options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey, false);
+            return options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeStateKey)?.IsRepositoryOwned is true;
         }
 
         public static object[]? GetSearchAfter(this ICommandOptions options)

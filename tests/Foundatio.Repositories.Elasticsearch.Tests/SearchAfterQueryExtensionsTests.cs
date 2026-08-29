@@ -20,8 +20,7 @@ public sealed class SearchAfterQueryExtensionsTests
     {
         var options = new CommandOptions<Employee>()
             .SearchAfterPaging(SearchAfterPagingMode.PointInTime)
-            .PointInTimeId("pit-id")
-            .RepoOwnedPointInTime();
+            .RepositoryOwnedPointInTimeId("pit-id");
         options.Values.Set(SearchAfterQueryExtensions.SearchAfterKey, new object?[] { "after" });
         options.Values.Set(SearchAfterQueryExtensions.SearchBeforeKey, new object?[] { "before" });
         options.Values.Set(SearchAfterQueryExtensions.UnstableSortWarnedKey, true);
@@ -81,6 +80,20 @@ public sealed class SearchAfterQueryExtensionsTests
     }
 
     [Fact]
+    public void PointInTimeId_WhenReplacingRepositoryOwnedId_MarksReplacementAsCallerOwned()
+    {
+        // Arrange
+        var options = CreateActivePagingSession();
+
+        // Act
+        options.PointInTimeId("caller-owned-pit-id");
+
+        // Assert
+        Assert.Equal("caller-owned-pit-id", options.GetPointInTimeId());
+        Assert.False(options.IsRepoOwnedPointInTime());
+    }
+
+    [Fact]
     public void SearchAfterPagingMode_Disabled_ClearsPagingSession()
     {
         var options = CreateActivePagingSession();
@@ -97,8 +110,7 @@ public sealed class SearchAfterQueryExtensionsTests
         var options = new CommandOptions<Employee>()
             .SearchAfterPaging(SearchAfterPagingMode.Live)
             .SearchAfter("after")
-            .PointInTimeId("stale-pit-id")
-            .RepoOwnedPointInTime();
+            .RepositoryOwnedPointInTimeId("stale-pit-id");
         options.Values.Set(SearchAfterQueryExtensions.UnstableSortWarnedKey, true);
 
         // Act
