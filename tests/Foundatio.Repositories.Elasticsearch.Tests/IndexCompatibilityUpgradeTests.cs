@@ -536,6 +536,27 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     }
 
     [Fact]
+    public async Task DeleteAsync_WithHiddenCanonicalDatedAlias_DeletesCompatibilityBackingIndex()
+    {
+        string name = $"compat-delete-hidden-{Guid.NewGuid():N}";
+        string canonicalName = $"{name}-v1-2026.08.10";
+        string physicalIndex = $"reindexed-v9-{canonicalName}";
+        using var index = new DailyIndex<object>(_configuration, name, 1);
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(physicalIndex, d => d.IgnoreUnavailable(), TestCancellationToken));
+        var createResponse = await _client.Indices.CreateAsync(physicalIndex,
+            d => d
+                .Settings(s => s.Hidden(true))
+                .Aliases(a => a.Add(canonicalName, new Alias { IsHidden = true })), TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
+
+        await index.DeleteAsync();
+
+        var existsResponse = await _client.Indices.ExistsAsync(physicalIndex, cancellationToken: TestCancellationToken);
+        Assert.False(existsResponse.Exists, existsResponse.DebugInformation);
+    }
+
+    [Fact]
     public async Task DeleteAsync_WhenCanonicalAliasHasMultipleTargets_FailsWithoutDeletingEitherTarget()
     {
         string name = $"compat-delete-multiple-{Guid.NewGuid():N}";

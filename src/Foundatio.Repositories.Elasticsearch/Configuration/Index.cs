@@ -329,6 +329,7 @@ public class Index : IIndexCompatibility, IHaveLogger
             // through the names-and-aliases index metadata response, matching the established implementation.
             var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d
                 .LimitToNamesAndAliases()
+                .ExpandWildcards(ExpandWildcard.All)
                 .IgnoreUnavailable()).AnyContext();
             if (getResponse.IsValidResponse && getResponse.Indices is not null)
             {
