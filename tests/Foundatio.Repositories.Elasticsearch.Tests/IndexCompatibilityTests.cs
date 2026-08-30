@@ -22,6 +22,34 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public partial class IndexCompatibilityTests
 {
     [Fact]
+    public async Task ValidateAsync_WithDotPrefixedSource_RejectsBeforeMutation()
+    {
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(404, """{"error":{"type":"index_not_found_exception","reason":"no such index [reindexed-v9-.employees]"},"status":404}"""),
+            new StubResponse(200, """{".employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
+            new StubResponse(200, """{".employees":{"settings":{}}}"""));
+        var requestMethods = new List<string>();
+        var settings = new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker)
+            .OnRequestCompleted(call => requestMethods.Add(call.HttpMethod.ToString()));
+        var client = new ElasticsearchClient(settings);
+        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
+        using var index = new Index<object>(new ElasticConfiguration(), ".employees");
+        var compatibility = new IndexCompatibilityInfo
+        {
+            Name = index.Name,
+            CreatedMajor = 8,
+            ServerMajor = 9,
+            ServerVersion = "9.0.0"
+        };
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            upgrader.ValidateAsync(index, compatibility, CancellationToken.None));
+
+        Assert.Contains("System or restricted index", exception.Message);
+        Assert.Equal(["HEAD", "GET", "GET"], requestMethods);
+    }
+
+    [Fact]
     public void JsonDefinitionsMatch_IgnoresObjectPropertyOrder()
     {
         const string expected = """{"properties":{"name":{"type":"keyword","meta":{"first":"1","second":"2"}}}}""";

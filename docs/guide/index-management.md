@@ -1313,9 +1313,10 @@ Applications that use repository aliases continue using the same names. Exact lo
 
 #### Kibana coexistence
 
-Foundatio intentionally uses Kibana Upgrade Assistant's `reindexed-v{major}-{canonical-name}` namespace and the same `_create_from` API. This is compatibility evidence, not a claim that the workflows are identical. Kibana persists a richer Saved Object state machine and controls its own pause/resume/cancel lifecycle; Foundatio uses a small hidden workflow alias plus observed Elasticsearch topology.
+For supported non-dot indexes, Foundatio intentionally uses Kibana Upgrade Assistant's `reindexed-v{major}-{canonical-name}` namespace and the same `_create_from` API. This is compatibility evidence, not a claim that the workflows are identical. Kibana persists a richer Saved Object state machine and controls its own pause/resume/cancel lifecycle; Foundatio uses a small hidden workflow alias plus observed Elasticsearch topology.
 
-- A completed Kibana migration that deleted the old physical index and attached its old name as an alias can be discovered by Foundatio through that canonical alias.
+- A completed Kibana migration of a supported non-dot index that deleted the old physical index and attached its old name as an alias can be discovered by Foundatio through that canonical alias.
+- Kibana preserves a leading dot when it names a migrated system index (`.foo` becomes `.reindexed-v{major}-foo`). Foundatio deliberately rejects dot-prefixed/system indexes before mutation and does not parse or recover that Kibana-specific variant; leave those indexes with Kibana or Elastic's system-index tooling.
 - Never run Kibana and Foundatio reindexing against the same source concurrently. They can choose the same deterministic destination name.
 - Foundatio cannot resume Kibana's Saved Object workflow and never deletes an unmarked Kibana or foreign destination. A destination-name collision stops before mutation or reports `ManualIntervention`.
 - Natural configured names such as `reindexed-v8-events`, `database-v2`, or `orders-error` are not treated as generated state by substring. The complete prefix/version/native-name structure and canonical alias or error marker must match.
