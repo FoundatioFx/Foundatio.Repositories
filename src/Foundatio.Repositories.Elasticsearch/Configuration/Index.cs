@@ -352,10 +352,17 @@ public class Index : IIndexCompatibility, IHaveLogger
         if (indexNames.Count == 0)
             return;
 
-        await DeleteResolvedIndexesAsync(indexNames, allowAliasResolution: true).AnyContext();
+        bool containsExactName = names.Any(name => name.AsSpan().IndexOfAny('*', '?') < 0);
+        await DeleteResolvedIndexesAsync(
+            indexNames,
+            allowAliasResolution: containsExactName,
+            ignoreUnavailable: !containsExactName).AnyContext();
     }
 
-    private async Task DeleteResolvedIndexesAsync(IReadOnlyCollection<string> indexNames, bool allowAliasResolution)
+    private async Task DeleteResolvedIndexesAsync(
+        IReadOnlyCollection<string> indexNames,
+        bool allowAliasResolution,
+        bool ignoreUnavailable)
     {
         // Batch delete to avoid HTTP line too long errors (ES default max is 4096 bytes)
         // Each index name is roughly 30-50 bytes, so we batch in groups of 50
@@ -364,7 +371,7 @@ public class Index : IIndexCompatibility, IHaveLogger
         {
             var response = await Configuration.Client.Indices.DeleteAsync(
                 Indices.Parse(String.Join(',', batch)),
-                d => d.IgnoreUnavailable()).AnyContext();
+                d => d.IgnoreUnavailable(ignoreUnavailable)).AnyContext();
 
             if (response.IsValidResponse)
             {
@@ -372,11 +379,16 @@ public class Index : IIndexCompatibility, IHaveLogger
                 continue;
             }
 
-            if (allowAliasResolution && IsAliasDeleteError(response))
+            if (allowAliasResolution && ShouldResolveDeleteFailure(response))
             {
                 var resolvedIndexes = await ResolveSafeDeleteTargetsAsync(batch).AnyContext();
                 if (resolvedIndexes.Count > 0)
-                    await DeleteResolvedIndexesAsync(resolvedIndexes, allowAliasResolution: false).AnyContext();
+                {
+                    await DeleteResolvedIndexesAsync(
+                        resolvedIndexes,
+                        allowAliasResolution: false,
+                        ignoreUnavailable: true).AnyContext();
+                }
                 continue;
             }
 
@@ -391,9 +403,11 @@ public class Index : IIndexCompatibility, IHaveLogger
         }
     }
 
-    private static bool IsAliasDeleteError(DeleteIndexResponse response)
+    private static bool ShouldResolveDeleteFailure(DeleteIndexResponse response)
     {
-        return response.ElasticsearchServerError?.Error?.Type is "illegal_argument_exception"
+        return response.ApiCallDetails.HttpStatusCode is 404
+            || response.ElasticsearchServerError?.Status is 404
+            || response.ElasticsearchServerError?.Error?.Type is "illegal_argument_exception"
             && response.ElasticsearchServerError.Error.Reason?.Contains("matches an alias", StringComparison.OrdinalIgnoreCase) is true;
     }
 
@@ -649,6 +663,11 @@ public class Index : IIndexCompatibility, IHaveLogger
         foreach (IIndex other in Configuration.Indexes)
         {
             if (ReferenceEquals(other, this))
+                continue;
+
+            // Multiple index instances may represent the same logical family (for example, an ad-hoc
+            // retention policy beside the registered index). They do not create an ownership conflict.
+            if (String.Equals(other.Name, Name, StringComparison.Ordinal))
                 continue;
 
             bool otherIsExact = candidate.Equals(other.Name.AsSpan(), StringComparison.Ordinal);

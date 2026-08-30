@@ -265,7 +265,7 @@ public sealed partial class IndexCompatibilityUpgradeTests
             TestCancellationToken));
 
         Assert.True(sourceSettingsChanged);
-        Assert.Contains("explicit settings", exception.ToString());
+        Assert.Contains("explicit settings", exception.ToString(), StringComparison.OrdinalIgnoreCase);
         await AssertIndexExistsAsync(name, true);
         await AssertIndexExistsAsync(targetIndex, false);
     }

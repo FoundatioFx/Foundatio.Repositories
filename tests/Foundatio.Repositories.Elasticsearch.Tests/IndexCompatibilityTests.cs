@@ -906,4 +906,15 @@ public partial class IndexCompatibilityTests
         Assert.False(natural.MatchesCompatibilitySource(events.VersionedName, new Dictionary<string, Alias>()));
     }
 
+    [Fact]
+    public void MatchesCompatibilitySource_WhenAnotherInstanceUsesSameLogicalName_KeepsOwnership()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var registered = new VersionedIndex<object>(configuration, "events", 1);
+        using var adHoc = new VersionedIndex<object>(configuration, "events", 1);
+        configuration.AddIndex(registered);
+
+        Assert.True(adHoc.MatchesCompatibilitySource(adHoc.VersionedName, new Dictionary<string, Alias>()));
+    }
+
 }
