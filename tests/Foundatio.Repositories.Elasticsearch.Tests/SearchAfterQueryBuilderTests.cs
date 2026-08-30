@@ -119,17 +119,21 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithLiveSearchAfterPagingAndNoAvailableSort_ThrowsQueryValidationException()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var ctx = CreateContext(CreateKeywordIdResolver(), hasSortableIdField: false);
 
+        // Act
         var exception = await Assert.ThrowsAsync<QueryValidationException>(() => queryBuilder.BuildAsync(ctx));
 
+        // Assert
         Assert.Contains("requires at least one sortable field", exception.Message);
     }
 
     [Fact]
     public async Task BuildAsync_WithLiveSearchAfterPagingAndNonIdentityModelWithoutSort_ThrowsQueryValidationException()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var query = new RepositoryQuery<NonIdentityDocument>();
         var options = new CommandOptions<NonIdentityDocument>()
@@ -137,14 +141,17 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
             .SearchAfterPaging();
         var ctx = new QueryBuilderContext<NonIdentityDocument>(query, options);
 
+        // Act
         var exception = await Assert.ThrowsAsync<QueryValidationException>(() => queryBuilder.BuildAsync(ctx));
 
+        // Assert
         Assert.Contains("requires at least one sortable field", exception.Message);
     }
 
     [Fact]
     public async Task BuildAsync_WithPointInTimeSearchAfterPagingAndExplicitShardDoc_DoesNotAddDuplicate()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var options = new CommandOptions<Employee>()
@@ -153,8 +160,10 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
         var ctx = new QueryBuilderContext<Employee>(query, options);
         ctx.Data[SortQueryBuilder.SortFieldsKey] = new List<SortOptions> { new FieldSort { Field = "_shard_doc" } };
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sort = Assert.Single(((SearchRequest)ctx.Search).Sort!);
         Assert.Equal("_shard_doc", sort.Field!.Field.Name);
     }
@@ -162,6 +171,7 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithPointInTimeSearchAfterPagingAndNoAvailableSort_AddsShardDocSort()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var options = new CommandOptions<Employee>()
@@ -169,8 +179,10 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
             .SearchAfterPaging(SearchAfterPagingMode.PointInTime);
         var ctx = new QueryBuilderContext<Employee>(query, options);
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sort = Assert.Single(((SearchRequest)ctx.Search).Sort!);
         Assert.Equal("_shard_doc", sort.Field!.Field.Name);
     }
@@ -178,6 +190,7 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithPointInTimeSearchAfterPagingAndSortableId_AppendsShardDocSort()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var options = new CommandOptions<Employee>()
@@ -185,8 +198,10 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
             .SearchAfterPaging(SearchAfterPagingMode.PointInTime);
         var ctx = new QueryBuilderContext<Employee>(query, options);
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sorts = GetAppliedSort(ctx);
         Assert.Equal(2, sorts.Count);
         Assert.Equal("id", sorts[0].Field!.Field.Name);
@@ -196,6 +211,7 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithPointInTimeSearchBeforePagingAndNoAvailableSort_ReversesShardDocSort()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var options = new CommandOptions<Employee>()
@@ -204,8 +220,10 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
             .SearchBefore(42);
         var ctx = new QueryBuilderContext<Employee>(query, options);
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sort = Assert.Single(((SearchRequest)ctx.Search).Sort!);
         Assert.Equal("_shard_doc", sort.Field!.Field.Name);
         Assert.Equal(SortOrder.Desc, sort.Field.Order);
@@ -214,6 +232,7 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithPointInTimeSearchBeforePagingAndNoSortableId_ReversesCallerAndShardDocSorts()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var options = new CommandOptions<Employee>()
@@ -223,8 +242,10 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
         var ctx = new QueryBuilderContext<Employee>(query, options);
         ctx.Data[SortQueryBuilder.SortFieldsKey] = new List<SortOptions> { new FieldSort { Field = "name", Order = SortOrder.Asc } };
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sorts = ((SearchRequest)ctx.Search).Sort!.ToList();
         Assert.Equal(2, sorts.Count);
         Assert.Equal("name", sorts[0].Field!.Field.Name);
@@ -236,6 +257,7 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithPointInTimeSearchBeforePagingAndSortableId_ReversesIdAndShardDocSorts()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var options = new CommandOptions<Employee>()
@@ -244,8 +266,10 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
             .SearchBefore(42, 7);
         var ctx = new QueryBuilderContext<Employee>(query, options);
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sorts = GetAppliedSort(ctx);
         Assert.Equal(2, sorts.Count);
         Assert.Equal("id", sorts[0].Field!.Field.Name);
@@ -371,11 +395,14 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithSearchAfterPagingAndTextMappedId_AddsSortSafeIdFieldAsTiebreaker()
     {
+        // Arrange
         var queryBuilder = new SearchAfterQueryBuilder();
         var ctx = CreateContext(CreateTextSortableIdResolver());
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sort = Assert.Single(GetAppliedSort(ctx));
         Assert.Equal("id.sort", sort.Field!.Field.Name);
     }

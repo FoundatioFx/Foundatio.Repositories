@@ -990,6 +990,30 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FindAsync_WithLiveSearchAfterPagingAndCache_UsesCursorInsteadOfCachedFirstPage()
+    {
+        // Arrange
+        var firstEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
+        var secondEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        const string cacheKey = "live-search-after";
+
+        var firstPage = await _employeeRepository.FindAsync(
+            q => q.SortAscending(e => e.Name),
+            o => o.PageLimit(1).SearchAfterPaging().Cache(cacheKey));
+        string? searchAfterToken = firstPage.GetSearchAfterToken();
+
+        // Act
+        var secondPage = await _employeeRepository.FindAsync(
+            q => q.SortAscending(e => e.Name),
+            o => o.PageLimit(1).SearchAfterToken(searchAfterToken, _serializer).Cache(cacheKey));
+
+        // Assert
+        Assert.Equal(firstEmployee.Id, Assert.Single(firstPage.Documents).Id);
+        Assert.Equal(secondEmployee.Id, Assert.Single(secondPage.Documents).Id);
+        Assert.NotEqual(firstPage.Documents.First().Id, secondPage.Documents.First().Id);
+    }
+
+    [Fact]
     public async Task FindAsync_WithSearchAfterPagingLiveModeAndUnstableSortAcrossMultiplePages_LogsWarningOnce()
     {
         // Arrange

@@ -66,13 +66,16 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CountAsync_OnExternallyManagedIndexWithNoIdMapping_ReturnsTotal()
     {
+        // Arrange
         var utcDate = DateTime.UtcNow;
         string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 3);
 
         try
         {
+            // Act
             var result = await _externallyManagedLogEventRepository.CountAsync(q => q.Index(utcDate, utcDate));
 
+            // Assert
             Assert.Equal(3, result.Total);
         }
         finally
@@ -84,6 +87,7 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindAsync_OnExternallyManagedIndexThroughUmbrellaAlias_ReturnsDocuments()
     {
+        // Arrange
         var utcDate = DateTime.UtcNow;
         string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 3);
         string alias = _configuration.ExternallyManagedLogEvents.Name;
@@ -94,8 +98,10 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
                 a => a.Add(ad => ad.Alias(alias).Index(index))), cancellationToken: TestCancellationToken);
             Assert.True(aliasResponse.IsValidResponse, aliasResponse.DebugInformation);
 
+            // Act
             var results = await _externallyManagedLogEventRepository.FindAsync(q => q.SortAscending("value"));
 
+            // Assert
             Assert.Equal(3, results.Documents.Count);
         }
         finally
@@ -169,16 +175,19 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindAsync_WithLiveSearchAfterPagingOnExternallyManagedIndexWithoutSort_ThrowsQueryValidationException()
     {
+        // Arrange
         var utcDate = DateTime.UtcNow;
         string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 3);
 
         try
         {
+            // Act
             var exception = await Assert.ThrowsAsync<QueryValidationException>(() =>
                 _externallyManagedLogEventRepository.FindAsync(
                     q => q.Index(utcDate, utcDate),
                     o => o.PageLimit(1).SearchAfterPaging()));
 
+            // Assert
             Assert.Contains("requires at least one sortable field", exception.Message);
         }
         finally
@@ -190,6 +199,7 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindAsync_WithPointInTimePagingOnExternallyManagedIndexWithoutSort_SupportsBackwardNavigation()
     {
+        // Arrange
         var utcDate = DateTime.UtcNow;
         string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 5);
         var pointInTime = (ISupportPointInTime)_externallyManagedLogEventRepository;
@@ -197,6 +207,7 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
 
         try
         {
+            // Act
             var firstPage = await _externallyManagedLogEventRepository.FindAsync(
                 q => q.Index(utcDate, utcDate),
                 o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
@@ -219,6 +230,7 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
                     .SearchBeforeToken(secondPage.GetSearchBeforeToken(), _serializer));
             pointInTimeId = backToFirstPage.GetPointInTimeId();
 
+            // Assert
             Assert.Equal(firstPageValues, backToFirstPage.Documents.Select(d => d.Value));
         }
         finally
@@ -233,12 +245,14 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindAsync_WithPointInTimeSearchAfterPagingOnExternallyManagedIndexWithoutSort_ReturnsAllDocuments()
     {
+        // Arrange
         var utcDate = DateTime.UtcNow;
         const int documentCount = 10;
         string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: documentCount);
 
         try
         {
+            // Act
             var results = await _externallyManagedLogEventRepository.FindAsync(
                 q => q.Index(utcDate, utcDate),
                 o => o.PageLimit(3).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
@@ -250,6 +264,7 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
                 pagedRecords += results.Documents.Count;
             } while (await results.NextPageAsync());
 
+            // Assert
             Assert.Equal(documentCount, pagedRecords);
             Assert.Equal(documentCount, viewedValues.Count);
         }
@@ -298,6 +313,7 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
     [Fact]
     public async Task MappingResolver_WithMalformedExternalIndexName_UsesLatestValidDatedMapping()
     {
+        // Arrange
         string prefix = _configuration.ExternallyManagedLogEvents.Name;
         string olderValidIndex = $"{prefix}-{DateTime.UtcNow.AddDays(-1):yyyy.MM.dd}";
         string latestValidIndex = $"{prefix}-{DateTime.UtcNow:yyyy.MM.dd}";
@@ -317,8 +333,10 @@ public sealed class ExternallyManagedIndexTests : ElasticRepositoryTestBase
         Assert.True(latestValidResponse.IsValidResponse, latestValidResponse.DebugInformation);
         Assert.True(malformedResponse.IsValidResponse, malformedResponse.DebugInformation);
 
+        // Act
         _configuration.ExternallyManagedLogEvents.MappingResolver.RefreshMapping();
 
+        // Assert
         Assert.Equal("message.sort", _configuration.ExternallyManagedLogEvents.MappingResolver.GetSortFieldName("message"));
     }
 

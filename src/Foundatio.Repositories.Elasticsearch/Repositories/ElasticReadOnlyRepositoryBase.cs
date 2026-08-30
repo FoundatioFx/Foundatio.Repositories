@@ -391,7 +391,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return FindAsAsync<TResult>(query.Configure(), options?.Configure());
     }
 
-    private enum PagingStrategy { Normal, Snapshot, SearchAfterPointInTime }
+    private enum PagingStrategy
+    {
+        Normal,
+        SearchAfterLive,
+        SearchAfterPointInTime,
+        Snapshot
+    }
 
     private static PagingStrategy GetPagingStrategy(ICommandOptions options)
     {
@@ -401,8 +407,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (useSearchAfter && useSnapshot)
             throw new QueryValidationException("Snapshot paging and search-after paging cannot be used together.");
 
+        if (useSearchAfter && (options.ShouldUseAsyncQuery() || options.HasAsyncQueryId()))
+            throw new QueryValidationException("Async queries and search-after paging cannot be used together.");
+
         if (usePointInTime)
             return PagingStrategy.SearchAfterPointInTime;
+
+        if (useSearchAfter)
+            return PagingStrategy.SearchAfterLive;
 
         if (useSnapshot)
             return PagingStrategy.Snapshot;
@@ -413,14 +425,15 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null) where TResult : class, new()
     {
         options = ConfigureOptions(options?.As<T>());
-        var pagingStrategy = GetPagingStrategy(options);
 
         try
         {
-            // don't use caching with paged modes.
-            bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal;
-
             await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
+
+            var pagingStrategy = GetPagingStrategy(options);
+
+            // Don't use caching with paged modes.
+            bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal;
 
             await RefreshForConsistency(query, options).AnyContext();
 
@@ -598,6 +611,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return result.FirstOrDefault() ?? FindHit<T>.Empty;
 
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(FindOneAsync));
 
         await RefreshForConsistency(query, options).AnyContext();
 
@@ -641,6 +655,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
 
         await RefreshForConsistency(query, options).AnyContext();
 
@@ -705,6 +720,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         options = ConfigureOptions(options?.As<T>());
         ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
 
         await RefreshForConsistency(query, options).AnyContext();
 

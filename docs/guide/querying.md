@@ -404,15 +404,22 @@ all-null arrays as "clear the cursor." Tokens preserve every decoded sort value,
 because a missing field can legitimately produce a null element inside Elasticsearch's sort tuple.
 The cursor must contain exactly one value for each final sort field; malformed cardinality and
 simultaneous forward/backward cursors fail with `QueryValidationException` before a request is sent.
+Search-after requests bypass repository query-result caching because the cache key does not contain
+the cursor tuple. Cache options can remain on shared option builders, but they are ignored for both
+Live and point-in-time search-after sessions.
 
 Changing between `Live` and `PointInTime` starts a new paging session and clears cursors, PIT
 ownership/id, and warning state. Reapplying the current mode preserves the active session.
+The repository evaluates the final paging mode after `BeforeQuery` handlers run, so a handler can
+enable or disable paging without leaving request setup, validation, or caching on the previous mode.
 Calling `PointInTimeId(...)` establishes a caller-owned PIT, even when the options previously held
 a repository-owned PIT; close the active repository-owned PIT before replacing its ID so the old
 PIT is not retained until expiry. Snapshot/scroll paging cannot be combined with search-after
-paging in either mode. `FindOneAsync`, `CountAsync`, and all `ExistsAsync` overloads also reject PIT
-search-after options because scalar results cannot return the updated PIT id and cursor required
-for safe continuation.
+paging in either mode. Async queries cannot be combined with search-after paging because partial or
+polled results cannot safely advance cursor and PIT state. `FindOneAsync`, `CountAsync`, and all
+`ExistsAsync` overloads also reject PIT search-after options because scalar results cannot return
+the updated PIT id and cursor required for safe continuation. These unsupported combinations fail
+with `QueryValidationException` before Elasticsearch receives a request.
 
 > [!WARNING]
 > **Avoid unstable sort keys (`_doc`, `_score`) with search after paging.** These keys are only

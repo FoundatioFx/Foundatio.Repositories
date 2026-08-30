@@ -230,13 +230,16 @@ public class ExternallyManagedIndex : DailyIndex<LogEvent>
 
 ```csharp
 var results = await repository.FindAsync(
-    q => q.SortAscending(e => e.CreatedUtc),
+    q => q.SortAscending(e => e.CreatedUtc)
+        .SortAscending("event.sequence"), // guaranteed unique by the external writer
     o => o.PageLimit(50).SearchAfterPaging());
 ```
 
 3. **If the index's real mapping is discoverable** (e.g., you control the naming and just need this library to find it), override `MappingIndexPattern` and `GetIndexDate()` together so the mapping resolver can locate and order the real server mappings instead of guessing from the code mapping. See [Externally-Managed Indexes](/guide/index-management#externally-managed-indexes) for the full explanation and code.
 
-> If the model doesn't implement `IIdentity` at all, none of the above is needed: the id tiebreaker is skipped automatically, since there is no `Id` property to sort by in the first place.
+> If the model doesn't implement `IIdentity`, the automatic id tiebreaker is skipped because there
+> is no `Id` property to sort by. The mapping opt-out is unnecessary, but Live search-after still
+> requires your own stable, unique sort tuple, as shown above.
 
 ## Cache Issues
 

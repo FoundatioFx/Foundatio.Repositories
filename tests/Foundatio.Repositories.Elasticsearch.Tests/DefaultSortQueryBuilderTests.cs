@@ -155,11 +155,14 @@ public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithTextMappedId_AddsSortSafeIdFieldAsDefault()
     {
+        // Arrange
         var queryBuilder = new DefaultSortQueryBuilder();
         var ctx = CreateContext(CreateTextSortableIdResolver());
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         var sortFields = Assert.IsType<List<SortOptions>>(ctx.Data[SortQueryBuilder.SortFieldsKey]);
         var sort = Assert.Single(sortFields);
         Assert.Equal("id.sort", sort.Field!.Field.Name);
@@ -196,8 +199,10 @@ public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public void HasSortableIdField_WhenImplementationOmitsMember_DefaultsToTrue()
     {
+        // Arrange / Act
         IIndex index = new FakeIndex { MappingResolver = CreateKeywordIdResolver() };
 
+        // Assert
         Assert.True(index.HasSortableIdField);
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -50,16 +51,19 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void CursorArrayReturnTypes_RemainSourceCompatible()
     {
+        // Arrange
         var afterOptions = new CommandOptions<Employee>().SearchAfter("after");
         var beforeOptions = new CommandOptions<Employee>().SearchBefore("before");
         var hit = new FindHit<Employee>(null, null, 0);
         hit.Data[ElasticDataKeys.Sorts] = new object?[] { null };
 
+        // Act
         object[]? after = afterOptions.GetSearchAfter();
         object[]? before = beforeOptions.GetSearchBefore();
         object[]? decoded = FindHitExtensions.DecodeSortToken(EncodeToken([null]), Serializer);
         object[]? sorts = hit.GetSorts();
 
+        // Assert
         Assert.Equal(new object[] { "after" }, after);
         Assert.Equal(new object[] { "before" }, before);
         Assert.Equal(new object?[] { null }, decoded);
@@ -69,13 +73,16 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public async Task PageableQueryBuilder_WithDisabledPaging_IgnoresStaleCursor()
     {
+        // Arrange
         var options = new CommandOptions<Employee>().SearchAfterPaging(false);
         options.Values.Set(SearchAfterQueryExtensions.SearchAfterKey, new object?[] { "stale" });
         var context = new QueryBuilderContext<Employee>(new RepositoryQuery<Employee>(), options);
 
+        // Act
         await new PageableQueryBuilder().BuildAsync(context);
         SearchRequest request = context.Search;
 
+        // Assert
         Assert.Null(request.SearchAfter);
     }
 
@@ -96,15 +103,37 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchAfterPagingMode_Disabled_ClearsPagingSession()
     {
+        // Arrange
         var options = CreateActivePagingSession();
 
+        // Act
         options.SearchAfterPaging(SearchAfterPagingMode.PointInTime, false);
 
+        // Assert
         AssertPagingSessionCleared(options);
     }
 
     [Fact]
-    public void SearchAfterPagingMode_WhenModeChangesFromLiveToPointInTime_ClearsPagingSessionState()
+    public void SearchAfterPagingMode_WhenModeChangesToLive_ClearsPagingSessionState()
+    {
+        // Arrange
+        var options = CreateActivePagingSession();
+
+        // Act
+        options.SearchAfterPaging(SearchAfterPagingMode.Live);
+
+        // Assert
+        Assert.True(options.ShouldUseSearchAfterPaging());
+        Assert.Equal(SearchAfterPagingMode.Live, options.GetSearchAfterPagingMode());
+        Assert.False(options.HasSearchAfter());
+        Assert.False(options.HasSearchBefore());
+        Assert.False(options.HasPointInTimeId());
+        Assert.False(options.IsRepoOwnedPointInTime());
+        Assert.False(options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false));
+    }
+
+    [Fact]
+    public void SearchAfterPagingMode_WhenModeChangesToPointInTime_ClearsPagingSessionState()
     {
         // Arrange
         var options = new CommandOptions<Employee>()
@@ -120,25 +149,6 @@ public sealed class SearchAfterQueryExtensionsTests
         Assert.True(options.ShouldUseSearchAfterPaging());
         Assert.Equal(SearchAfterPagingMode.PointInTime, options.GetSearchAfterPagingMode());
         Assert.False(options.HasSearchAfter());
-        Assert.False(options.HasPointInTimeId());
-        Assert.False(options.IsRepoOwnedPointInTime());
-        Assert.False(options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false));
-    }
-
-    [Fact]
-    public void SearchAfterPagingMode_WhenModeChanges_ClearsPagingSessionState()
-    {
-        // Arrange
-        var options = CreateActivePagingSession();
-
-        // Act
-        options.SearchAfterPaging(SearchAfterPagingMode.Live);
-
-        // Assert
-        Assert.True(options.ShouldUseSearchAfterPaging());
-        Assert.Equal(SearchAfterPagingMode.Live, options.GetSearchAfterPagingMode());
-        Assert.False(options.HasSearchAfter());
-        Assert.False(options.HasSearchBefore());
         Assert.False(options.HasPointInTimeId());
         Assert.False(options.IsRepoOwnedPointInTime());
         Assert.False(options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false));
@@ -164,10 +174,13 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchAfterPaging_Disabled_ClearsPagingSession()
     {
+        // Arrange
         var options = CreateActivePagingSession();
 
+        // Act
         options.SearchAfterPaging(false);
 
+        // Assert
         AssertPagingSessionCleared(options);
     }
 
@@ -193,10 +206,13 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchAfterToken_WithAllNullValues_SetsCursorUnlikeRawPath()
     {
+        // Arrange
         string token = EncodeToken([null]);
 
+        // Act
         var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfterToken(token, Serializer);
 
+        // Assert
         Assert.True(options.HasSearchAfter());
         Assert.Equal(new object?[] { null }, options.GetSearchAfter());
     }
@@ -218,8 +234,10 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchAfterToken_WithExistingBeforeCursor_SelectsAfterDirection()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchBefore("before").SearchAfterToken(EncodeToken(["after"]), Serializer);
 
+        // Assert
         Assert.True(options.HasSearchAfter());
         Assert.False(options.HasSearchBefore());
     }
@@ -231,22 +249,26 @@ public sealed class SearchAfterQueryExtensionsTests
         var options = new CommandOptions<Employee>();
 
         // Act / Assert
-        Assert.ThrowsAny<Exception>(() => options.SearchAfterToken("not-a-token", Serializer));
+        Assert.Throws<JsonException>(() => options.SearchAfterToken("not-a-token", Serializer));
     }
 
     [Fact]
     public void SearchAfterToken_WithNullSerializer_ThrowsArgumentNullException()
     {
+        // Arrange
         var options = new CommandOptions<Employee>();
 
+        // Act / Assert
         Assert.Throws<ArgumentNullException>(() => options.SearchAfterToken("token", null!));
     }
 
     [Fact]
     public void SearchAfterToken_WithNullToken_ClearsBothCursors()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchBefore("before").SearchAfterToken(null, Serializer);
 
+        // Assert
         Assert.False(options.HasSearchAfter());
         Assert.False(options.HasSearchBefore());
     }
@@ -254,26 +276,33 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchAfter_WithAllNullValues_ClearsCursor()
     {
+        // Arrange
         var options = new CommandOptions<Employee>().SearchAfter("existing");
 
+        // Act
         options.SearchAfter(new object?[] { null, null });
 
+        // Assert
         Assert.False(options.HasSearchAfter());
     }
 
     [Fact]
     public void SearchAfter_WithEmptyArray_ClearsCursor()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter();
 
+        // Assert
         Assert.False(options.HasSearchAfter());
     }
 
     [Fact]
     public void SearchAfter_WithExistingBeforeCursor_SelectsAfterDirection()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchBefore("before").SearchAfter("after");
 
+        // Assert
         Assert.True(options.HasSearchAfter());
         Assert.False(options.HasSearchBefore());
     }
@@ -281,26 +310,33 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchAfter_WithMixedNullValues_PreservesCursor()
     {
+        // Arrange
         var options = new CommandOptions<Employee>();
 
+        // Act
         options.SearchAfter(new object?[] { "value", null });
 
+        // Assert
         Assert.Equal(new object?[] { "value", null }, options.GetSearchAfter());
     }
 
     [Fact]
     public void SearchAfter_WithNullArrayReference_ClearsCursor()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchAfter("a").SearchAfter(null);
 
+        // Assert
         Assert.False(options.HasSearchAfter());
     }
 
     [Fact]
     public void SearchAfter_WithValues_EnablesPagingAndSetsCursor()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchAfter("a", "b");
 
+        // Assert
         Assert.True(options.ShouldUseSearchAfterPaging());
         Assert.True(options.HasSearchAfter());
         Assert.Equal(new object?[] { "a", "b" }, options.GetSearchAfter());
@@ -309,8 +345,10 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchBeforeToken_WithExistingAfterCursor_SelectsBeforeDirection()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchAfter("after").SearchBeforeToken(EncodeToken(["before"]), Serializer);
 
+        // Assert
         Assert.False(options.HasSearchAfter());
         Assert.True(options.HasSearchBefore());
     }
@@ -318,26 +356,33 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchBeforeToken_WithNullSerializer_ThrowsArgumentNullException()
     {
+        // Arrange
         var options = new CommandOptions<Employee>();
 
+        // Act / Assert
         Assert.Throws<ArgumentNullException>(() => options.SearchBeforeToken("token", null!));
     }
 
     [Fact]
     public void SearchBefore_WithAllNullValues_ClearsCursor()
     {
+        // Arrange
         var options = new CommandOptions<Employee>().SearchBefore("existing");
 
+        // Act
         options.SearchBefore(new object?[] { null, null });
 
+        // Assert
         Assert.False(options.HasSearchBefore());
     }
 
     [Fact]
     public void SearchBefore_WithExistingAfterCursor_SelectsBeforeDirection()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchAfter("after").SearchBefore("before");
 
+        // Assert
         Assert.False(options.HasSearchAfter());
         Assert.True(options.HasSearchBefore());
     }
@@ -345,26 +390,33 @@ public sealed class SearchAfterQueryExtensionsTests
     [Fact]
     public void SearchBefore_WithMixedNullValues_PreservesCursor()
     {
+        // Arrange
         var options = new CommandOptions<Employee>();
 
+        // Act
         options.SearchBefore(new object?[] { "value", null });
 
+        // Assert
         Assert.Equal(new object?[] { "value", null }, options.GetSearchBefore());
     }
 
     [Fact]
     public void SearchBefore_WithNullArrayReference_ClearsCursor()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchBefore("a").SearchBefore(null);
 
+        // Assert
         Assert.False(options.HasSearchBefore());
     }
 
     [Fact]
     public void SearchBefore_WithValues_EnablesPagingAndSetsCursor()
     {
+        // Arrange / Act
         var options = new CommandOptions<Employee>().SearchBefore("a", "b");
 
+        // Assert
         Assert.True(options.ShouldUseSearchAfterPaging());
         Assert.True(options.HasSearchBefore());
         Assert.Equal(new object?[] { "a", "b" }, options.GetSearchBefore());
