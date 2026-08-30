@@ -70,7 +70,6 @@ internal sealed class ElasticReindexTaskRunner
                 d.Dest(destination => destination.Index(targetIndex).OpType(OpType.Create).Pipeline("_none"));
                 d.Conflicts(Conflicts.Abort);
                 d.Refresh();
-                d.Slices(SlicesCalculation.Auto);
                 d.WaitForCompletion(false);
                 d.RequestConfiguration(request => request.OpaqueId(opaqueId));
 

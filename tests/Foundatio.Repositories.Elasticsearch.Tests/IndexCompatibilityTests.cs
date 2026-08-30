@@ -76,6 +76,25 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task RunCompatibilityReindexAsync_RequestDoesNotUseAutomaticSlicing()
+    {
+        var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
+        var requestInvoker = new InMemoryRequestInvoker(Encoding.UTF8.GetBytes("{}"), 200, null, "application/json", headers);
+        string? requestUri = null;
+        var settings = new ElasticsearchClientSettings(requestInvoker)
+            .OnRequestCompleted(call => requestUri = call.Uri?.PathAndQuery);
+        var client = new ElasticsearchClient(settings);
+        var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
+
+        await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        Assert.NotNull(requestUri);
+        Assert.StartsWith("/_reindex", requestUri, StringComparison.Ordinal);
+        Assert.DoesNotContain("slices=", requestUri, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task RunCompatibilityReindexAsync_WhenTerminalResponseHasVersionConflict_RejectsExactCopy()
     {
         var requestInvoker = new SequenceRequestInvoker(
