@@ -797,6 +797,30 @@ public partial class IndexCompatibilityTests
         Assert.Contains("does not belong", exception.Message);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompatibilityRecovery_WithSourceOwnedByRegisteredSibling_RejectsBeforeRequest(bool recover)
+    {
+        using var configuration = new ElasticConfiguration();
+        using var events = new VersionedIndex<object>(configuration, "events", 1);
+        using var natural = new VersionedIndex<object>(configuration, "reindexed-v8-events", 1);
+        configuration.AddIndex(events);
+        configuration.AddIndex(natural);
+
+        var exception = recover
+            ? await Assert.ThrowsAsync<ArgumentException>(() => configuration.RecoverIndexCompatibilityUpgradeAsync(
+                events,
+                natural.VersionedName,
+                TestContext.Current.CancellationToken))
+            : await Assert.ThrowsAsync<ArgumentException>(() => configuration.InspectIndexCompatibilityUpgradeAsync(
+                events,
+                natural.VersionedName,
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains("does not belong", exception.Message);
+    }
+
     [Fact]
     public void ValidateDistinctSourceAndTarget_WithCurrentMajorDestination_RejectsRecovery()
     {

@@ -628,10 +628,43 @@ public class Index : IIndexCompatibility, IHaveLogger
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
         ReadOnlySpan<char> candidate = sourceIndex;
         if (IsNativeCompatibilityName(candidate, out _))
-            return true;
+            return !IsNativelyClaimedByOtherConfiguredIndex(candidate);
+
+        // A configured sibling's native name takes precedence over interpreting the same text as this
+        // index's compatibility wrapper.
+        if (IsNativelyClaimedByOtherConfiguredIndex(candidate))
+            return false;
 
         return CompatibilityIndexName.TryRemovePrefix(sourceIndex, out candidate)
-            && IsNativeCompatibilityName(candidate, out _);
+            && IsNativeCompatibilityName(candidate, out _)
+            && !IsNativelyClaimedByOtherConfiguredIndex(candidate);
+    }
+
+    private bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate)
+    {
+        bool mineIsExact = candidate.Equals(Name.AsSpan(), StringComparison.Ordinal);
+        foreach (IIndex other in Configuration.Indexes)
+        {
+            if (ReferenceEquals(other, this) || String.Equals(other.Name, Name, StringComparison.Ordinal))
+                continue;
+
+            bool otherIsExact = candidate.Equals(other.Name.AsSpan(), StringComparison.Ordinal);
+            if (other is not Index otherIndex)
+            {
+                if (otherIsExact)
+                    return true;
+                continue;
+            }
+
+            if (!otherIndex.IsNativeCompatibilityName(candidate, out _))
+                continue;
+            if (mineIsExact && !otherIsExact)
+                continue;
+
+            return true;
+        }
+
+        return false;
     }
 
     internal bool IsPotentialCompatibilityErrorName(string sourceIndex)
@@ -649,6 +682,9 @@ public class Index : IIndexCompatibility, IHaveLogger
         ReadOnlySpan<char> candidate = sourceIndex;
         if (!IsNativeCompatibilityName(candidate, out isErrorIndex))
         {
+            if (IsNativelyClaimedByOtherConfiguredIndex(candidate))
+                return false;
+
             if (!CompatibilityIndexName.TryRemovePrefix(sourceIndex, out candidate)
                 || !IsNativeCompatibilityName(candidate, out isErrorIndex))
                 return false;
@@ -660,38 +696,7 @@ public class Index : IIndexCompatibility, IHaveLogger
                 return false;
         }
 
-        foreach (IIndex other in Configuration.Indexes)
-        {
-            if (ReferenceEquals(other, this))
-                continue;
-
-            // Multiple index instances may represent the same logical family (for example, an ad-hoc
-            // retention policy beside the registered index). They do not create an ownership conflict.
-            if (String.Equals(other.Name, Name, StringComparison.Ordinal))
-                continue;
-
-            bool otherIsExact = candidate.Equals(other.Name.AsSpan(), StringComparison.Ordinal);
-            if (other is not Index otherIndex)
-            {
-                if (otherIsExact)
-                    return false;
-                continue;
-            }
-
-            if (!otherIndex.IsNativeCompatibilityName(candidate, out _))
-                continue;
-
-            bool mineIsExact = candidate.Equals(Name.AsSpan(), StringComparison.Ordinal);
-            if (otherIsExact && !mineIsExact)
-                return false;
-            if (mineIsExact && !otherIsExact)
-                continue;
-
-            // Equal structural claims are ambiguous. Neither configured index may mutate the physical index.
-            return false;
-        }
-
-        return true;
+        return !IsNativelyClaimedByOtherConfiguredIndex(candidate);
     }
 
     private bool IsNativeCompatibilityName(ReadOnlySpan<char> sourceIndex, out bool isErrorIndex)
