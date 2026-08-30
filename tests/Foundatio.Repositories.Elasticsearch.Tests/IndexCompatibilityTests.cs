@@ -614,6 +614,19 @@ public partial class IndexCompatibilityTests
         Assert.Equal(expected, canonicalName);
     }
 
+    [Fact]
+    public void CompatibilityIndexName_ConfiguredReindexedName_StripsGeneratedWrapper()
+    {
+        const string configuredName = "reindexed";
+        const string source = "reindexed-v1";
+        const string target = "reindexed-v9-reindexed-v1";
+
+        Assert.Equal(source, CompatibilityIndexName.GetCanonicalName(source, configuredName));
+        Assert.Equal(target, CompatibilityIndexName.Create(source, 9, configuredName));
+        Assert.Equal(source, CompatibilityIndexName.GetCanonicalName(target, configuredName));
+        Assert.Equal("reindexed-v10-reindexed-v1", CompatibilityIndexName.Create(target, 10, configuredName));
+    }
+
     [Theory]
     [InlineData(null, "7.17.19", 7)]
     [InlineData(null, "8.11.0", 8)]

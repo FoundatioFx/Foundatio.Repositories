@@ -46,6 +46,16 @@ internal static class CompatibilityIndexName
 
         ReadOnlySpan<char> indexSpan = index;
         ReadOnlySpan<char> configuredSpan = configuredIndexName;
+        bool hasCompatibilityPrefix = TryRemovePrefix(index, out ReadOnlySpan<char> canonicalName);
+        if (hasCompatibilityPrefix
+            && (canonicalName.Equals(configuredSpan, StringComparison.Ordinal)
+                || (canonicalName.Length > configuredSpan.Length
+                && canonicalName.StartsWith(configuredSpan, StringComparison.Ordinal)
+                && canonicalName[configuredSpan.Length] is '-')))
+        {
+            return canonicalName;
+        }
+
         if (indexSpan.Equals(configuredSpan, StringComparison.Ordinal)
             || (indexSpan.Length > configuredSpan.Length
                 && indexSpan.StartsWith(configuredSpan, StringComparison.Ordinal)
@@ -54,7 +64,7 @@ internal static class CompatibilityIndexName
             return indexSpan;
         }
 
-        return TryRemovePrefix(index, out ReadOnlySpan<char> canonicalName) ? canonicalName : indexSpan;
+        return hasCompatibilityPrefix ? canonicalName : indexSpan;
     }
 
     internal static bool TryRemovePrefix(string index, out ReadOnlySpan<char> canonicalName)
