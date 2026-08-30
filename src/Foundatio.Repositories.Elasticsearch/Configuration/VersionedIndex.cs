@@ -434,17 +434,6 @@ public class VersionedIndex : Index, IVersionedIndex
         if (response.Indices.Count == 0)
             return new List<IndexInfo>();
 
-        var aliasResponse = await Configuration.Client.Indices.GetAliasAsync(a => a.Name($"{Name}-*")).AnyContext();
-        _logger.LogRequest(aliasResponse);
-
-        if (!aliasResponse.IsValidResponse && aliasResponse.ElasticsearchServerError?.Status != 404)
-            throw new RepositoryException(aliasResponse.GetErrorMessage($"Error getting index aliases for {filter}"), aliasResponse.OriginalException());
-
-#if ELASTICSEARCH9
-        var aliasIndices = aliasResponse.Aliases;
-#else
-        var aliasIndices = aliasResponse.Values;
-#endif
         var indices = response.Indices
             .Where(i => i.Value is not null
                 && MatchesCompatibilitySource(i.Key, i.Value.Aliases)
@@ -452,17 +441,14 @@ public class VersionedIndex : Index, IVersionedIndex
             .Where(i => version < 0 || GetIndexVersion(i.Key) == version)
             .Select(i =>
             {
+                var indexState = i.Value!;
                 string indexName = i.Key;
                 var indexDate = GetIndexDate(indexName);
                 string indexAliasName = GetIndexByDate(GetIndexDate(indexName));
 
                 int currentVersion = -1;
-                if (aliasResponse.IsValidResponse && aliasIndices != null && aliasIndices.TryGetValue(i.Key, out var indexAliases))
-                {
-                    // Find if any of our aliases point to this index
-                    if (indexAliases.Aliases.ContainsKey(indexAliasName))
-                        currentVersion = GetIndexVersion(indexName);
-                }
+                if (indexState.Aliases?.ContainsKey(indexAliasName) is true)
+                    currentVersion = GetIndexVersion(indexName);
 
                 return new IndexInfo { DateUtc = indexDate, Index = indexName, Version = GetIndexVersion(indexName), CurrentVersion = currentVersion };
             })

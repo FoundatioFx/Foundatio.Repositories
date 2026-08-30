@@ -238,6 +238,25 @@ public partial class IndexCompatibilityTests
         }
     }
 
+    private sealed class RequestInvokerElasticConfiguration : ElasticConfiguration
+    {
+        private readonly IRequestInvoker _requestInvoker;
+
+        public RequestInvokerElasticConfiguration(IRequestInvoker requestInvoker)
+        {
+            _requestInvoker = requestInvoker;
+        }
+
+        public int RequestCount { get; private set; }
+
+        protected override ElasticsearchClient CreateElasticClient()
+        {
+            var settings = new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), _requestInvoker)
+                .OnRequestCompleted(_ => RequestCount++);
+            return new ElasticsearchClient(settings);
+        }
+    }
+
     private sealed record StubResponse(int StatusCode, string Content, Exception? Exception = null);
 
     private sealed class SequenceRequestInvoker : IRequestInvoker

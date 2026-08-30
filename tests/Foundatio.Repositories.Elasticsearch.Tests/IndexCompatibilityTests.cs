@@ -471,6 +471,33 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task GetCurrentVersionAsync_WithHiddenDatedAlias_UsesAliasFromIndexMetadata()
+    {
+        const string name = "hidden-logs";
+        string date = DateTime.UtcNow.ToString("yyyy.MM.dd");
+        string responseBody = $$"""
+            {
+              "{{name}}-v1-{{date}}": { "aliases": {} },
+              "{{name}}-v2-{{date}}": {
+                "aliases": {
+                  "{{name}}-{{date}}": { "is_hidden": true }
+                }
+              }
+            }
+            """;
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, responseBody),
+            new StubResponse(200, "{}"));
+        using var configuration = new RequestInvokerElasticConfiguration(requestInvoker);
+        using var index = new TestDailyIndex(configuration, name, 3);
+
+        int currentVersion = await index.GetCurrentVersionAsync();
+
+        Assert.Equal(2, currentVersion);
+        Assert.Equal(1, configuration.RequestCount);
+    }
+
+    [Fact]
     public void GetOpaqueId_IsDeterministicAndLineageSpecific()
     {
         string first = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
