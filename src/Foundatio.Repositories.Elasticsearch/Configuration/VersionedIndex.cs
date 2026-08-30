@@ -210,8 +210,17 @@ public class VersionedIndex : Index, IVersionedIndex
 
     public override async Task DeleteAsync()
     {
-        string canonicalPattern = $"{Name}-v*";
-        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexForDestructiveOperation).AnyContext();
+        int currentVersion = await GetCurrentVersionAsync();
+        var indexesToDelete = new List<string>(4);
+        if (currentVersion != Version)
+        {
+            indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
+            indexesToDelete.Add(String.Concat(Name, "-v", currentVersion, "-error"));
+        }
+
+        indexesToDelete.Add(VersionedName);
+        indexesToDelete.Add(String.Concat(VersionedName, "-error"));
+        await DeleteIndexesAsync(indexesToDelete.ToArray()).AnyContext();
     }
 
     public ReindexWorkItem CreateReindexWorkItem(int currentVersion)
@@ -345,51 +354,69 @@ public class VersionedIndex : Index, IVersionedIndex
         if (String.IsNullOrEmpty(name))
             throw new ArgumentNullException(nameof(name));
 
-        name = CompatibilityIndexName.GetCanonicalName(name, Name);
-
-        string namePrefix = $"{Name}-v";
-        if (name.Length <= namePrefix.Length || !name.StartsWith(namePrefix))
+        ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(name, Name);
+        int versionStart = Name.Length + 2;
+        if (canonicalName.Length <= versionStart
+            || !canonicalName.StartsWith(Name.AsSpan(), StringComparison.Ordinal)
+            || canonicalName[Name.Length] is not '-'
+            || canonicalName[Name.Length + 1] is not 'v')
+        {
             return -1;
+        }
 
-        string input = name.Substring($"{Name}-v".Length);
-        int index = input.IndexOf('-');
-        if (index > 0)
-            input = input.Substring(0, index);
+        int versionEnd = versionStart;
+        while (versionEnd < canonicalName.Length && canonicalName[versionEnd] is >= '0' and <= '9')
+            versionEnd++;
 
-        if (Int32.TryParse(input, out int version))
-            return version;
+        if (versionEnd == versionStart
+            || (versionEnd < canonicalName.Length && canonicalName[versionEnd] is not '-'))
+        {
+            return -1;
+        }
 
-        return -1;
+        return Int32.TryParse(canonicalName[versionStart..versionEnd], out int version) ? version : -1;
     }
 
     protected override string GetCompatibilityIndexPattern()
     {
-        string canonicalPattern = $"{Name}-v*";
-        return $"{canonicalPattern},{CompatibilityIndexName.CreatePattern(canonicalPattern)}";
+        return $"{Name}-v*";
     }
 
-    internal override bool OwnsCompatibilityIndexCore(string sourceIndex)
+    internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
     {
-        string canonicalName = CompatibilityIndexName.GetCanonicalName(sourceIndex, Name);
-        int sourceVersion = GetIndexVersion(canonicalName);
-        return sourceVersion >= 0
-            && (HasMultipleIndexes || String.Equals(canonicalName, $"{Name}-v{sourceVersion}", StringComparison.Ordinal));
+        ReadOnlySpan<char> name = Name;
+        if (sourceIndex.Length <= name.Length + 2
+            || !sourceIndex.StartsWith(name, StringComparison.Ordinal)
+            || sourceIndex[name.Length] is not '-'
+            || sourceIndex[name.Length + 1] is not 'v')
+        {
+            return false;
+        }
+
+        int offset = name.Length + 2;
+        int versionStart = offset;
+        while (offset < sourceIndex.Length && sourceIndex[offset] is >= '0' and <= '9')
+            offset++;
+
+        if (offset == versionStart)
+            return false;
+
+        return HasMultipleIndexes || offset == sourceIndex.Length;
     }
 
-    internal override void ValidateCompatibilityUpgradeSource(string sourceIndex, bool ownsLogicalAlias)
+    internal override void ValidateCompatibilityUpgradeSource(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases)
     {
-        base.ValidateCompatibilityUpgradeSource(sourceIndex, ownsLogicalAlias);
+        base.ValidateCompatibilityUpgradeSource(sourceIndex, aliases);
         int sourceVersion = GetIndexVersion(sourceIndex);
-        if (sourceVersion != Version && ownsLogicalAlias)
+        if (sourceVersion != Version && aliases?.ContainsKey(Name) is true)
             throw new RepositoryException($"Index '{sourceIndex}' uses schema version {sourceVersion}, but '{Name}' is configured for version {Version}. Run the schema reindex before upgrading Elasticsearch index compatibility.");
     }
 
     protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1)
     {
-        string canonicalFilter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
+        string filter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
         if (HasMultipleIndexes)
-            canonicalFilter += "-*";
-        string filter = $"{canonicalFilter},{CompatibilityIndexName.CreatePattern(canonicalFilter)}";
+            filter += "-*";
 
         var sw = Stopwatch.StartNew();
         var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable()).AnyContext();
@@ -418,17 +445,19 @@ public class VersionedIndex : Index, IVersionedIndex
 #else
         var aliasIndices = aliasResponse.Values;
 #endif
-        var indices = response.Indices.Keys
-            .Where(i => OwnsCompatibilityIndexExclusively(i.ToString()) && !IsGeneratedErrorIndex(i.ToString()))
-            .Where(i => version < 0 || GetIndexVersion(i.ToString()) == version)
+        var indices = response.Indices
+            .Where(i => i.Value is not null
+                && MatchesCompatibilitySource(i.Key, i.Value.Aliases)
+                && !i.Value.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
+            .Where(i => version < 0 || GetIndexVersion(i.Key) == version)
             .Select(i =>
             {
-                string indexName = i.ToString();
+                string indexName = i.Key;
                 var indexDate = GetIndexDate(indexName);
                 string indexAliasName = GetIndexByDate(GetIndexDate(indexName));
 
                 int currentVersion = -1;
-                if (aliasResponse.IsValidResponse && aliasIndices != null && aliasIndices.TryGetValue(i, out var indexAliases))
+                if (aliasResponse.IsValidResponse && aliasIndices != null && aliasIndices.TryGetValue(i.Key, out var indexAliases))
                 {
                     // Find if any of our aliases point to this index
                     if (indexAliases.Aliases.ContainsKey(indexAliasName))

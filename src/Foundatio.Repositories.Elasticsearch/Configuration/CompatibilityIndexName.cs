@@ -5,20 +5,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 internal static class CompatibilityIndexName
 {
     private const string Prefix = "reindexed-v";
-    private const string ErrorSuffix = "-error";
-
-    /// <summary>
-    /// Strips a syntactically valid <c>-error</c> suffix. Callers must independently verify the shared
-    /// reindexer's hidden ownership marker before treating the result as a generated error partition.
-    /// </summary>
-    public static string StripErrorSuffix(string index)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(index);
-
-        return index.EndsWith(ErrorSuffix, StringComparison.Ordinal) && index.Length > ErrorSuffix.Length
-            ? index[..^ErrorSuffix.Length]
-            : index;
-    }
 
     public static string Create(string sourceIndex, int serverMajor)
     {
@@ -39,36 +25,66 @@ internal static class CompatibilityIndexName
 
     public static string GetCanonicalName(string index, string configuredIndexName)
     {
-        ArgumentException.ThrowIfNullOrEmpty(index);
-        ArgumentException.ThrowIfNullOrEmpty(configuredIndexName);
-
-        // A user may legitimately configure a name beginning with "reindexed-vN-". Treat that name
-        // and its physical children as canonical; only strip a compatibility prefix wrapped around it.
-        if (String.Equals(index, configuredIndexName, StringComparison.Ordinal) ||
-            index.StartsWith($"{configuredIndexName}-", StringComparison.Ordinal))
-            return index;
-
-        return GetCanonicalName(index);
+        ReadOnlySpan<char> canonicalName = GetCanonicalNameSpan(index, configuredIndexName);
+        return canonicalName.Length == index.Length ? index : canonicalName.ToString();
     }
 
     public static string GetCanonicalName(string index)
     {
         ArgumentException.ThrowIfNullOrEmpty(index);
 
-        if (!index.StartsWith(Prefix, StringComparison.Ordinal))
+        if (!TryRemovePrefix(index, out ReadOnlySpan<char> canonicalName))
             return index;
 
-        int separatorIndex = index.IndexOf('-', Prefix.Length);
-        if (separatorIndex < 0 || !Int32.TryParse(index.AsSpan(Prefix.Length, separatorIndex - Prefix.Length), out int major) || major <= 0)
-            return index;
-
-        return index[(separatorIndex + 1)..];
+        return canonicalName.ToString();
     }
 
-    public static string CreatePattern(string canonicalPattern)
+    internal static ReadOnlySpan<char> GetCanonicalNameSpan(string index, string configuredIndexName)
     {
-        ArgumentException.ThrowIfNullOrEmpty(canonicalPattern);
+        ArgumentException.ThrowIfNullOrEmpty(index);
+        ArgumentException.ThrowIfNullOrEmpty(configuredIndexName);
 
-        return $"{Prefix}*-{canonicalPattern}";
+        ReadOnlySpan<char> indexSpan = index;
+        ReadOnlySpan<char> configuredSpan = configuredIndexName;
+        if (indexSpan.Equals(configuredSpan, StringComparison.Ordinal)
+            || (indexSpan.Length > configuredSpan.Length
+                && indexSpan.StartsWith(configuredSpan, StringComparison.Ordinal)
+                && indexSpan[configuredSpan.Length] is '-'))
+        {
+            return indexSpan;
+        }
+
+        return TryRemovePrefix(index, out ReadOnlySpan<char> canonicalName) ? canonicalName : indexSpan;
+    }
+
+    internal static bool TryRemovePrefix(string index, out ReadOnlySpan<char> canonicalName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(index);
+        ReadOnlySpan<char> value = index;
+        ReadOnlySpan<char> prefix = Prefix;
+        canonicalName = value;
+        if (!value.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+
+        int separatorOffset = value[prefix.Length..].IndexOf('-');
+        if (separatorOffset <= 0)
+            return false;
+
+        ReadOnlySpan<char> major = value.Slice(prefix.Length, separatorOffset);
+        if (major[0] is < '1' or > '9')
+            return false;
+
+        foreach (char character in major[1..])
+        {
+            if (character is < '0' or > '9')
+                return false;
+        }
+
+        int canonicalOffset = prefix.Length + separatorOffset + 1;
+        if (canonicalOffset >= value.Length)
+            return false;
+
+        canonicalName = value[canonicalOffset..];
+        return true;
     }
 }

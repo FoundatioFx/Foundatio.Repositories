@@ -28,28 +28,6 @@ public static class ElasticIndexExtensions
         return descriptor.Features(Feature.Aliases).IncludeDefaults(false);
     }
 
-    internal static GetIndexRequestDescriptor LimitToIndexSettings(this GetIndexRequestDescriptor descriptor)
-    {
-        return descriptor.Features(Feature.Settings).IncludeDefaults(false);
-    }
-
-    internal static GetIndexRequestDescriptor LimitToIndexCompatibility(this GetIndexRequestDescriptor descriptor)
-    {
-        return descriptor.Features(Feature.Aliases, Feature.Settings).IncludeDefaults(false);
-    }
-
-    internal static bool HasExactHiddenAlias(this IReadOnlyDictionary<string, Alias>? aliases, string aliasName)
-    {
-        return aliases is not null
-            && aliases.TryGetValue(aliasName, out var alias)
-            && alias.IsHidden is true
-            && alias.IsWriteIndex is null
-            && alias.Filter is null
-            && alias.IndexRouting is null
-            && alias.Routing is null
-            && alias.SearchRouting is null;
-    }
-
     public static SubmitAsyncSearchRequest ToAsyncSearchSubmitRequest<T>(this SearchRequest searchRequest) where T : class, new()
     {
         var asyncSearchRequest = new SubmitAsyncSearchRequest(searchRequest.Indices)

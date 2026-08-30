@@ -125,31 +125,48 @@ public class DailyIndex : VersionedIndex
 
     protected override DateTime GetIndexDate(string index)
     {
-        return ParseIndexDate(CompatibilityIndexName.GetCanonicalName(index, Name));
-    }
+        ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(index, Name);
+        int offset = Name.Length + 2;
+        if (canonicalName.Length <= offset
+            || !canonicalName.StartsWith(Name.AsSpan(), StringComparison.Ordinal)
+            || canonicalName[Name.Length] is not '-'
+            || canonicalName[Name.Length + 1] is not 'v')
+        {
+            return DateTime.MaxValue;
+        }
 
-    private DateTime ParseIndexDate(string nameToParse)
-    {
-        int version = GetIndexVersion(nameToParse);
-        if (version < 0)
-            version = Version;
+        int versionStart = offset;
+        while (offset < canonicalName.Length && canonicalName[offset] is >= '0' and <= '9')
+            offset++;
 
-        if (DateTime.TryParseExact(nameToParse, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out var result))
+        if (offset > versionStart
+            && offset < canonicalName.Length - 1
+            && canonicalName[offset] is '-'
+            && DateTime.TryParseExact(canonicalName[(offset + 1)..], DateFormat.AsSpan(), EnUs, DateTimeStyles.AdjustToUniversal, out var result))
+        {
             return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
+        }
 
         return DateTime.MaxValue;
     }
 
     protected override string GetCompatibilityIndexPattern()
     {
-        string canonicalPattern = $"{Name}-v*-*";
-        return $"{canonicalPattern},{CompatibilityIndexName.CreatePattern(canonicalPattern)}";
+        return $"{Name}-v*-*";
     }
 
-    internal override bool OwnsCompatibilityIndexCore(string sourceIndex)
+    internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
     {
-        return base.OwnsCompatibilityIndexCore(sourceIndex)
-            && ParseIndexDate(CompatibilityIndexName.GetCanonicalName(sourceIndex, Name)) != DateTime.MaxValue;
+        if (!base.IsNativeIndexName(sourceIndex))
+            return false;
+
+        int offset = Name.Length + 2;
+        while (offset < sourceIndex.Length && sourceIndex[offset] is >= '0' and <= '9')
+            offset++;
+
+        return offset < sourceIndex.Length - 1
+            && sourceIndex[offset] is '-'
+            && DateTime.TryParseExact(sourceIndex[(offset + 1)..], DateFormat.AsSpan(), EnUs, DateTimeStyles.AdjustToUniversal, out _);
     }
 
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
@@ -252,12 +269,9 @@ public class DailyIndex : VersionedIndex
         return indices.ToArray();
     }
 
-    public override async Task DeleteAsync()
+    public override Task DeleteAsync()
     {
-        string canonicalPattern = $"{Name}-v*";
-        await DeleteIndexesAsync([canonicalPattern, CompatibilityIndexName.CreatePattern(canonicalPattern)], OwnsCompatibilityIndexForDestructiveOperation).AnyContext();
-        await _aliasCache.RemoveAllAsync().AnyContext();
-        _ensuredDates.Clear();
+        return DeleteIndexAsync($"{Name}-v*");
     }
 
     public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
@@ -472,8 +486,7 @@ public class DailyIndex : VersionedIndex
 
     protected TypeMapping? GetLatestIndexMapping()
     {
-        string canonicalFilter = $"{Name}-v{Version}-*";
-        string filter = $"{canonicalFilter},{CompatibilityIndexName.CreatePattern(canonicalFilter)}";
+        string filter = $"{Name}-v{Version}-*";
         var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable());
         if (!indicesResponse.IsValidResponse)
         {
@@ -483,12 +496,14 @@ public class DailyIndex : VersionedIndex
             throw new RepositoryException(indicesResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), indicesResponse.OriginalException());
         }
 
-        var latestIndex = indicesResponse.Indices.Keys
-            .Where(i => OwnsCompatibilityIndexExclusively(i.ToString()) && !IsGeneratedErrorIndex(i.ToString()))
-            .Where(i => GetIndexVersion(i.ToString()) == Version)
+        var latestIndex = indicesResponse.Indices
+            .Where(i => i.Value is not null
+                && MatchesCompatibilitySource(i.Key, i.Value.Aliases)
+                && !i.Value.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
+            .Where(i => GetIndexVersion(i.Key) == Version)
             .Select(i =>
             {
-                string indexName = i.ToString();
+                string indexName = i.Key;
                 return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
             })
             .OrderByDescending(i => i.DateUtc)

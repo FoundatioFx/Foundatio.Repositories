@@ -3,33 +3,42 @@ using System.Collections.Generic;
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
 /// <summary>
-/// Describes the observable Elasticsearch topology for one compatibility-upgrade source and its deterministic destination.
+/// Describes the observed Elasticsearch state and the only safe automatic action for one compatibility upgrade.
 /// </summary>
 public sealed record IndexCompatibilityUpgradeStatus
 {
     /// <summary>The configured repository index name.</summary>
     public required string IndexName { get; init; }
 
-    /// <summary>The concrete physical source name supplied by the operator.</summary>
+    /// <summary>The exact physical source name supplied by the operator.</summary>
     public required string SourceIndex { get; init; }
 
-    /// <summary>The deterministic compatibility destination name for the connected Elasticsearch major.</summary>
+    /// <summary>The deterministic compatibility destination for the connected Elasticsearch major.</summary>
     public required string TargetIndex { get; init; }
 
-    /// <summary>The recovery classification derived from physical-index and alias topology.</summary>
-    public required IndexCompatibilityUpgradeRecoveryState State { get; init; }
+    /// <summary>The only automatic action supported by the currently observed evidence.</summary>
+    public required IndexCompatibilityRecoveryAction Action { get; init; }
 
-    /// <summary>Whether the concrete source still exists.</summary>
+    /// <summary>Whether the exact source physical index exists.</summary>
     public required bool SourceExists { get; init; }
 
-    /// <summary>Whether the deterministic destination exists.</summary>
+    /// <summary>Whether the exact destination physical index exists.</summary>
     public required bool TargetExists { get; init; }
 
-    /// <summary>Whether the source currently has <c>index.blocks.write</c> enabled.</summary>
+    /// <summary>Whether the source is write blocked.</summary>
     public bool SourceWriteBlocked { get; init; }
 
-    /// <summary>Whether the destination currently has <c>index.blocks.write</c> enabled.</summary>
+    /// <summary>Whether the destination is write blocked.</summary>
     public bool TargetWriteBlocked { get; init; }
+
+    /// <summary>Whether the source carries the compatibility workflow marker.</summary>
+    public bool SourceWorkflowMarkerPresent { get; init; }
+
+    /// <summary>Whether the destination carries the compatibility workflow marker.</summary>
+    public bool TargetWorkflowMarkerPresent { get; init; }
+
+    /// <summary>Whether the destination has the expected canonical old-physical-name alias.</summary>
+    public bool TargetHasCanonicalSourceAlias { get; init; }
 
     /// <summary>Aliases currently attached to the source.</summary>
     public IReadOnlyCollection<string> SourceAliases { get; init; } = [];
@@ -37,46 +46,37 @@ public sealed record IndexCompatibilityUpgradeStatus
     /// <summary>Aliases currently attached to the destination.</summary>
     public IReadOnlyCollection<string> TargetAliases { get; init; } = [];
 
-    /// <summary>Whether the destination carries the exact hidden marker added by this compatibility workflow.</summary>
-    public bool TargetOwnershipConfirmed { get; init; }
+    /// <summary>
+    /// Concrete indexes unexpectedly resolved by the requested source, deterministic destination, or a marked
+    /// destination from another Elasticsearch major. Any value makes automatic recovery unsafe.
+    /// </summary>
+    public IReadOnlyCollection<string> UnexpectedResolvedIndexes { get; init; } = [];
 
     /// <summary>
-    /// Number of active reindex tasks matching the source or destination, or <c>null</c> when task state could not
-    /// be established. Recovery fails closed unless this is zero.
+    /// Number of active reindex tasks carrying this operation's exact <c>X-Opaque-Id</c>, or <c>null</c> when
+    /// Elasticsearch did not return a complete task listing.
     /// </summary>
     public int? ActiveReindexTaskCount { get; init; }
 
-    /// <summary>Whether the topology is safe for the explicit conservative recovery operation.</summary>
-    public bool CanRecover => ActiveReindexTaskCount is 0
-        && State is IndexCompatibilityUpgradeRecoveryState.Interrupted
-            or IndexCompatibilityUpgradeRecoveryState.SourceWriteBlocked
-            or IndexCompatibilityUpgradeRecoveryState.CompletedWriteBlocked;
+    /// <summary>Whether the recovery API can apply <see cref="Action"/>.</summary>
+    public bool CanRecover => Action is IndexCompatibilityRecoveryAction.Reset or IndexCompatibilityRecoveryAction.Finish;
 }
 
-/// <summary>Classifies the observable state of a compatibility upgrade.</summary>
-public enum IndexCompatibilityUpgradeRecoveryState
+/// <summary>The operator-facing action supported by the observed compatibility-upgrade evidence.</summary>
+public enum IndexCompatibilityRecoveryAction
 {
-    /// <summary>The source exists, is writable, and the destination does not exist.</summary>
-    Ready,
+    /// <summary>No interrupted Foundatio workflow was observed.</summary>
+    None,
 
-    /// <summary>The source exists and is write blocked, but the destination does not exist.</summary>
-    SourceWriteBlocked,
+    /// <summary>An exactly identified compatibility reindex task is still active; wait and inspect again.</summary>
+    Wait,
 
-    /// <summary>Both indexes exist, the destination has only the ownership marker, and no matching reindex task was observed.</summary>
-    Interrupted,
+    /// <summary>Delete the marked partial destination, then unblock and unmark the intact source.</summary>
+    Reset,
 
-    /// <summary>Both indexes exist and at least one reindex task is active.</summary>
-    InProgress,
+    /// <summary>Finish a committed cutover by unblocking and unmarking its destination.</summary>
+    Finish,
 
-    /// <summary>The source is gone and the destination has the canonical source alias, consistent with completed cutover.</summary>
-    Completed,
-
-    /// <summary>The source is gone and the destination exists with aliases but remains write blocked.</summary>
-    CompletedWriteBlocked,
-
-    /// <summary>Neither concrete index exists.</summary>
-    Missing,
-
-    /// <summary>The observed topology is not safe for automatic recovery.</summary>
-    Ambiguous
+    /// <summary>The evidence is incomplete, foreign, or contradictory; no automatic mutation is safe.</summary>
+    ManualIntervention
 }

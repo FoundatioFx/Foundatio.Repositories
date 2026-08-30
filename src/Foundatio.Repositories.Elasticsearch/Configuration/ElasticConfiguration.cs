@@ -289,14 +289,15 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
     public async Task UpgradeIndexCompatibilityAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         IIndex[] configuredIndexes = (indexes ?? Indexes).ToArray();
-        var ownedIndexes = configuredIndexes.Select(GetOwnedCompatibilityIndex).ToArray();
-        var upgrader = new ElasticIndexCompatibilityUpgrader(Client, TimeProvider, _logger);
-        var plans = new List<(Index Index, IndexCompatibilityInfo[] Candidates)>();
+        var ownedIndexes = configuredIndexes.Select(RequireRegisteredCompatibilityIndex).ToArray();
+        var upgrader = new ElasticIndexCompatibilityUpgrader(Client, TimeProvider, _logger, _lockProvider);
+        var plans = new List<(Index Index, IndexCompatibilityInfo[] Candidates)>(configuredIndexes.Length);
 
         // Validate every caller-supplied index and compatibility state before the first write block or destination
         // creation. A bad item later in the sequence must never leave an earlier index partially upgraded.
         foreach (var index in ownedIndexes)
         {
+            await ThrowIfSchemaUpgradePendingAsync(index, cancellationToken).AnyContext();
             var compatibility = await index.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
             ThrowIfUnsupportedCompatibility(compatibility, index.Name);
             var candidates = GetCompatibilityUpgradeCandidates(index, compatibility);
@@ -305,6 +306,19 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
 
             plans.Add((index, candidates));
         }
+
+        var duplicateSources = plans
+            .SelectMany(plan => plan.Candidates.Select(candidate => new
+            {
+                Index = plan.Index.Name,
+                Source = candidate.Name
+            }))
+            .GroupBy(item => item.Source, StringComparer.Ordinal)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => $"{group.Key} <= {String.Join(", ", group.Select(item => item.Index))}")
+            .ToArray();
+        if (duplicateSources.Length > 0)
+            throw new RepositoryException($"Multiple configured indexes claim the same compatibility source: {String.Join("; ", duplicateSources)}. Resolve the overlapping registration before retrying; no indexes were changed.");
 
         var duplicateTargets = plans
             .SelectMany(plan => plan.Candidates.Select(candidate => new
@@ -319,13 +333,23 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
         if (duplicateTargets.Length > 0)
             throw new RepositoryException($"Multiple compatibility sources in the requested batch resolve to the same destination: {String.Join("; ", duplicateTargets)}. Resolve the duplicate physical index lineage before retrying; no indexes were changed.");
 
+        foreach (var (index, candidates) in plans)
+        {
+            foreach (var candidate in candidates)
+                await upgrader.ValidateAsync(index, candidate, cancellationToken).AnyContext();
+        }
+
         foreach (var (index, _) in plans)
         {
             string lockKey = ElasticReindexer.GetLockName(index.Name);
-            await using var reindexLock = await _lockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), cancellationToken).AnyContext();
-            if (reindexLock is null)
-                throw new RepositoryException($"Unable to acquire the reindex lock for Elasticsearch version compatibility upgrade of index '{index.Name}'.");
+            using var acquisitionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            acquisitionCancellation.CancelAfter(TimeSpan.FromMinutes(1));
+            await using var reindexLock = await _lockProvider.AcquireAsync(
+                lockKey,
+                TimeSpan.FromMinutes(20),
+                acquisitionCancellation.Token).AnyContext();
 
+            await ThrowIfSchemaUpgradePendingAsync(index, cancellationToken).AnyContext();
             var compatibility = await index.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
             ThrowIfUnsupportedCompatibility(compatibility, index.Name);
             var candidates = GetCompatibilityUpgradeCandidates(index, compatibility);
@@ -353,6 +377,21 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
                 string remainingIndexes = String.Join(", ", remaining.Where(i => i.RequiresReindexBeforeNextMajorUpgrade).Select(i => i.Name));
                 throw new RepositoryException($"Elasticsearch version compatibility upgrade for index '{index.Name}' did not complete. Remaining incompatible indexes: {remainingIndexes}.");
             }
+        }
+    }
+
+    private static async Task ThrowIfSchemaUpgradePendingAsync(Index index, CancellationToken cancellationToken)
+    {
+        if (index is not IVersionedIndex versionedIndex)
+            return;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (currentVersion >= 0 && currentVersion != versionedIndex.Version)
+        {
+            throw new RepositoryException(
+                $"Index '{index.Name}' currently uses schema version {currentVersion}, but version {versionedIndex.Version} is configured. Complete the schema reindex before upgrading Elasticsearch index compatibility.");
         }
     }
 
@@ -385,8 +424,8 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
         string sourceIndex,
         CancellationToken cancellationToken = default)
     {
-        var compatibilityIndex = GetOwnedCompatibilityIndex(index);
-        ValidateCompatibilityRecoverySource(compatibilityIndex, sourceIndex);
+        ValidateCompatibilityRecoverySource(index, sourceIndex);
+        var compatibilityIndex = RequireRegisteredCompatibilityIndex(index);
         var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
         return await recovery.InspectAsync(compatibilityIndex, sourceIndex, cancellationToken).AnyContext();
     }
@@ -395,23 +434,23 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
     public async Task<IndexCompatibilityUpgradeStatus> RecoverIndexCompatibilityUpgradeAsync(
         IIndex index,
         string sourceIndex,
-        bool removeWriteBlock = false,
         CancellationToken cancellationToken = default)
     {
-        var compatibilityIndex = GetOwnedCompatibilityIndex(index);
-        ValidateCompatibilityRecoverySource(compatibilityIndex, sourceIndex);
+        ValidateCompatibilityRecoverySource(index, sourceIndex);
+        var compatibilityIndex = RequireRegisteredCompatibilityIndex(index);
         var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
-        return await recovery.RecoverAsync(compatibilityIndex, sourceIndex, removeWriteBlock, cancellationToken).AnyContext();
+        return await recovery.RecoverAsync(compatibilityIndex, sourceIndex, cancellationToken).AnyContext();
     }
 
-    private static void ValidateCompatibilityRecoverySource(Index index, string sourceIndex)
+    private static void ValidateCompatibilityRecoverySource(IIndex index, string sourceIndex)
     {
-        ElasticIndexCompatibilityRecovery.ValidateConcreteSourceName(sourceIndex);
-        if (!index.OwnsCompatibilityIndexExclusively(sourceIndex))
+        ArgumentNullException.ThrowIfNull(index);
+        ElasticIndexCompatibilityRecovery.ValidateExactIndexName(sourceIndex);
+        if (index is Index compatibilityIndex && !compatibilityIndex.IsPotentialCompatibilitySourceName(sourceIndex))
             throw new ArgumentException($"Compatibility recovery source '{sourceIndex}' does not belong to configured index '{index.Name}'.", nameof(sourceIndex));
     }
 
-    private Index GetOwnedCompatibilityIndex(IIndex index)
+    private Index RequireRegisteredCompatibilityIndex(IIndex index)
     {
         ArgumentNullException.ThrowIfNull(index);
         if (index is not Index compatibilityIndex)
@@ -419,6 +458,9 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
 
         if (!ReferenceEquals(index.Configuration, this))
             throw new ArgumentException($"Index '{index.Name}' belongs to a different Elasticsearch configuration.", nameof(index));
+
+        if (!Indexes.Any(registered => ReferenceEquals(registered, index)))
+            throw new ArgumentException($"Index '{index.Name}' is not registered with this Elasticsearch configuration.", nameof(index));
 
         return compatibilityIndex;
     }

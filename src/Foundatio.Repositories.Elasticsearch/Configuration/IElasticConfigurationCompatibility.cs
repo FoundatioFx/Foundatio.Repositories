@@ -15,7 +15,7 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
     /// without changing cluster state.
     /// </summary>
     /// <param name="index">The configured index that owns <paramref name="sourceIndex"/>.</param>
-    /// <param name="sourceIndex">The canonical concrete source name used to start the compatibility upgrade.</param>
+    /// <param name="sourceIndex">The exact original physical source name used to start the compatibility upgrade.</param>
     /// <param name="cancellationToken">The token used to cancel the inspection.</param>
     Task<IndexCompatibilityUpgradeStatus> InspectIndexCompatibilityUpgradeAsync(
         IIndex index,
@@ -23,21 +23,16 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Conservatively resets an interrupted pre-cutover attempt after independently confirming that no reindex
-    /// task is active. It may delete a destination carrying the workflow's exact ownership marker and optionally
-    /// remove the source write block. Completed, unowned, or ambiguous cutovers are never changed.
+    /// Applies the evidence-based <see cref="IndexCompatibilityUpgradeStatus.Action"/> returned by inspection.
+    /// It either resets a marked interrupted attempt or finishes a marked committed cutover. Foreign, unmarked,
+    /// active, or contradictory states are never changed.
     /// </summary>
     /// <param name="index">The configured index that owns <paramref name="sourceIndex"/>.</param>
-    /// <param name="sourceIndex">The canonical concrete source name used to start the compatibility upgrade.</param>
-    /// <param name="removeWriteBlock">
-    /// Whether to remove the write block from the surviving source or completed destination. Set this only after
-    /// verifying that the block was added by the interrupted operation rather than by an administrator.
-    /// </param>
+    /// <param name="sourceIndex">The exact original physical source name used to start the compatibility upgrade.</param>
     /// <param name="cancellationToken">The token used to acquire the lock and perform recovery.</param>
     Task<IndexCompatibilityUpgradeStatus> RecoverIndexCompatibilityUpgradeAsync(
         IIndex index,
         string sourceIndex,
-        bool removeWriteBlock = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
