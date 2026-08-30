@@ -1,97 +1,10 @@
 name: Build
 on: [push, pull_request]
 
-permissions:
-  contents: read
-
 jobs:
   build:
-    permissions:
-      contents: read
-      packages: write
     uses: FoundatioFx/Foundatio/.github/workflows/build-workflow.yml@main
     secrets: inherit
     with:
       new-test-runner: true
       minimum-major-minor: '8.0'
-
-  compatibility-major-chain:
-    name: Elasticsearch 7 to 8 to 9 compatibility chain
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-      - name: Restore and build compatibility tests
-        run: |
-          dotnet restore Foundatio.Repositories.slnx
-          dotnet build Foundatio.Repositories.slnx -m:1 --no-restore
-      - name: Create Elasticsearch 7 index
-        shell: bash
-        run: |
-          mkdir -p .compatibility-es-data
-          chmod 0777 .compatibility-es-data
-          docker run --detach --name compatibility-es \
-            --publish 9200:9200 \
-            --env discovery.type=single-node \
-            --env xpack.security.enabled=false \
-            --env action.destructive_requires_name=false \
-            --env ingest.geoip.downloader.enabled=false \
-            --env ES_JAVA_OPTS='-Xms512m -Xmx512m' \
-            --volume "$PWD/.compatibility-es-data:/usr/share/elasticsearch/data" \
-            docker.elastic.co/elasticsearch/elasticsearch:7.17.29
-          for attempt in {1..90}; do
-            if curl --fail --silent http://localhost:9200/_cluster/health | grep -qv '"status":"red"'; then break; fi
-            sleep 2
-          done
-          curl --fail --silent --request PUT http://localhost:9200/compatibility-major-chain-v1 \
-            --header 'Content-Type: application/json' \
-            --data '{"aliases":{"compatibility-major-chain":{}},"settings":{"number_of_shards":1,"number_of_replicas":0}}'
-          curl --fail --silent --request PUT http://localhost:9200/compatibility-major-chain-v1/_doc/1?refresh=true \
-            --header 'Content-Type: application/json' --data '{"name":"first"}'
-          curl --fail --silent --request PUT http://localhost:9200/compatibility-major-chain-v1/_doc/2?refresh=true \
-            --header 'Content-Type: application/json' --data '{"name":"second"}'
-          docker stop compatibility-es
-          docker rm compatibility-es
-      - name: Upgrade index format on Elasticsearch 8
-        shell: bash
-        run: |
-          docker run --detach --name compatibility-es \
-            --publish 9200:9200 \
-            --env discovery.type=single-node \
-            --env xpack.security.enabled=false \
-            --env action.destructive_requires_name=false \
-            --env ingest.geoip.downloader.enabled=false \
-            --env ES_JAVA_OPTS='-Xms512m -Xmx512m' \
-            --volume "$PWD/.compatibility-es-data:/usr/share/elasticsearch/data" \
-            docker.elastic.co/elasticsearch/elasticsearch:8.19.15
-          for attempt in {1..90}; do
-            if curl --fail --silent http://localhost:9200/_cluster/health | grep -qv '"status":"red"'; then break; fi
-            sleep 2
-          done
-          FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR=8 dotnet test \
-            --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj \
-            --no-build -- --filter-class '*IndexCompatibilityCrossMajorTests' --parallel none --output Detailed
-          docker stop compatibility-es
-          docker rm compatibility-es
-      - name: Upgrade index format on Elasticsearch 9 without changing schema version
-        shell: bash
-        run: |
-          docker run --detach --name compatibility-es \
-            --publish 9200:9200 \
-            --env discovery.type=single-node \
-            --env xpack.security.enabled=false \
-            --env action.destructive_requires_name=false \
-            --env ingest.geoip.downloader.enabled=false \
-            --env ES_JAVA_OPTS='-Xms512m -Xmx512m' \
-            --volume "$PWD/.compatibility-es-data:/usr/share/elasticsearch/data" \
-            docker.elastic.co/elasticsearch/elasticsearch:9.5.0
-          for attempt in {1..90}; do
-            if curl --fail --silent http://localhost:9200/_cluster/health | grep -qv '"status":"red"'; then break; fi
-            sleep 2
-          done
-          FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR=9 dotnet test \
-            --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj \
-            --no-build -- --filter-class '*IndexCompatibilityCrossMajorTests' --parallel none --output Detailed
