@@ -49,12 +49,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         });
 
         var createResponse = await _client.Indices.CreateAsync(sourceIndex, cancellationToken: TestCancellationToken);
-        Assert.True(createResponse.IsValidResponse);
+        Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
         var aliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
             .Index(sourceIndex)
             .Alias(sourceAlias)
             .Filter(q => q.Term(t => t.Field("companyId").Value("company-a"))))), TestCancellationToken);
-        Assert.True(aliasResponse.IsValidResponse);
+        Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
 
         var reindexer = new ElasticReindexer(_client, _configuration.Serializer, _logger);
         var workItem = new ReindexWorkItem
@@ -70,8 +70,10 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.Contains("filtered or routed alias", exception.Message);
-        Assert.True((await _client.Indices.ExistsAsync(sourceIndex, cancellationToken: TestCancellationToken)).Exists);
-        Assert.False((await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken)).Exists);
+        var sourceExists = await _client.Indices.ExistsAsync(sourceIndex, cancellationToken: TestCancellationToken);
+        var targetExists = await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken);
+        Assert.True(sourceExists.Exists, sourceExists.DebugInformation);
+        Assert.False(targetExists.Exists, targetExists.DebugInformation);
     }
 
     [Fact]
@@ -88,21 +90,24 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         });
 
         var createResponse = await _client.Indices.CreateAsync(sourceIndex, cancellationToken: TestCancellationToken);
-        Assert.True(createResponse.IsValidResponse);
+        Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
         var createTargetResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
-        Assert.True(createTargetResponse.IsValidResponse);
-        await _client.IndexAsync(new { companyId = "company-a" }, d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()), TestCancellationToken);
-        await _client.IndexAsync(new { companyId = "company-b" }, d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()), TestCancellationToken);
-        await _client.Indices.RefreshAsync((Indices)sourceIndex, TestCancellationToken);
+        Assert.True(createTargetResponse.IsValidResponse, createTargetResponse.GetErrorMessage());
+        var firstIndexResponse = await _client.IndexAsync(new { companyId = "company-a" }, d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()), TestCancellationToken);
+        var secondIndexResponse = await _client.IndexAsync(new { companyId = "company-b" }, d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()), TestCancellationToken);
+        var refreshResponse = await _client.Indices.RefreshAsync((Indices)sourceIndex, TestCancellationToken);
+        Assert.True(firstIndexResponse.IsValidResponse, firstIndexResponse.GetErrorMessage());
+        Assert.True(secondIndexResponse.IsValidResponse, secondIndexResponse.GetErrorMessage());
+        Assert.True(refreshResponse.IsValidResponse, refreshResponse.GetErrorMessage());
         var filteredAliasCreateResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
             .Index(sourceIndex)
             .Alias(filteredAlias)
             .Filter(q => q.Term(t => t.Field("companyId.keyword").Value("company-a"))))), TestCancellationToken);
-        Assert.True(filteredAliasCreateResponse.IsValidResponse);
+        Assert.True(filteredAliasCreateResponse.IsValidResponse, filteredAliasCreateResponse.GetErrorMessage());
         var unrelatedAliasCreateResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
             .Index(sourceIndex)
             .Alias(unrelatedAlias))), TestCancellationToken);
-        Assert.True(unrelatedAliasCreateResponse.IsValidResponse);
+        Assert.True(unrelatedAliasCreateResponse.IsValidResponse, unrelatedAliasCreateResponse.GetErrorMessage());
 
         var reindexer = new ElasticReindexer(_client, _configuration.Serializer, _logger);
         var workItem = new ReindexWorkItem
@@ -119,11 +124,17 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Assert
         Assert.Contains("filtered or routed alias", exception.Message);
         var filteredAliasResponse = await _client.Indices.GetAsync((Indices)filteredAlias, cancellationToken: TestCancellationToken);
+        Assert.True(filteredAliasResponse.IsValidResponse, filteredAliasResponse.GetErrorMessage());
         Assert.Equal(sourceIndex, filteredAliasResponse.Indices.Keys.Single().ToString());
         var unrelatedAliasResponse = await _client.Indices.GetAsync((Indices)unrelatedAlias, cancellationToken: TestCancellationToken);
+        Assert.True(unrelatedAliasResponse.IsValidResponse, unrelatedAliasResponse.GetErrorMessage());
         Assert.Equal(sourceIndex, unrelatedAliasResponse.Indices.Keys.Single().ToString());
-        Assert.Equal(2, (await _client.CountAsync<object>(d => d.Indices(sourceIndex), TestCancellationToken)).Count);
-        Assert.Equal(0, (await _client.CountAsync<object>(d => d.Indices(targetIndex), TestCancellationToken)).Count);
+        var sourceCount = await _client.CountAsync<object>(d => d.Indices(sourceIndex), TestCancellationToken);
+        var targetCount = await _client.CountAsync<object>(d => d.Indices(targetIndex), TestCancellationToken);
+        Assert.True(sourceCount.IsValidResponse, sourceCount.GetErrorMessage());
+        Assert.True(targetCount.IsValidResponse, targetCount.GetErrorMessage());
+        Assert.Equal(2, sourceCount.Count);
+        Assert.Equal(0, targetCount.Count);
     }
 
     [Fact]
@@ -138,12 +149,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var sourceResponse = await _client.Indices.CreateAsync(sourceIndex,
             d => d.Aliases(a => a.Add(logicalAlias, new Alias())), TestCancellationToken);
-        Assert.True(sourceResponse.IsValidResponse);
+        Assert.True(sourceResponse.IsValidResponse, sourceResponse.GetErrorMessage());
         var targetResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
-        Assert.True(targetResponse.IsValidResponse);
+        Assert.True(targetResponse.IsValidResponse, targetResponse.GetErrorMessage());
         var indexResponse = await _client.IndexAsync(new { name = "first" },
             d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()).Refresh(Refresh.WaitFor), TestCancellationToken);
-        Assert.True(indexResponse.IsValidResponse);
+        Assert.True(indexResponse.IsValidResponse, indexResponse.GetErrorMessage());
 
         bool aliasAdded = false;
         var reindexer = new ElasticReindexer(_client, _configuration.Serializer, _logger);
@@ -163,7 +174,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 .Alias(addedAlias)
                 .SearchRouting("search-route")
                 .IsHidden(false))), TestCancellationToken);
-            Assert.True(addAliasResponse.IsValidResponse);
+            Assert.True(addAliasResponse.IsValidResponse, addAliasResponse.GetErrorMessage());
             aliasAdded = true;
         });
 
@@ -182,6 +193,61 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task ReindexAsync_WhenSourceAliasExpandsAfterResolution_CopiesOnlyResolvedPhysicalSource()
+    {
+        string sourceIndex = $"pinned-source-{Guid.NewGuid():N}";
+        string unrelatedIndex = $"pinned-unrelated-{Guid.NewGuid():N}";
+        string targetIndex = $"pinned-target-{Guid.NewGuid():N}";
+        string sourceAlias = $"pinned-alias-{Guid.NewGuid():N}";
+        string sourceId = ObjectId.GenerateNewId().ToString();
+        string unrelatedId = ObjectId.GenerateNewId().ToString();
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{sourceIndex},{unrelatedIndex},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var sourceResponse = await _client.Indices.CreateAsync(sourceIndex,
+            d => d.Aliases(a => a.Add(sourceAlias, new Alias())), TestCancellationToken);
+        var unrelatedResponse = await _client.Indices.CreateAsync(unrelatedIndex, cancellationToken: TestCancellationToken);
+        var targetResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
+        Assert.True(sourceResponse.IsValidResponse, sourceResponse.GetErrorMessage());
+        Assert.True(unrelatedResponse.IsValidResponse, unrelatedResponse.GetErrorMessage());
+        Assert.True(targetResponse.IsValidResponse, targetResponse.GetErrorMessage());
+
+        var sourceDocument = await _client.IndexAsync(new { name = "source" },
+            d => d.Index(sourceIndex).Id(sourceId).Refresh(Refresh.WaitFor), TestCancellationToken);
+        var unrelatedDocument = await _client.IndexAsync(new { name = "unrelated" },
+            d => d.Index(unrelatedIndex).Id(unrelatedId).Refresh(Refresh.WaitFor), TestCancellationToken);
+        Assert.True(sourceDocument.IsValidResponse, sourceDocument.GetErrorMessage());
+        Assert.True(unrelatedDocument.IsValidResponse, unrelatedDocument.GetErrorMessage());
+
+        bool aliasExpanded = false;
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, _logger);
+        await reindexer.ReindexAsync(new ReindexWorkItem
+        {
+            OldIndex = sourceAlias,
+            NewIndex = targetIndex,
+            Alias = sourceAlias,
+            DeleteOld = false
+        }, async (progress, _) =>
+        {
+            if (progress is not 0 || aliasExpanded)
+                return;
+
+            var aliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+                .Index(unrelatedIndex)
+                .Alias(sourceAlias))), TestCancellationToken);
+            Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
+            aliasExpanded = true;
+        });
+
+        Assert.True(aliasExpanded);
+        var targetCount = await _client.CountAsync<object>(d => d.Indices(targetIndex), TestCancellationToken);
+        var unrelatedTargetDocument = await _client.GetAsync<object>(unrelatedId, d => d.Index(targetIndex), TestCancellationToken);
+        Assert.True(targetCount.IsValidResponse, targetCount.GetErrorMessage());
+        Assert.Equal(1, targetCount.Count);
+        Assert.False(unrelatedTargetDocument.Found, unrelatedTargetDocument.DebugInformation);
+    }
+
+    [Fact]
     public async Task ReindexAsync_WithEmptySource_PerformsPostCutoverCatchUpPass()
     {
         string sourceIndex = $"empty-catchup-source-{Guid.NewGuid():N}";
@@ -192,9 +258,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var sourceResponse = await _client.Indices.CreateAsync(sourceIndex,
             d => d.Aliases(a => a.Add(logicalAlias, new Alias())), TestCancellationToken);
-        Assert.True(sourceResponse.IsValidResponse);
+        Assert.True(sourceResponse.IsValidResponse, sourceResponse.GetErrorMessage());
         var targetResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
-        Assert.True(targetResponse.IsValidResponse);
+        Assert.True(targetResponse.IsValidResponse, targetResponse.GetErrorMessage());
 
         int reindexRequests = 0;
         string elasticsearchUrl = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL")?.Split(',')[0]
@@ -217,8 +283,10 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         });
 
         Assert.Equal(2, reindexRequests);
-        Assert.False((await _client.Indices.ExistsAsync(sourceIndex, cancellationToken: TestCancellationToken)).Exists);
+        var sourceExists = await _client.Indices.ExistsAsync(sourceIndex, cancellationToken: TestCancellationToken);
+        Assert.False(sourceExists.Exists, sourceExists.DebugInformation);
         var aliasResponse = await _client.Indices.GetAsync((Indices)logicalAlias, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
         Assert.Equal(targetIndex, aliasResponse.Indices.Keys.Single().ToString());
     }
 
@@ -378,9 +446,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var index2Exists = await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
         Assert.True(index2Exists.Exists);
         var errorIndexExists = await _client.Indices.ExistsAsync($"{version2Index.VersionedName}-error", cancellationToken: TestCancellationToken);
-        Assert.True(errorIndexExists.Exists);
+        Assert.True(errorIndexExists.Exists, errorIndexExists.DebugInformation);
         var errorIndexResponse = await _client.Indices.GetAsync((Indices)$"{version2Index.VersionedName}-error", cancellationToken: TestCancellationToken);
-        Assert.True(errorIndexResponse.IsValidResponse);
+        Assert.True(errorIndexResponse.IsValidResponse, errorIndexResponse.GetErrorMessage());
         var errorAliases = errorIndexResponse.Indices.Values.Single().Aliases;
         Assert.NotNull(errorAliases);
         Assert.True(errorAliases.TryGetValue(ElasticReindexer.ErrorIndexOwnershipAlias, out var errorOwnershipAlias));
@@ -573,9 +641,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version1Index.ConfigureAsync();
         var indexResponse = await _client.IndexAsync(new Identity { Id = "custom-id" }, d => d.Index(version1Index.VersionedName).Id("custom-id"), TestCancellationToken);
-        Assert.True(indexResponse.IsValidResponse);
+        Assert.True(indexResponse.IsValidResponse, indexResponse.GetErrorMessage());
         var refreshResponse = await _client.Indices.RefreshAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
-        Assert.True(refreshResponse.IsValidResponse);
+        Assert.True(refreshResponse.IsValidResponse, refreshResponse.GetErrorMessage());
         await version2Index.ConfigureAsync();
 
         // Act
@@ -583,7 +651,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         // Assert
         var getResponse = await _client.GetAsync<Identity>("custom-id", d => d.Index(version2Index.Name), TestCancellationToken);
-        Assert.True(getResponse.Found);
+        Assert.True(getResponse.Found, getResponse.DebugInformation);
         Assert.Equal("custom-id", getResponse.Source?.Id);
     }
 
@@ -1467,7 +1535,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         var tasksResponse = await _client.Tasks.ListAsync(cancellationToken: TestCancellationToken);
-        Assert.True(tasksResponse.IsValidResponse);
+        Assert.True(tasksResponse.IsValidResponse, tasksResponse.GetErrorMessage());
         Assert.DoesNotContain(
             tasksResponse.Nodes?.Values.SelectMany(node => node.Tasks.Values) ?? [],
             task => task.Action.Contains("reindex", StringComparison.Ordinal)

@@ -2,6 +2,7 @@ using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Utility;
 using Xunit;
@@ -34,14 +35,14 @@ public sealed class ElasticIndexExtensionsTests : ElasticRepositoryTestBase
             .Aliases(a => a.Add(alias, _ => { }))
             .Mappings(m => m.Properties(p => p.Keyword("second"))), TestCancellationToken);
 
-        Assert.True(firstCreateResponse.IsValidResponse);
-        Assert.True(secondCreateResponse.IsValidResponse);
+        Assert.True(firstCreateResponse.IsValidResponse, firstCreateResponse.GetErrorMessage());
+        Assert.True(secondCreateResponse.IsValidResponse, secondCreateResponse.GetErrorMessage());
 
         // Act
         var response = await _client.Indices.GetAsync(indices, d => d.LimitToNamesAndAliases(), TestCancellationToken);
 
         // Assert
-        Assert.True(response.IsValidResponse);
+        Assert.True(response.IsValidResponse, response.GetErrorMessage());
         Assert.Equal(2, response.Indices.Count);
         Assert.All(response.Indices.Values, state => Assert.True(state.Aliases?.ContainsKey(alias)));
         var requestUri = response.ApiCallDetails.Uri;
@@ -74,12 +75,12 @@ public sealed class ElasticIndexExtensionsTests : ElasticRepositoryTestBase
             d => d.Mappings(m => m.Properties(p => p.Keyword("first"))), TestCancellationToken);
         var secondCreateResponse = await _client.Indices.CreateAsync(secondIndex,
             d => d.Mappings(m => m.Properties(p => p.Keyword("second"))), TestCancellationToken);
-        Assert.True(firstCreateResponse.IsValidResponse);
-        Assert.True(secondCreateResponse.IsValidResponse);
+        Assert.True(firstCreateResponse.IsValidResponse, firstCreateResponse.GetErrorMessage());
+        Assert.True(secondCreateResponse.IsValidResponse, secondCreateResponse.GetErrorMessage());
 
         var response = await _client.Indices.GetAsync(indices, d => d.LimitToIndexSettings(), TestCancellationToken);
 
-        Assert.True(response.IsValidResponse);
+        Assert.True(response.IsValidResponse, response.GetErrorMessage());
         Assert.Equal(2, response.Indices.Count);
         Assert.All(response.Indices.Values, state => Assert.NotNull(state.Settings?.Index?.Version?.Created));
         var requestUri = response.ApiCallDetails.Uri;
@@ -106,11 +107,11 @@ public sealed class ElasticIndexExtensionsTests : ElasticRepositoryTestBase
         var createResponse = await _client.Indices.CreateAsync(name, d => d
             .Aliases(a => a.Add(alias, _ => { }))
             .Mappings(m => m.Properties(p => p.Keyword("value"))), TestCancellationToken);
-        Assert.True(createResponse.IsValidResponse);
+        Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
 
         var response = await _client.Indices.GetAsync((Indices)name, d => d.LimitToIndexCompatibility(), TestCancellationToken);
 
-        Assert.True(response.IsValidResponse);
+        Assert.True(response.IsValidResponse, response.GetErrorMessage());
         var state = Assert.Single(response.Indices).Value;
         Assert.NotNull(state.Settings?.Index?.Version?.Created);
         Assert.True(state.Aliases?.ContainsKey(alias));

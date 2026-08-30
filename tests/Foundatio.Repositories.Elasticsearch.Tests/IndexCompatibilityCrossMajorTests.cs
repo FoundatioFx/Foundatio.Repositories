@@ -8,41 +8,43 @@ using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class IndexCompatibilityCrossMajorTests : ElasticRepositoryTestBase
+public sealed class IndexCompatibilityCrossMajorTests
 {
     private const string IndexName = "compatibility-major-chain";
-
-    public IndexCompatibilityCrossMajorTests(ITestOutputHelper output) : base(output) { }
 
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_AcrossSequentialMajors_PreservesDataAndCanonicalNames()
     {
         string? phaseValue = Environment.GetEnvironmentVariable("FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR");
         if (!Int32.TryParse(phaseValue, out int serverMajor))
-            return;
+            Assert.Skip("Set FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR and invoke explicit tests only during the persistent Elasticsearch 7 to 8 to 9 release validation.");
 
         // Arrange
-        using var index = new VersionedIndex(_configuration, IndexName, 1);
-        var before = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        using var configuration = new ElasticConfiguration();
+        using var index = new VersionedIndex(configuration, IndexName, 1);
+        configuration.AddIndex(index);
+        var client = configuration.Client;
+        await client.WaitForReadyAsync(TestContext.Current.CancellationToken);
+        var before = Assert.Single(await index.GetIndexCompatibilityAsync(TestContext.Current.CancellationToken));
         Assert.Equal(serverMajor - 1, before.CreatedMajor);
         Assert.Equal(serverMajor, before.ServerMajor);
         Assert.Equal(IndexCompatibilityState.RequiresReindex, before.State);
         string targetIndex = CompatibilityIndexName.Create(before.Name, serverMajor, IndexName);
 
         // Act
-        await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
+        await configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken);
 
         // Assert
-        var countResponse = await _client.CountAsync<object>(d => d.Indices(IndexName), TestCancellationToken);
+        var countResponse = await client.CountAsync<object>(d => d.Indices(IndexName), TestContext.Current.CancellationToken);
         Assert.True(countResponse.IsValidResponse, countResponse.GetErrorMessage());
         Assert.Equal(2, countResponse.Count);
 
-        var canonicalResponse = await _client.Indices.GetAsync((Indices)$"{IndexName}-v1", cancellationToken: TestCancellationToken);
+        var canonicalResponse = await client.Indices.GetAsync((Indices)$"{IndexName}-v1", cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(canonicalResponse.IsValidResponse, canonicalResponse.GetErrorMessage());
         Assert.Equal(targetIndex, canonicalResponse.Indices.Keys.Single().ToString());
 
-        var settingsResponse = await _client.Indices.GetSettingsAsync((Indices)targetIndex,
-            d => d.IncludeDefaults(false), TestCancellationToken);
+        var settingsResponse = await client.Indices.GetSettingsAsync((Indices)targetIndex,
+            d => d.IncludeDefaults(false), TestContext.Current.CancellationToken);
         Assert.True(settingsResponse.IsValidResponse, settingsResponse.GetErrorMessage());
         var settings = settingsResponse.Settings.Values.Single().Settings?.Index;
         var version = settings?.Version;
@@ -51,7 +53,7 @@ public sealed class IndexCompatibilityCrossMajorTests : ElasticRepositoryTestBas
         Assert.Null(settings?.DefaultPipeline);
         Assert.Null(settings?.FinalPipeline);
 
-        var after = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        var after = Assert.Single(await index.GetIndexCompatibilityAsync(TestContext.Current.CancellationToken));
         Assert.Equal(IndexCompatibilityState.Current, after.State);
         var aliases = canonicalResponse.Indices.Values.Single().Aliases;
         Assert.NotNull(aliases);

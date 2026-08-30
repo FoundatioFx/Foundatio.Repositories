@@ -5,7 +5,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -142,6 +145,60 @@ public partial class IndexCompatibilityTests
                 }
             ]);
         }
+    }
+
+    private sealed class StaticCompatibilityIndex : Index<object>
+    {
+        private readonly string _source;
+
+        public StaticCompatibilityIndex(IElasticConfiguration configuration, string name, string source) : base(configuration, name)
+        {
+            _source = source;
+        }
+
+        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+            [
+                new IndexCompatibilityInfo
+                {
+                    Name = _source,
+                    CreatedMajor = 8,
+                    ServerMajor = 9,
+                    ServerVersion = "9.0.0"
+                }
+            ]);
+        }
+    }
+
+    private sealed class MinimalIndex : IIndex
+    {
+        private readonly Dictionary<string, ICustomFieldType> _customFieldTypes = [];
+
+        public MinimalIndex(IElasticConfiguration configuration, string name)
+        {
+            Configuration = configuration;
+            Name = name;
+        }
+
+        public string Name { get; }
+        public bool HasMultipleIndexes => false;
+        public IElasticQueryBuilder QueryBuilder => throw new NotSupportedException();
+        public ElasticMappingResolver MappingResolver => throw new NotSupportedException();
+        public ElasticQueryParser QueryParser => throw new NotSupportedException();
+        public IElasticConfiguration Configuration { get; }
+        public IDictionary<string, ICustomFieldType> CustomFieldTypes => _customFieldTypes;
+
+        public void ConfigureSettings(ElasticsearchClientSettings settings) { }
+        public Task ConfigureAsync() => Task.CompletedTask;
+        public Task EnsureIndexAsync(object? target) => Task.CompletedTask;
+        public Task MaintainAsync(bool includeOptionalTasks = true) => Task.CompletedTask;
+        public Task DeleteAsync() => Task.CompletedTask;
+        public Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null) => Task.CompletedTask;
+        public string CreateDocumentId(object document) => throw new NotSupportedException();
+        public string[] GetIndexesByQuery(IRepositoryQuery query) => [Name];
+        public string GetIndex(object target) => Name;
+        public void Dispose() { }
     }
 
     private sealed class UnparseableVersionElasticConfiguration : ElasticConfiguration

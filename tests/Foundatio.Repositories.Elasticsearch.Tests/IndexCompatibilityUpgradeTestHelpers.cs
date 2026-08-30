@@ -7,15 +7,26 @@ using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Transport;
+using Foundatio.Caching;
+using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed partial class IndexCompatibilityUpgradeTests
 {
+    private async Task AssertIndexExistsAsync(string index, bool expected)
+    {
+        var response = await _client.Indices.ExistsAsync(index, cancellationToken: TestCancellationToken);
+        Assert.True(expected ? response.Exists : !response.Exists, response.DebugInformation);
+    }
+
     private sealed class EndpointAwareElasticConfiguration : ElasticConfiguration
     {
         protected override NodePool CreateConnectionPool()
@@ -146,9 +157,11 @@ public sealed partial class IndexCompatibilityUpgradeTests
     {
         private int _infoRequestCount;
         private int _compatibilityMetadataRequestCount;
+        private readonly List<string> _requestPaths = [];
 
         public int InfoRequestCount => _infoRequestCount;
         public int CompatibilityMetadataRequestCount => _compatibilityMetadataRequestCount;
+        public IReadOnlyCollection<string> RequestPaths => _requestPaths.ToArray();
 
         protected override void ConfigureSettings(ElasticsearchClientSettings settings)
         {
@@ -158,6 +171,8 @@ public sealed partial class IndexCompatibilityUpgradeTests
                 var uri = call.Uri;
                 if (uri is null)
                     return;
+
+                _requestPaths.Add($"{call.HttpMethod} {uri.PathAndQuery}");
 
                 if (uri.AbsolutePath is "/")
                     Interlocked.Increment(ref _infoRequestCount);
@@ -173,6 +188,7 @@ public sealed partial class IndexCompatibilityUpgradeTests
         {
             Interlocked.Exchange(ref _infoRequestCount, 0);
             Interlocked.Exchange(ref _compatibilityMetadataRequestCount, 0);
+            _requestPaths.Clear();
         }
     }
 
@@ -183,6 +199,23 @@ public sealed partial class IndexCompatibilityUpgradeTests
         public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
         {
             base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        }
+    }
+
+    private sealed class CompatibilityCleanupJob : CleanupIndexesJob
+    {
+        public CompatibilityCleanupJob(ElasticsearchClient client, string prefix = "logs")
+            : base(client, new ThrottlingLockProvider(new InMemoryCacheClient()), TimeProvider.System, NullLoggerFactory.Instance)
+        {
+            AddIndex(prefix, TimeSpan.FromDays(1));
+        }
+
+        public List<string> DeletedIndexes { get; } = [];
+
+        public override Task OnIndexDeleted(string indexName, TimeSpan duration)
+        {
+            DeletedIndexes.Add(indexName);
+            return Task.CompletedTask;
         }
     }
 }

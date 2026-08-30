@@ -9,9 +9,11 @@ using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Lock;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
+using Foundatio.Utility;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -19,6 +21,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public partial class IndexCompatibilityTests
 {
+    [Fact]
+    public void JsonDefinitionsMatch_IgnoresObjectPropertyOrder()
+    {
+        const string expected = """{"properties":{"name":{"type":"keyword","meta":{"first":"1","second":"2"}}}}""";
+        const string actual = """{"properties":{"name":{"meta":{"second":"2","first":"1"},"type":"keyword"}}}""";
+
+        Assert.True(ElasticIndexCompatibilityUpgrader.JsonDefinitionsMatch(expected, actual));
+    }
+
+    [Fact]
+    public void ReadCompleted_WithIncompletePayload_ReturnsNull()
+    {
+        using var document = JsonDocument.Parse("""{"total":0,"created":0}""");
+
+        var result = ElasticReindexTaskResponseReader.ReadCompleted(document.RootElement);
+
+        Assert.Null(result);
+    }
+
     [Fact]
     public async Task RunCompatibilityReindexAsync_WhenStartTransportFails_ThrowsUncertainException()
     {
@@ -67,7 +88,14 @@ public partial class IndexCompatibilityTests
                     "id": 1,
                     "type": "transport",
                     "action": "indices:data/write/reindex",
-                    "status": { "total": 1, "created": 1, "version_conflicts": 1 },
+                    "status": {
+                      "total": 1,
+                      "created": 1,
+                      "updated": 0,
+                      "deleted": 0,
+                      "noops": 0,
+                      "version_conflicts": 1
+                    },
                     "description": "reindex from [employees-v1] to [reindexed-v9-employees-v1]",
                     "start_time_in_millis": 1,
                     "running_time_in_nanos": 1,
@@ -140,6 +168,7 @@ public partial class IndexCompatibilityTests
             new StubResponse(404, """{"error":{"type":"index_not_found_exception","reason":"no such index [reindexed-v9-employees]"},"status":404}"""),
             new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
             new StubResponse(200, """{"employees":{"settings":{}}}"""),
+            new StubResponse(200, """{"acknowledged":true}"""),
             new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}"""),
             new StubResponse(200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
             new StubResponse(500, "", new TimeoutException("The _create_from response was not received.")));
@@ -157,12 +186,11 @@ public partial class IndexCompatibilityTests
         await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
 
         // Act
-        var exception = await Assert.ThrowsAsync<ElasticCompatibilityOperationUncertainException>(() =>
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
             upgrader.UpgradeAsync(index, compatibility, reindexLock!, (_, _) => Task.CompletedTask, CancellationToken.None));
 
-        // Assert: cleanup must not run after an unknown create outcome, so no further requests are issued.
-        Assert.Contains("creation outcome", exception.Message);
-        Assert.Contains("_create_from response was not received", exception.InnerException?.Message);
+        Assert.Contains("recovery evidence could not be inspected", exception.Message);
+        Assert.Contains("_create_from response was not received", exception.ToString());
     }
 
     [Fact]
@@ -173,9 +201,11 @@ public partial class IndexCompatibilityTests
             new StubResponse(404, """{"error":{"type":"index_not_found_exception","reason":"no such index [reindexed-v9-employees]"},"status":404}"""),
             new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
             new StubResponse(200, """{"employees":{"settings":{}}}"""),
+            new StubResponse(200, """{"acknowledged":true}"""),
             new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}"""),
             new StubResponse(200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
             new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"index":"reindexed-v9-employees"}"""),
+            new StubResponse(200, """{"acknowledged":true}"""),
             new StubResponse(200, """{"reindexed-v9-employees":{"aliases":{"unexpected":{}},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
             new StubResponse(200, """{"reindexed-v9-employees":{"settings":{}}}"""),
             new StubResponse(500, """{"error":{"type":"master_not_discovered_exception","reason":"delete outcome unknown"},"status":500}"""),
@@ -355,43 +385,152 @@ public partial class IndexCompatibilityTests
     [InlineData("{\"acknowledged\":true,\"shards_acknowledged\":true,\"indices\":[]}", false)]
     public void IsWriteBlockConfirmed_RequiresExactFullyAcknowledgedSource(string responseBody, bool expected)
     {
-        // Arrange
-        using var document = JsonDocument.Parse(responseBody);
-
         // Act
-        bool confirmed = ElasticIndexCompatibilityUpgrader.IsWriteBlockConfirmed(document.RootElement, "employees");
+        bool confirmed = ElasticIndexCompatibilityUpgrader.IsWriteBlockConfirmed(responseBody, "employees");
 
         // Assert
         Assert.Equal(expected, confirmed);
     }
 
-    [Theory]
-    [InlineData("{\"nodes\":{},\"node_failures\":[{\"type\":\"failed_node_exception\"}]}")]
-    [InlineData("{\"nodes\":{},\"task_failures\":[{\"task_id\":\"node:1\"}]}")]
-    public void ParseActiveReindexTaskCount_WithPartialTaskListing_ReturnsUnknown(string responseBody)
+    [Fact]
+    public async Task PutSettings_WithFlatOtherSettings_SerializesExplicitNullResets()
     {
-        // Arrange
-        using var document = JsonDocument.Parse(responseBody);
+        var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
+        var requestInvoker = new InMemoryRequestInvoker(
+            Encoding.UTF8.GetBytes("{\"acknowledged\":true}"), 200, null, "application/json", headers);
+        byte[]? requestBody = null;
+        var settings = new ElasticsearchClientSettings(requestInvoker)
+            .DisableDirectStreaming()
+            .OnRequestCompleted(call => requestBody = call.RequestBodyInBytes);
+        var client = new ElasticsearchClient(settings);
+        var nullValue = JsonSerializer.SerializeToElement<object?>(null);
 
-        // Act
-        int? count = ElasticIndexCompatibilityRecovery.ParseActiveReindexTaskCount(document.RootElement, "employees", "reindexed-v9-employees");
+        var response = await client.Indices.PutSettingsAsync("employees", d => d.Settings(new IndexSettings
+        {
+            OtherSettings = new Dictionary<string, object>
+            {
+                ["index.refresh_interval"] = nullValue,
+                ["index.default_pipeline"] = nullValue,
+                ["index.final_pipeline"] = nullValue
+            }
+        }), TestContext.Current.CancellationToken);
 
-        // Assert
-        Assert.Null(count);
+        Assert.True(response.IsValidResponse, response.GetErrorMessage());
+        Assert.NotNull(requestBody);
+        using var document = JsonDocument.Parse(requestBody);
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("index.refresh_interval").ValueKind);
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("index.default_pipeline").ValueKind);
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("index.final_pipeline").ValueKind);
+    }
+
+    [Fact]
+    public async Task GetSettings_WithFlatSettings_PreservesExplicitSettingPaths()
+    {
+        var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
+        var requestInvoker = new InMemoryRequestInvoker(
+            Encoding.UTF8.GetBytes("""
+                {
+                  "employees": {
+                    "settings": {
+                      "index.max_result_window": "12345",
+                      "index.number_of_replicas": "1"
+                    }
+                  }
+                }
+                """), 200, null, "application/json", headers);
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(requestInvoker));
+
+        var response = await client.Indices.GetSettingsAsync((Indices)"employees",
+            d => d.FlatSettings().IncludeDefaults(false), TestContext.Current.CancellationToken);
+
+        Assert.True(response.IsValidResponse, response.GetErrorMessage());
+        var state = response.RequireSingleResolvedIndexState("employees");
+        var settings = state.Settings?.Index ?? state.Settings;
+        Assert.NotNull(settings?.OtherSettings);
+        Assert.Equal("12345", settings.OtherSettings["index.max_result_window"].ToString());
+        Assert.Equal("1", settings.OtherSettings["index.number_of_replicas"].ToString());
+    }
+
+    [Fact]
+    public void GetOpaqueId_IsDeterministicAndLineageSpecific()
+    {
+        string first = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
+        string repeated = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
+        string differentSource = ElasticReindexTaskRunner.GetOpaqueId("employees-v2", "reindexed-v9-employees");
+        string differentTarget = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees-v2");
+
+        Assert.Equal(first, repeated);
+        Assert.NotEqual(first, differentSource);
+        Assert.NotEqual(first, differentTarget);
+        Assert.StartsWith("foundatio-compat-", first, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("{\"nodes\":{\"node-1\":null}}")]
-    [InlineData("{\"nodes\":{\"node-1\":{}}}")]
-    [InlineData("{\"nodes\":{\"node-1\":{\"tasks\":[]}}}")]
-    [InlineData("{\"nodes\":{\"node-1\":{\"tasks\":{\"node-1:1\":null}}}}")]
-    public void ParseActiveReindexTaskCount_WithMalformedNodeShape_ReturnsUnknown(string responseBody)
+    [InlineData(1, IndexCompatibilityRecoveryAction.Wait)]
+    [InlineData(2, IndexCompatibilityRecoveryAction.ManualIntervention)]
+    public async Task InspectAsync_CountsOnlyTasksWithExactOpaqueId(int exactTaskCount, IndexCompatibilityRecoveryAction expectedAction)
     {
-        using var document = JsonDocument.Parse(responseBody);
+        string opaqueId = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
+        string secondOpaqueId = exactTaskCount is 2 ? opaqueId : "wrong";
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, """
+                {
+                  "name":"node","cluster_name":"test","cluster_uuid":"test","version":{
+                    "number":"9.0.0","build_flavor":"default","build_type":"unknown","build_hash":"unknown",
+                    "build_date":"2026-01-01T00:00:00.000Z","build_snapshot":false,"lucene_version":"10.0.0",
+                    "minimum_wire_compatibility_version":"8.0.0","minimum_index_compatibility_version":"8.0.0"
+                  },"tagline":"test"
+                }
+                """),
+            new StubResponse(200, """
+                {
+                  "employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{"blocks":{"write":"true"}}}},
+                  "reindexed-v9-employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{}}}
+                }
+                """),
+            new StubResponse(200, """
+                {
+                  "nodes":{"node-1":{"name":"node","transport_address":"127.0.0.1:9300","host":"host","ip":"127.0.0.1","roles":[],"attributes":{},"tasks":{
+                    "node-1:1":{"node":"node-1","id":1,"type":"transport","action":"indices:data/write/reindex","status":{},"description":"reindex from [employees] to [reindexed-v9-employees]","start_time_in_millis":1,"running_time_in_nanos":1,"cancellable":true,"cancelled":false,"headers":{"X-Opaque-Id":"wrong"}},
+                    "node-1:2":{"node":"node-1","id":2,"type":"transport","action":"indices:data/write/reindex","status":{},"description":"unrelated description","start_time_in_millis":1,"running_time_in_nanos":1,"cancellable":true,"cancelled":false,"headers":{"X-Opaque-Id":"OPAQUE_ID"}},
+                    "node-1:3":{"node":"node-1","id":3,"type":"transport","action":"indices:data/write/reindex","status":{},"description":"same lineage","start_time_in_millis":1,"running_time_in_nanos":1,"cancellable":true,"cancelled":false,"headers":{"X-Opaque-Id":"SECOND_OPAQUE_ID"}}
+                  }}}
+                }
+                """
+                .Replace("SECOND_OPAQUE_ID", secondOpaqueId, StringComparison.Ordinal)
+                .Replace("OPAQUE_ID", opaqueId, StringComparison.Ordinal)));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+        var recovery = new ElasticIndexCompatibilityRecovery(client, null, NullLogger.Instance);
+        using var index = new Index<object>(new ElasticConfiguration(), "employees");
 
-        int? count = ElasticIndexCompatibilityRecovery.ParseActiveReindexTaskCount(document.RootElement, "employees", "reindexed-v9-employees");
+        var status = await recovery.InspectAsync(index, "employees", TestContext.Current.CancellationToken);
 
-        Assert.Null(count);
+        Assert.Equal(exactTaskCount, status.ActiveReindexTaskCount);
+        Assert.Equal(expectedAction, status.Action);
+    }
+
+    [Fact]
+    public void IsCompletedCutover_RequiresExactCleanCommittedTopology()
+    {
+        var completed = new IndexCompatibilityUpgradeStatus
+        {
+            IndexName = "employees",
+            SourceIndex = "employees-v1",
+            TargetIndex = "reindexed-v9-employees-v1",
+            Action = IndexCompatibilityRecoveryAction.None,
+            SourceExists = false,
+            TargetExists = true,
+            TargetHasCanonicalSourceAlias = true,
+            ActiveReindexTaskCount = 0
+        };
+
+        Assert.True(ElasticIndexCompatibilityUpgrader.IsCompletedCutover(completed));
+        Assert.False(ElasticIndexCompatibilityUpgrader.IsCompletedCutover(completed with { SourceExists = true }));
+        Assert.False(ElasticIndexCompatibilityUpgrader.IsCompletedCutover(completed with { TargetWorkflowMarkerPresent = true }));
+        Assert.False(ElasticIndexCompatibilityUpgrader.IsCompletedCutover(completed with { TargetWriteBlocked = true }));
+        Assert.False(ElasticIndexCompatibilityUpgrader.IsCompletedCutover(completed with { TargetHasCanonicalSourceAlias = false }));
+        Assert.False(ElasticIndexCompatibilityUpgrader.IsCompletedCutover(completed with { ActiveReindexTaskCount = null }));
+        Assert.False(ElasticIndexCompatibilityUpgrader.IsCompletedCutover(completed with { Action = IndexCompatibilityRecoveryAction.ManualIntervention }));
     }
 
     [Fact]
@@ -412,6 +551,7 @@ public partial class IndexCompatibilityTests
     [InlineData("reindexed-v8-logs-v1-2023.05.01", "logs-v1-2023.05.01")]
     [InlineData("reindexed-v-employees", "reindexed-v-employees")]
     [InlineData("reindexed-v0-employees", "reindexed-v0-employees")]
+    [InlineData("reindexed-v08-employees", "reindexed-v08-employees")]
     public void CompatibilityIndexName_GetCanonicalName_ReturnsExpectedName(string name, string expected)
     {
         Assert.Equal(expected, CompatibilityIndexName.GetCanonicalName(name));
@@ -521,6 +661,9 @@ public partial class IndexCompatibilityTests
     {
         using var configuration = new ElasticConfiguration();
         using var index = new BecomesCompatibleIndex(configuration);
+        configuration.AddIndex(index);
+        await index.ConfigureAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
 
         await configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken);
 
@@ -532,6 +675,7 @@ public partial class IndexCompatibilityTests
     {
         using var configuration = new ElasticConfiguration();
         using var index = new ConflictingDestinationIndex(configuration);
+        configuration.AddIndex(index);
 
         var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
             configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken));
@@ -547,6 +691,7 @@ public partial class IndexCompatibilityTests
     {
         using var configuration = new ElasticConfiguration();
         using var index = new CanceledCompatibilityIndex(configuration);
+        configuration.AddIndex(index);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken));
     }
@@ -557,11 +702,28 @@ public partial class IndexCompatibilityTests
         using var owner = new ElasticConfiguration();
         using var other = new ElasticConfiguration();
         using var index = new CountingCompatibilityIndex(owner);
+        owner.AddIndex(index);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() => other.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains("different Elasticsearch configuration", exception.Message);
         Assert.Equal(0, index.CompatibilityChecks);
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WhenRegisteredIndexesClaimSameSource_RejectsWholeBatchBeforeMutation()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var first = new StaticCompatibilityIndex(configuration, "employees", "shared-v1");
+        using var second = new StaticCompatibilityIndex(configuration, "employees-archive", "shared-v1");
+        configuration.AddIndex(first);
+        configuration.AddIndex(second);
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            configuration.UpgradeIndexCompatibilityAsync([first, second], cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("same compatibility source", exception.Message);
+        Assert.Contains("shared-v1", exception.Message);
     }
 
     [Fact]
@@ -571,6 +733,8 @@ public partial class IndexCompatibilityTests
         using var other = new ElasticConfiguration();
         using var first = new CountingCompatibilityIndex(configuration);
         using var foreign = new CountingCompatibilityIndex(other);
+        configuration.AddIndex(first);
+        other.AddIndex(foreign);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
             configuration.UpgradeIndexCompatibilityAsync([first, foreign], cancellationToken: TestContext.Current.CancellationToken));
@@ -581,10 +745,24 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WithUnregisteredIndex_ThrowsBeforeInspection()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var index = new CountingCompatibilityIndex(configuration);
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("registered", exception.Message);
+        Assert.Equal(0, index.CompatibilityChecks);
+    }
+
+    [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenIndexSkippedMajor_ThrowsBeforeMutation()
     {
         using var configuration = new ElasticConfiguration();
         using var index = new UnsupportedCompatibilityIndex(configuration);
+        configuration.AddIndex(index);
 
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken));
 
@@ -634,11 +812,16 @@ public partial class IndexCompatibilityTests
     [InlineData("reindexed-v9-employees", true)]
     [InlineData("customers", false)]
     [InlineData("employees-error2", false)]
-    public void OwnsCompatibilityIndex_ForPlainIndex_RequiresConfiguredCanonicalName(string sourceIndex, bool expected)
+    public void MatchesCompatibilitySource_ForPlainIndex_RequiresConfiguredCanonicalName(string sourceIndex, bool expected)
     {
         using var index = new Index<object>(new ElasticConfiguration(), "employees");
+        IReadOnlyDictionary<string, Alias> aliases = sourceIndex.StartsWith("reindexed-v", StringComparison.Ordinal)
+            ? new Dictionary<string, Alias> { ["employees"] = new() }
+            : sourceIndex.EndsWith("-error", StringComparison.Ordinal)
+                ? new Dictionary<string, Alias> { [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true } }
+                : new Dictionary<string, Alias>();
 
-        Assert.Equal(expected, index.OwnsCompatibilityIndex(sourceIndex));
+        Assert.Equal(expected, index.MatchesCompatibilitySource(sourceIndex, aliases));
     }
 
     [Theory]
@@ -649,11 +832,17 @@ public partial class IndexCompatibilityTests
     [InlineData("employees-v1-other", false)]
     [InlineData("employees-v1-errors", false)]
     [InlineData("customers-v1", false)]
-    public void OwnsCompatibilityIndex_ForVersionedIndex_RequiresExactOwnedVersion(string sourceIndex, bool expected)
+    public void MatchesCompatibilitySource_ForVersionedIndex_RequiresExactOwnedVersion(string sourceIndex, bool expected)
     {
         using var index = new VersionedIndex<object>(new ElasticConfiguration(), "employees", 2);
+        string canonical = CompatibilityIndexName.GetCanonicalName(sourceIndex, index.Name);
+        var aliases = new Dictionary<string, Alias>();
+        if (!String.Equals(canonical, sourceIndex, StringComparison.Ordinal))
+            aliases[canonical] = new();
+        if (canonical.EndsWith("-error", StringComparison.Ordinal))
+            aliases[ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true };
 
-        Assert.Equal(expected, index.OwnsCompatibilityIndex(sourceIndex));
+        Assert.Equal(expected, index.MatchesCompatibilitySource(sourceIndex, aliases));
     }
 
     [Fact]
@@ -661,7 +850,7 @@ public partial class IndexCompatibilityTests
     {
         using var index = new VersionedIndex<object>(new ElasticConfiguration(), "employees", 2);
 
-        index.ValidateCompatibilityUpgradeSource("employees-v1", ownsLogicalAlias: false);
+        index.ValidateCompatibilityUpgradeSource("employees-v1", new Dictionary<string, Alias>());
     }
 
     [Fact]
@@ -669,7 +858,9 @@ public partial class IndexCompatibilityTests
     {
         using var index = new VersionedIndex<object>(new ElasticConfiguration(), "employees", 2);
 
-        var exception = Assert.Throws<RepositoryException>(() => index.ValidateCompatibilityUpgradeSource("employees-v1", ownsLogicalAlias: true));
+        var exception = Assert.Throws<RepositoryException>(() => index.ValidateCompatibilityUpgradeSource(
+            "employees-v1",
+            new Dictionary<string, Alias> { ["employees"] = new() }));
 
         Assert.Contains("schema reindex", exception.Message);
     }
@@ -681,15 +872,21 @@ public partial class IndexCompatibilityTests
     [InlineData("logs-v1-not-a-date", false)]
     [InlineData("logs-v1-not-a-date-error", false)]
     [InlineData("other-v1-2026.08.11", false)]
-    public void OwnsCompatibilityIndex_ForDailyIndex_RequiresOwnedDatedPartition(string sourceIndex, bool expected)
+    public void MatchesCompatibilitySource_ForDailyIndex_RequiresOwnedDatedPartition(string sourceIndex, bool expected)
     {
         using var index = new DailyIndex<object>(new ElasticConfiguration(), "logs", 2);
+        string canonical = CompatibilityIndexName.GetCanonicalName(sourceIndex, index.Name);
+        var aliases = new Dictionary<string, Alias>();
+        if (!String.Equals(canonical, sourceIndex, StringComparison.Ordinal))
+            aliases[canonical] = new();
+        if (canonical.EndsWith("-error", StringComparison.Ordinal))
+            aliases[ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true };
 
-        Assert.Equal(expected, index.OwnsCompatibilityIndex(sourceIndex));
+        Assert.Equal(expected, index.MatchesCompatibilitySource(sourceIndex, aliases));
     }
 
     [Fact]
-    public void OwnsCompatibilityIndexExclusively_WhenSiblingNativelyClaimsName_YieldsToSibling()
+    public void MatchesCompatibilitySource_WhenSiblingNativelyClaimsName_YieldsToSibling()
     {
         // Arrange
         using var configuration = new ElasticConfiguration();
@@ -699,141 +896,14 @@ public partial class IndexCompatibilityTests
         configuration.AddIndex(natural);
 
         // Assert
-        Assert.False(events.OwnsCompatibilityIndexExclusively(natural.VersionedName));
-        Assert.True(natural.OwnsCompatibilityIndexExclusively(natural.VersionedName));
+        Assert.False(events.MatchesCompatibilitySource(natural.VersionedName, new Dictionary<string, Alias>()));
+        Assert.True(natural.MatchesCompatibilitySource(natural.VersionedName, new Dictionary<string, Alias>()));
         const string repeatedlyWrappedSibling = "reindexed-v9-reindexed-v8-events-v1";
-        Assert.False(events.OwnsCompatibilityIndexExclusively(repeatedlyWrappedSibling));
-        Assert.True(natural.OwnsCompatibilityIndexExclusively(repeatedlyWrappedSibling));
-        Assert.True(events.OwnsCompatibilityIndexExclusively(events.VersionedName));
-        Assert.False(natural.OwnsCompatibilityIndexExclusively(events.VersionedName));
-    }
-
-    [Fact]
-    public void OwnsCompatibilityIndexExclusively_WhenSiblingNameEndsInError_YieldsToExactSibling()
-    {
-        using var configuration = new ElasticConfiguration();
-        using var events = new Index<object>(configuration, "events");
-        using var errors = new Index<object>(configuration, "events-error");
-        configuration.AddIndex(events);
-        configuration.AddIndex(errors);
-
-        Assert.False(events.OwnsCompatibilityIndexExclusively(errors.Name));
-        Assert.True(errors.OwnsCompatibilityIndexExclusively(errors.Name));
-    }
-
-    [Fact]
-    public void HasExactHiddenAlias_RequiresExactMarkerDefinition()
-    {
-        Assert.True(new Dictionary<string, Alias>
-        {
-            [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true }
-        }.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
-        Assert.False(new Dictionary<string, Alias>
-        {
-            [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = false }
-        }.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
-        Assert.False(new Dictionary<string, Alias>
-        {
-            [ElasticReindexer.ErrorIndexOwnershipAlias] = new() { IsHidden = true, Routing = "foreign" }
-        }.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
-    }
-
-    [Fact]
-    public void OwnsCompatibilityIndexExclusively_WhenSelfNotRegistered_KeepsStructuralOwnership()
-    {
-        using var configuration = new ElasticConfiguration();
-        using var events = new VersionedIndex<object>(configuration, "events", 1);
-
-        Assert.True(events.OwnsCompatibilityIndexExclusively(events.VersionedName));
-    }
-
-    [Fact]
-    public async Task ConfigureIndexesAsync_DoesNotCheckCompatibility()
-    {
-        using var configuration = new ElasticConfiguration();
-        using var index = new CountingCompatibilityIndex(configuration);
-
-        await configuration.ConfigureIndexesAsync([index]);
-
-        Assert.Equal(0, index.CompatibilityChecks);
-    }
-
-    [Fact]
-    public void GetCompatibilityIndexPattern_ForDailyIndex_IncludesAllPhysicalPartitions()
-    {
-        var index = new TestDailyIndex(new ElasticConfiguration(), "logs", 1);
-
-        Assert.Equal("logs-v*-*,reindexed-v*-logs-v*-*", index.GetCompatibilityIndexPatternPublic());
-    }
-
-    [Fact]
-    public void GetCompatibilityIndexPattern_ForVersionedIndex_IncludesRetainedPhysicalVersions()
-    {
-        // Arrange
-        var index = new TestVersionedIndex(new ElasticConfiguration(), "employees", 3);
-
-        // Act
-        string pattern = index.GetCompatibilityIndexPatternPublic();
-
-        // Assert
-        Assert.Equal("employees-v*,reindexed-v*-employees-v*", pattern);
-    }
-
-    [Fact]
-    public void GetCompatibilityIndexPattern_ForPlainIndex_IncludesGeneratedErrorPartition()
-    {
-        var index = new TestPlainIndex(new ElasticConfiguration(), "employees");
-
-        Assert.Equal("employees,employees-error", index.GetCompatibilityIndexPatternPublic());
-    }
-
-    [Fact]
-    public void DailyIndex_GetIndexDate_WithoutRevisionSuffix_ParsesDate()
-    {
-        var index = new TestDailyIndex(new ElasticConfiguration(), "logs", 1);
-
-        var date = index.GetIndexDatePublic("logs-v1-2023.05.01");
-
-        Assert.Equal(new DateTime(2023, 5, 1, 0, 0, 0, DateTimeKind.Utc), date);
-    }
-
-    [Fact]
-    public void DailyIndex_GetIndexDate_WithCompatibilityPrefix_StripsPrefixAndParsesDate()
-    {
-        var index = new TestDailyIndex(new ElasticConfiguration(), "logs", 1);
-
-        var date = index.GetIndexDatePublic("reindexed-v8-logs-v1-2023.05.01");
-
-        Assert.Equal(new DateTime(2023, 5, 1, 0, 0, 0, DateTimeKind.Utc), date);
-    }
-
-    [Fact]
-    public void DailyIndex_GetIndexDate_WithNewerCompatibilityPrefix_StripsPrefixAndParsesDate()
-    {
-        var index = new TestDailyIndex(new ElasticConfiguration(), "logs", 1);
-
-        var date = index.GetIndexDatePublic("reindexed-v10-logs-v1-2023.05.01");
-
-        Assert.Equal(new DateTime(2023, 5, 1, 0, 0, 0, DateTimeKind.Utc), date);
-    }
-
-    [Fact]
-    public void VersionedIndex_GetIndexVersion_WithNaturalCompatibilityPrefixPreservesName()
-    {
-        var index = new TestVersionedIndex(new ElasticConfiguration(), "reindexed-v8-events", 1);
-
-        Assert.Equal(1, index.GetIndexVersionPublic("reindexed-v8-events-v1"));
-        Assert.Equal(1, index.GetIndexVersionPublic("reindexed-v9-reindexed-v8-events-v1"));
-    }
-
-    [Fact]
-    public void DailyIndex_GetIndexDate_WithInvalidName_ReturnsMaxValue()
-    {
-        var index = new TestDailyIndex(new ElasticConfiguration(), "logs", 1);
-
-        var date = index.GetIndexDatePublic("not-a-matching-name");
-
-        Assert.Equal(DateTime.MaxValue, date);
+        var siblingAliases = new Dictionary<string, Alias> { [natural.VersionedName] = new() };
+        Assert.False(events.MatchesCompatibilitySource(repeatedlyWrappedSibling, siblingAliases));
+        Assert.True(natural.MatchesCompatibilitySource(repeatedlyWrappedSibling, siblingAliases));
+        Assert.True(events.MatchesCompatibilitySource(events.VersionedName, new Dictionary<string, Alias>()));
+        Assert.False(natural.MatchesCompatibilitySource(events.VersionedName, new Dictionary<string, Alias>()));
     }
 
 }
