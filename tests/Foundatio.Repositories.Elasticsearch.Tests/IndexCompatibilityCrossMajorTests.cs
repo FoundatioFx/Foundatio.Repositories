@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Xunit;
@@ -19,8 +20,12 @@ public sealed class IndexCompatibilityCrossMajorTests
         if (!Int32.TryParse(phaseValue, out int serverMajor))
             Assert.Skip("Set FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR and invoke explicit tests only during the persistent Elasticsearch 7 to 8 to 9 release validation.");
 
+        string? address = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL");
+        if (String.IsNullOrWhiteSpace(address))
+            Assert.Skip("Set ELASTICSEARCH_URL to the isolated persistent-data validation cluster; never use the default application cluster for this test.");
+
         // Arrange
-        using var configuration = new ElasticConfiguration();
+        using var configuration = new ChainElasticConfiguration(new Uri(address));
         using var index = new VersionedIndex(configuration, IndexName, 1);
         configuration.AddIndex(index);
         var client = configuration.Client;
@@ -59,5 +64,10 @@ public sealed class IndexCompatibilityCrossMajorTests
         Assert.NotNull(aliases);
         Assert.DoesNotContain($"reindexed-v{serverMajor - 1}-{IndexName}-v1", aliases.Keys.Select(k => k.ToString()));
         Assert.DoesNotContain(ElasticIndexCompatibilityUpgrader.OwnershipAlias, aliases.Keys.Select(k => k.ToString()));
+    }
+
+    private sealed class ChainElasticConfiguration(Uri address) : ElasticConfiguration
+    {
+        protected override NodePool CreateConnectionPool() => new SingleNodePool(address);
     }
 }

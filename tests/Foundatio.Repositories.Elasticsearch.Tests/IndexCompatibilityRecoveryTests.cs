@@ -23,7 +23,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task RecoverIndexCompatibilityUpgradeAsync_WithOnlySourceMarker_RemovesMarker()
+    public async Task RecoverIndexCompatibilityUpgradeAsync_WithOnlySourceMarker_RequiresManualIntervention()
     {
         string name = $"compat-recovery-marker-only-{Guid.NewGuid():N}";
         var (configuration, index) = CreateRegisteredIndex(name);
@@ -39,14 +39,17 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
             Assert.True(sourceMarker.IsValidResponse, sourceMarker.GetErrorMessage());
 
             var before = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
-            var after = await configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+            var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+                configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken));
+            var after = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
 
-            Assert.Equal(IndexCompatibilityRecoveryAction.Reset, before.Action);
-            Assert.True(before.CanRecover);
-            Assert.Equal(IndexCompatibilityRecoveryAction.None, after.Action);
+            Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, before.Action);
+            Assert.False(before.CanRecover);
+            Assert.Contains("ManualIntervention", exception.Message);
+            Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, after.Action);
             Assert.True(after.SourceExists);
             Assert.False(after.SourceWriteBlocked);
-            Assert.False(after.SourceWorkflowMarkerPresent);
+            Assert.True(after.SourceWorkflowMarkerPresent);
             Assert.False(after.TargetExists);
         }
     }
@@ -196,7 +199,8 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
 
         var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, TestCancellationToken);
 
-        Assert.Equal(IndexCompatibilityRecoveryAction.Reset, status.Action);
+        Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
+        Assert.True(status.SourceWorkflowMarkerPresent);
     }
 
     [Theory]
