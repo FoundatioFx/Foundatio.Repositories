@@ -468,7 +468,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                     throw new AsyncQueryNotFoundException(queryId);
 
-                CapturePointInTimeId(options, response.Response.PitId);
                 result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
             else if (options.HasSnapshotScrollId())
@@ -506,7 +505,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
                     var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
                     _logger.LogRequest(response, options.GetQueryLogLevel());
-                    CapturePointInTimeId(options, response.Response.PitId);
                     result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
                 }
                 else

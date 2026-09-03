@@ -694,6 +694,18 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         return nodeStats.Indices!.Search!.ScrollCurrent;
     }
 
+    private async Task<long> GetCurrentSearchContextCountAsync()
+    {
+        var stats = await _client.Nodes.StatsAsync(cancellationToken: TestCancellationToken);
+        Assert.True(stats.IsValidResponse);
+        return stats.Nodes.Values.Sum(n =>
+        {
+            long? count = n.Indices?.Search?.OpenContexts;
+            Assert.NotNull(count);
+            return count.Value;
+        });
+    }
+
     [Fact]
     public async Task GetAllWithAsyncQueryAsync()
     {
@@ -1210,8 +1222,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     {
         // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
-        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
-        long baselineScrollCount = await GetCurrentScrollCountAsync();
+        long baselineContextCount = await GetCurrentSearchContextCountAsync();
         _employeeRepository.AfterQuery.AddHandler((_, _) => throw new InvalidOperationException("after-query failure"));
 
         // Act
@@ -1220,7 +1231,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.Equal("after-query failure", exception.Message);
-        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
     }
 
     [Fact]
@@ -1229,8 +1240,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
-        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
-        long baselineScrollCount = await GetCurrentScrollCountAsync();
+        long baselineContextCount = await GetCurrentSearchContextCountAsync();
         int queryCount = 0;
         _employeeRepository.BeforeQuery.AddHandler((_, _) =>
         {
@@ -1243,13 +1253,14 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var results = await _employeeRepository.FindAsync(
             q => q.SortDescending(d => d.Name),
             o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+        Assert.True(await GetCurrentSearchContextCountAsync() > baselineContextCount);
 
         // Act
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => results.NextPageAsync());
 
         // Assert
         Assert.Equal("before-query failure", exception.Message);
-        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
     }
 
     [Fact]
@@ -1350,21 +1361,23 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
 
-        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
-        long baselineScrollCount = await GetCurrentScrollCountAsync();
+        long baselineContextCount = await GetCurrentSearchContextCountAsync();
 
         // Act
         var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
-        while (await results.NextPageAsync())
+        string? finalPitId;
+        do
         {
-        }
+            finalPitId = results.GetPointInTimeId();
+        } while (await results.NextPageAsync());
 
-        // Assert — PIT is closed by the repo without any manual ClosePointInTimeAsync call
+        // Assert
         Assert.False(results.HasMore);
-        string? finalPitId = results.GetPointInTimeId();
-        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
-        if (!String.IsNullOrEmpty(finalPitId))
-            Assert.False(await ((ISupportPointInTime)_employeeRepository).ClosePointInTimeAsync(finalPitId));
+        Assert.False(String.IsNullOrEmpty(finalPitId));
+        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
+        var closedSearch = await _client.SearchAsync<Employee>(s => s.Pit(p => p.Id(finalPitId)).Size(0), TestCancellationToken);
+        Assert.False(closedSearch.IsValidResponse);
+        Assert.Equal(404, closedSearch.ApiCallDetails.HttpStatusCode);
     }
 
     [Fact]

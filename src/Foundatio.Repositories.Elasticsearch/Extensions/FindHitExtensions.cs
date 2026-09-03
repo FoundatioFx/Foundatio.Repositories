@@ -101,35 +101,61 @@ public static class FindHitExtensions
         return Encode(serializer.SerializeToString(sorts));
     }
 
+    /// <summary>
+    /// Reverses a sort in place, preserving its selected value and reversing missing-value placement.
+    /// </summary>
+    /// <remarks>
+    /// Materializes direction-dependent defaults before reversing so backward cursors use the same
+    /// values as forward cursors. See <see href="https://www.elastic.co/docs/reference/elasticsearch/rest-apis/sort-search-results">Elasticsearch sort semantics</see>.
+    /// </remarks>
     public static SortOptions? ReverseOrder(this SortOptions? sort)
     {
-        if (sort == null)
+        if (sort is null)
             return null;
 
-        // SortOptions is a discriminated union - we need to reverse the order on the underlying variant
-        if (sort.Field != null)
+        if (sort.Field is { } field)
         {
-            sort.Field.Order = !sort.Field.Order.HasValue || sort.Field.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+            var order = field.Order ?? (field.Field.Name is "_score" ? SortOrder.Desc : SortOrder.Asc);
+            if (field.Field.Name is not ("_score" or "_doc" or "_shard_doc"))
+            {
+                // Reversing direction must keep the same value from multivalued fields and
+                // invert missing placement, rather than adopting the opposite order's defaults.
+                field.Mode ??= order is SortOrder.Asc ? SortMode.Min : SortMode.Max;
+                field.Missing = field.Missing switch
+                {
+                    null or "_last" => "_first",
+                    "_first" => "_last",
+                    _ => field.Missing
+                };
+            }
+
+            field.Order = ReverseSortOrder(order);
         }
-        else if (sort.Score != null)
+        else if (sort.Score is { } score)
         {
-            sort.Score.Order = !sort.Score.Order.HasValue || sort.Score.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+            score.Order = ReverseSortOrder(score.Order ?? SortOrder.Desc);
         }
-        else if (sort.Doc != null)
+        else if (sort.Doc is { } doc)
         {
-            sort.Doc.Order = !sort.Doc.Order.HasValue || sort.Doc.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+            doc.Order = ReverseSortOrder(doc.Order ?? SortOrder.Asc);
         }
-        else if (sort.GeoDistance != null)
+        else if (sort.GeoDistance is { } geoDistance)
         {
-            sort.GeoDistance.Order = !sort.GeoDistance.Order.HasValue || sort.GeoDistance.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+            var order = geoDistance.Order ?? SortOrder.Asc;
+            geoDistance.Mode ??= order is SortOrder.Asc ? SortMode.Min : SortMode.Max;
+            geoDistance.Order = ReverseSortOrder(order);
         }
-        else if (sort.Script != null)
+        else if (sort.Script is { } script)
         {
-            sort.Script.Order = !sort.Script.Order.HasValue || sort.Script.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+            var order = script.Order ?? SortOrder.Asc;
+            script.Mode ??= order is SortOrder.Asc ? SortMode.Min : SortMode.Max;
+            script.Order = ReverseSortOrder(order);
         }
 
         return sort;
     }
+
+    private static SortOrder ReverseSortOrder(SortOrder order) => order is SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
 
     public static IEnumerable<SortOptions>? ReverseOrder(this IEnumerable<SortOptions>? sorts)
     {

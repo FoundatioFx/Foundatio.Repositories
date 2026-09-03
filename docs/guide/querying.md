@@ -394,7 +394,8 @@ var nextResults = await repository.FindAsync(
 `SearchAfter(...)` and `SearchAfterToken(...)` select forward paging and clear any backward
 cursor. `SearchBefore(...)` and `SearchBeforeToken(...)` do the reverse. Calling
 `SearchAfterPaging(false)` ends the local paging session by clearing both cursors, the paging
-mode, and any stored point-in-time state, so re-enabling starts a new Live session. If you stop a
+mode, and any stored point-in-time state, and resetting the page number to one. The page limit is
+preserved, so re-enabling starts a new Live session at the beginning. If you stop a
 point-in-time traversal early, close the result first with
 `ISupportPointInTime.ClosePointInTimeAsync(results)`; otherwise Elasticsearch retains it until its
 keep-alive expires.
@@ -408,8 +409,8 @@ Search-after requests bypass repository query-result caching because the cache k
 the cursor tuple. Cache options can remain on shared option builders, but they are ignored for both
 Live and point-in-time search-after sessions.
 
-Changing between `Live` and `PointInTime` starts a new paging session and clears cursors, PIT
-ownership/id, and warning state. Reapplying the current mode preserves the active session.
+Changing between `Live` and `PointInTime` starts a new paging session at page one and clears cursors,
+PIT ownership/id, and warning state. Reapplying the current mode preserves the active session and page.
 The repository evaluates the final paging mode after `BeforeQuery` handlers run, so a handler can
 enable or disable paging without leaving request setup, validation, or caching on the previous mode.
 Calling `PointInTimeId(...)` establishes a caller-owned PIT, even when the options previously held
@@ -449,6 +450,11 @@ with `QueryValidationException` before Elasticsearch receives a request.
 > point-in-time mode makes that tiebreaker explicit after any caller sorts so both forward and
 > backward cursors can reverse the same complete sort tuple. An explicit unstable sort key remains
 > dangerous in `Live` mode.
+
+Backward paging preserves the original sort value for multivalued fields and reverses `_first`/`_last`
+missing-value placement along with the direction. Explicit replacement values and sort modes remain
+unchanged. This follows [Elasticsearch's sort defaults](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/sort-search-results),
+including descending as the default direction for `_score`.
 
 ## Aggregations
 

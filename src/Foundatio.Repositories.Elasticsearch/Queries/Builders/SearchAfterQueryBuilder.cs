@@ -157,6 +157,7 @@ namespace Foundatio.Repositories
 
         private static void ClearSearchAfterPagingSession(ICommandOptions options)
         {
+            options.PageNumber(1);
             options.Values.Remove(SearchAfterKey);
             options.Values.Remove(SearchBeforeKey);
             options.Values.Remove(PointInTimeStateKey);

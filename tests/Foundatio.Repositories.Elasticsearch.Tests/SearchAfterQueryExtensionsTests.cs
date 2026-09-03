@@ -20,6 +20,7 @@ public sealed class SearchAfterQueryExtensionsTests
     private static CommandOptions<Employee> CreateActivePagingSession()
     {
         var options = new CommandOptions<Employee>()
+            .PageLimit(2).PageNumber(3)
             .SearchAfterPaging(SearchAfterPagingMode.PointInTime)
             .RepositoryOwnedPointInTimeId("pit-id");
         options.Values.Set(SearchAfterQueryExtensions.SearchAfterKey, new object?[] { "after" });
@@ -37,6 +38,8 @@ public sealed class SearchAfterQueryExtensionsTests
         Assert.False(options.HasPointInTimeId());
         Assert.False(options.IsRepoOwnedPointInTime());
         Assert.False(options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false));
+        Assert.Equal(1, options.GetPage());
+        Assert.Equal(2, options.GetLimit());
     }
 
     private static string EncodeToken(object?[] values)
@@ -84,6 +87,32 @@ public sealed class SearchAfterQueryExtensionsTests
 
         // Assert
         Assert.Null(request.SearchAfter);
+    }
+
+    [Theory]
+    [InlineData(SearchAfterPagingMode.Live, SearchAfterPagingMode.PointInTime, false)]
+    [InlineData(SearchAfterPagingMode.PointInTime, SearchAfterPagingMode.Live, false)]
+    [InlineData(SearchAfterPagingMode.Live, SearchAfterPagingMode.Live, true)]
+    [InlineData(SearchAfterPagingMode.PointInTime, SearchAfterPagingMode.PointInTime, true)]
+    public async Task PageableQueryBuilder_WithNewPagingSession_DoesNotRetainOffset(SearchAfterPagingMode initialMode, SearchAfterPagingMode finalMode, bool disableFirst)
+    {
+        // Arrange
+        var options = new CommandOptions<Employee>().PageLimit(2).PageNumber(3)
+            .SearchAfterPaging(initialMode).SearchAfter("cursor");
+
+        // Act
+        if (disableFirst)
+            options.SearchAfterPaging(false);
+        options.SearchAfterPaging(finalMode);
+        var context = new QueryBuilderContext<Employee>(new RepositoryQuery<Employee>(), options);
+        await new PageableQueryBuilder().BuildAsync(context);
+        SearchRequest request = context.Search;
+
+        // Assert
+        Assert.Null(request.From);
+        Assert.Null(request.SearchAfter);
+        Assert.Equal(1, options.GetPage());
+        Assert.Equal(2, options.GetLimit());
     }
 
     [Fact]
@@ -169,6 +198,8 @@ public sealed class SearchAfterQueryExtensionsTests
         Assert.True(options.HasPointInTimeId());
         Assert.True(options.IsRepoOwnedPointInTime());
         Assert.True(options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false));
+        Assert.Equal(3, options.GetPage());
+        Assert.Equal(2, options.GetLimit());
     }
 
     [Fact]
