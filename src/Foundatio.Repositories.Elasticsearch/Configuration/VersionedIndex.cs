@@ -211,7 +211,7 @@ public class VersionedIndex : Index, IVersionedIndex
     public override async Task DeleteAsync()
     {
         int currentVersion = await GetCurrentVersionAsync();
-        var indexesToDelete = new List<string>();
+        var indexesToDelete = new List<string>(4);
         if (currentVersion != Version)
         {
             indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
@@ -275,7 +275,10 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion < 0 || currentVersion >= Version)
             return;
 
-        var reindexWorkItem = CreateReindexWorkItem(currentVersion);
+        var currentIndexes = await GetIndexesAsync(currentVersion).AnyContext();
+        if (currentIndexes.Count is not 1)
+            throw new RepositoryException($"Unable to identify a single physical index for schema version {currentVersion} of '{Name}'; found {currentIndexes.Count}.");
+        var reindexWorkItem = CreateReindexWorkItem(currentVersion) with { OldIndex = currentIndexes[0].Index };
 
         Func<int, string?, Task> wrappedCallback = async (progress, message) =>
         {
@@ -304,7 +307,8 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion < 0)
             currentVersion = Version;
 
-        await CreateAliasAsync(String.Concat(Name, "-v", currentVersion), Name).AnyContext();
+        var currentIndex = (await GetIndexesAsync(currentVersion).AnyContext()).FirstOrDefault();
+        await CreateAliasAsync(currentIndex?.Index ?? String.Concat(Name, "-v", currentVersion), Name).AnyContext();
     }
 
     /// <summary>
@@ -350,19 +354,62 @@ public class VersionedIndex : Index, IVersionedIndex
         if (String.IsNullOrEmpty(name))
             throw new ArgumentNullException(nameof(name));
 
-        string namePrefix = $"{Name}-v";
-        if (name.Length <= namePrefix.Length || !name.StartsWith(namePrefix))
+        ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(name, Name);
+        int versionStart = Name.Length + 2;
+        if (canonicalName.Length <= versionStart
+            || !canonicalName.StartsWith(Name.AsSpan(), StringComparison.Ordinal)
+            || canonicalName[Name.Length] is not '-'
+            || canonicalName[Name.Length + 1] is not 'v')
+        {
             return -1;
+        }
 
-        string input = name.Substring($"{Name}-v".Length);
-        int index = input.IndexOf('-');
-        if (index > 0)
-            input = input.Substring(0, index);
+        int versionEnd = versionStart;
+        while (versionEnd < canonicalName.Length && canonicalName[versionEnd] is >= '0' and <= '9')
+            versionEnd++;
 
-        if (Int32.TryParse(input, out int version))
-            return version;
+        if (versionEnd == versionStart
+            || (versionEnd < canonicalName.Length && canonicalName[versionEnd] is not '-'))
+        {
+            return -1;
+        }
 
-        return -1;
+        return Int32.TryParse(canonicalName[versionStart..versionEnd], out int version) ? version : -1;
+    }
+
+    protected override string GetCompatibilityIndexPattern()
+    {
+        return $"{Name}-v*";
+    }
+
+    protected internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
+    {
+        ReadOnlySpan<char> name = Name;
+        if (sourceIndex.Length <= name.Length + 2
+            || !sourceIndex.StartsWith(name, StringComparison.Ordinal)
+            || sourceIndex[name.Length] is not '-'
+            || sourceIndex[name.Length + 1] is not 'v')
+        {
+            return false;
+        }
+
+        int offset = name.Length + 2;
+        int versionStart = offset;
+        while (offset < sourceIndex.Length && sourceIndex[offset] is >= '0' and <= '9')
+            offset++;
+
+        if (offset == versionStart)
+            return false;
+
+        return HasMultipleIndexes || offset == sourceIndex.Length;
+    }
+
+    internal override void ValidateCompatibilityUpgradeSource(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        base.ValidateCompatibilityUpgradeSource(sourceIndex, aliases);
+        int sourceVersion = GetIndexVersion(sourceIndex);
+        if (sourceVersion != Version && aliases?.ContainsKey(Name) is true)
+            throw new RepositoryException($"Index '{sourceIndex}' uses schema version {sourceVersion}, but '{Name}' is configured for version {Version}. Run the schema reindex before upgrading Elasticsearch index compatibility.");
     }
 
     protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1)
@@ -372,7 +419,7 @@ public class VersionedIndex : Index, IVersionedIndex
             filter += "-*";
 
         var sw = Stopwatch.StartNew();
-        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases()).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.Open, ExpandWildcard.Hidden).IgnoreUnavailable()).AnyContext();
         sw.Stop();
         _logger.LogRequest(response);
 
@@ -387,40 +434,41 @@ public class VersionedIndex : Index, IVersionedIndex
         if (response.Indices.Count == 0)
             return new List<IndexInfo>();
 
-        var aliasResponse = await Configuration.Client.Indices.GetAliasAsync(a => a.Name($"{Name}-*")).AnyContext();
-        _logger.LogRequest(aliasResponse);
+        var indices = new List<IndexInfo>(response.Indices.Count);
+        foreach (var entry in response.Indices)
+        {
+            string indexName = entry.Key;
+            if (!IsDiscoveryCandidate(indexName, entry.Value))
+                continue;
 
-        if (!aliasResponse.IsValidResponse && aliasResponse.ElasticsearchServerError?.Status != 404)
-            throw new RepositoryException(aliasResponse.GetErrorMessage($"Error getting index aliases for {filter}"), aliasResponse.OriginalException());
+            int indexVersion = GetIndexVersion(indexName);
+            if (indexVersion < 0 || (version >= 0 && indexVersion != version))
+                continue;
 
-#if ELASTICSEARCH9
-        var aliasIndices = aliasResponse.Aliases;
-#else
-        var aliasIndices = aliasResponse.Values;
-#endif
-        var indices = response.Indices.Keys
-            .Where(i => version < 0 || GetIndexVersion(i.ToString()) == version)
-            .Select(i =>
-            {
-                string indexName = i.ToString();
-                var indexDate = GetIndexDate(indexName);
-                string indexAliasName = GetIndexByDate(GetIndexDate(indexName));
+            var indexDate = GetIndexDate(indexName);
+            if (HasMultipleIndexes && indexDate == DateTime.MaxValue)
+                continue;
 
-                int currentVersion = -1;
-                if (aliasResponse.IsValidResponse && aliasIndices != null && aliasIndices.TryGetValue(i, out var indexAliases))
-                {
-                    // Find if any of our aliases point to this index
-                    if (indexAliases.Aliases.ContainsKey(indexAliasName))
-                        currentVersion = GetIndexVersion(indexName);
-                }
+            string indexAliasName = GetIndexByDate(indexDate);
+            int currentVersion = entry.Value.Aliases?.ContainsKey(indexAliasName) is true ? indexVersion : -1;
+            indices.Add(new IndexInfo { DateUtc = indexDate, Index = indexName, Version = indexVersion, CurrentVersion = currentVersion });
+        }
 
-                return new IndexInfo { DateUtc = indexDate, Index = indexName, Version = GetIndexVersion(indexName), CurrentVersion = currentVersion };
-            })
-            .OrderBy(i => i.DateUtc)
-            .ToList();
+        indices = indices.OrderBy(i => i.DateUtc).ToList();
 
         _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", indices.Count, sw.Elapsed);
         return indices;
+    }
+
+    private protected bool IsDiscoveryCandidate(string indexName, IndexState? state)
+    {
+        if (state is null || state.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
+            return false;
+
+        // Native names use the existing virtual date/version parsers; only wrappers need ownership checks.
+        ReadOnlySpan<char> name = indexName;
+        return (name.StartsWith(Name.AsSpan(), StringComparison.Ordinal) && name[Name.Length..].StartsWith("-v", StringComparison.Ordinal))
+            || MatchesCompatibilitySource(indexName, state.Aliases);
     }
 
     protected virtual DateTime GetIndexDate(string name)

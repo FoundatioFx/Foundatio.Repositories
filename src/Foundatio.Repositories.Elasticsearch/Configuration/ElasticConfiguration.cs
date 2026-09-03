@@ -16,6 +16,7 @@ using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Serialization;
 using Foundatio.Resilience;
@@ -26,7 +27,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class ElasticConfiguration : IElasticConfiguration
+public class ElasticConfiguration : IElasticConfigurationCompatibility
 {
     protected readonly IQueue<WorkItemData>? _workItemQueue;
     protected readonly ILogger _logger;
@@ -282,6 +283,196 @@ public class ElasticConfiguration : IElasticConfiguration
         }
 
         await TryRemoveCacheMarkerAsync().AnyContext();
+    }
+
+    /// <inheritdoc />
+    public async Task UpgradeIndexCompatibilityAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    {
+        IIndex[] configuredIndexes = (indexes ?? Indexes).ToArray();
+        var ownedIndexes = configuredIndexes.Select(RequireRegisteredCompatibilityIndex).ToArray();
+        var upgrader = new ElasticIndexCompatibilityUpgrader(Client, TimeProvider, _logger, _lockProvider);
+        var plans = new List<(Index Index, IndexCompatibilityInfo[] Candidates)>(configuredIndexes.Length);
+
+        // Validate every caller-supplied index and compatibility state before the first write block or destination
+        // creation. A bad item later in the sequence must never leave an earlier index partially upgraded.
+        foreach (var index in ownedIndexes)
+        {
+            await ThrowIfSchemaUpgradePendingAsync(index, cancellationToken).AnyContext();
+            var compatibility = await index.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+            ThrowIfUnsupportedCompatibility(compatibility, index.Name);
+            var candidates = GetCompatibilityUpgradeCandidates(index, compatibility);
+            if (candidates.Length is 0)
+                continue;
+
+            plans.Add((index, candidates));
+        }
+
+        var duplicateSources = plans
+            .SelectMany(plan => plan.Candidates.Select(candidate => new
+            {
+                Index = plan.Index.Name,
+                Source = candidate.Name
+            }))
+            .GroupBy(item => item.Source, StringComparer.Ordinal)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => $"{group.Key} <= {String.Join(", ", group.Select(item => item.Index))}")
+            .ToArray();
+        if (duplicateSources.Length > 0)
+            throw new RepositoryException($"Multiple configured indexes claim the same compatibility source: {String.Join("; ", duplicateSources)}. Resolve the overlapping registration before retrying; no indexes were changed.");
+
+        var duplicateTargets = plans
+            .SelectMany(plan => plan.Candidates.Select(candidate => new
+            {
+                Source = candidate.Name,
+                Target = CompatibilityIndexName.Create(candidate.Name, candidate.ServerMajor, plan.Index.Name)
+            }))
+            .GroupBy(item => item.Target, StringComparer.Ordinal)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => $"{group.Key} <= {String.Join(", ", group.Select(item => item.Source))}")
+            .ToArray();
+        if (duplicateTargets.Length > 0)
+            throw new RepositoryException($"Multiple compatibility sources in the requested batch resolve to the same destination: {String.Join("; ", duplicateTargets)}. Resolve the duplicate physical index lineage before retrying; no indexes were changed.");
+
+        foreach (var (index, candidates) in plans)
+        {
+            foreach (var candidate in candidates)
+                await upgrader.ValidateAsync(index, candidate, cancellationToken).AnyContext();
+        }
+
+        foreach (var (index, _) in plans)
+        {
+            string lockKey = ElasticReindexer.GetLockName(index.Name);
+            using var acquisitionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            acquisitionCancellation.CancelAfter(TimeSpan.FromMinutes(1));
+            await using var reindexLock = await _lockProvider.AcquireAsync(
+                lockKey,
+                TimeSpan.FromMinutes(20),
+                acquisitionCancellation.Token).AnyContext();
+
+            await ThrowIfSchemaUpgradePendingAsync(index, cancellationToken).AnyContext();
+            var compatibility = await index.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+            ThrowIfUnsupportedCompatibility(compatibility, index.Name);
+            var candidates = GetCompatibilityUpgradeCandidates(index, compatibility);
+            if (candidates.Length is 0)
+                continue;
+
+            foreach (var candidate in candidates)
+            {
+                await reindexLock.RenewAsync().AnyContext();
+                await upgrader.ValidateAsync(index, candidate, cancellationToken).AnyContext();
+            }
+
+            foreach (var candidate in candidates)
+            {
+                await upgrader.UpgradeAsync(index, candidate, reindexLock, async (progress, message) =>
+                {
+                    if (progressCallbackAsync is not null)
+                        await progressCallbackAsync(progress, message).AnyContext();
+                }, cancellationToken).AnyContext();
+            }
+
+            var remaining = await index.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+            if (remaining.Any(i => i.RequiresReindexBeforeNextMajorUpgrade))
+            {
+                string remainingIndexes = String.Join(", ", remaining.Where(i => i.RequiresReindexBeforeNextMajorUpgrade).Select(i => i.Name));
+                throw new RepositoryException($"Elasticsearch version compatibility upgrade for index '{index.Name}' did not complete. Remaining incompatible indexes: {remainingIndexes}.");
+            }
+        }
+    }
+
+    private static async Task ThrowIfSchemaUpgradePendingAsync(Index index, CancellationToken cancellationToken)
+    {
+        if (index is not IVersionedIndex versionedIndex)
+            return;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (currentVersion >= 0 && currentVersion != versionedIndex.Version)
+        {
+            throw new RepositoryException(
+                $"Index '{index.Name}' currently uses schema version {currentVersion}, but version {versionedIndex.Version} is configured. Complete the schema reindex before upgrading Elasticsearch index compatibility.");
+        }
+    }
+
+    private static IndexCompatibilityInfo[] GetCompatibilityUpgradeCandidates(
+        Index index,
+        IReadOnlyCollection<IndexCompatibilityInfo> compatibility)
+    {
+        var candidates = compatibility
+            .Where(i => i.RequiresReindexBeforeNextMajorUpgrade)
+            .OrderBy(i => CompatibilityIndexName.GetCanonicalName(i.Name, index.Name), StringComparer.Ordinal)
+            .ToArray();
+
+        var conflictingTargets = candidates
+            .GroupBy(candidate => CompatibilityIndexName.Create(candidate.Name, candidate.ServerMajor, index.Name), StringComparer.Ordinal)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => $"{group.Key} <= {String.Join(", ", group.Select(candidate => candidate.Name))}")
+            .ToArray();
+        if (conflictingTargets.Length > 0)
+        {
+            throw new RepositoryException(
+                $"Multiple compatibility source indexes for '{index.Name}' resolve to the same destination: {String.Join("; ", conflictingTargets)}. Resolve the duplicate physical index lineage before retrying; no indexes were changed.");
+        }
+
+        return candidates;
+    }
+
+    /// <inheritdoc />
+    public async Task<IndexCompatibilityUpgradeStatus> InspectIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateCompatibilityRecoverySource(index, sourceIndex);
+        var compatibilityIndex = RequireRegisteredCompatibilityIndex(index);
+        var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
+        return await recovery.InspectAsync(compatibilityIndex, sourceIndex, cancellationToken).AnyContext();
+    }
+
+    /// <inheritdoc />
+    public async Task<IndexCompatibilityUpgradeStatus> RecoverIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateCompatibilityRecoverySource(index, sourceIndex);
+        var compatibilityIndex = RequireRegisteredCompatibilityIndex(index);
+        var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
+        return await recovery.RecoverAsync(compatibilityIndex, sourceIndex, cancellationToken).AnyContext();
+    }
+
+    private static void ValidateCompatibilityRecoverySource(IIndex index, string sourceIndex)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ElasticIndexCompatibilityRecovery.ValidateExactIndexName(sourceIndex);
+        if (index is Index compatibilityIndex && !compatibilityIndex.IsPotentialCompatibilitySourceName(sourceIndex))
+            throw new ArgumentException($"Compatibility recovery source '{sourceIndex}' does not belong to configured index '{index.Name}'.", nameof(sourceIndex));
+    }
+
+    private Index RequireRegisteredCompatibilityIndex(IIndex index)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        if (index is not Index compatibilityIndex)
+            throw new NotSupportedException($"Index '{index.Name}' is implemented by '{index.GetType().FullName}' and cannot be managed by the Foundatio Elasticsearch compatibility workflow.");
+
+        if (!ReferenceEquals(index.Configuration, this))
+            throw new ArgumentException($"Index '{index.Name}' belongs to a different Elasticsearch configuration.", nameof(index));
+
+        if (!Indexes.Any(registered => ReferenceEquals(registered, index)))
+            throw new ArgumentException($"Index '{index.Name}' is not registered with this Elasticsearch configuration.", nameof(index));
+
+        return compatibilityIndex;
+    }
+
+    private static void ThrowIfUnsupportedCompatibility(IReadOnlyCollection<IndexCompatibilityInfo> compatibility, string indexName)
+    {
+        var unsupported = compatibility.Where(i => i.State is IndexCompatibilityState.Unsupported).ToArray();
+        if (unsupported.Length is 0)
+            return;
+
+        string details = String.Join(", ", unsupported.Select(i => $"{i.Name} (created by Elasticsearch {i.CreatedMajor}, server {i.ServerMajor})"));
+        throw new RepositoryException($"Index '{indexName}' contains physical indexes that skipped an Elasticsearch major-version reindex and cannot be upgraded automatically: {details}. Restore a supported snapshot and upgrade one major at a time.");
     }
 
     private string GetConfigureIndexesCacheKey()
