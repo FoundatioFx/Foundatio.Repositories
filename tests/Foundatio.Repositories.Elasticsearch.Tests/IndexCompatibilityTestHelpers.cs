@@ -248,11 +248,16 @@ public partial class IndexCompatibilityTests
         }
 
         public int RequestCount { get; private set; }
+        public Uri? LastRequestUri { get; private set; }
 
         protected override ElasticsearchClient CreateElasticClient()
         {
             var settings = new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), _requestInvoker)
-                .OnRequestCompleted(_ => RequestCount++);
+                .OnRequestCompleted(call =>
+                {
+                    RequestCount++;
+                    LastRequestUri = call.Uri;
+                });
             return new ElasticsearchClient(settings);
         }
     }

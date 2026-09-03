@@ -20,6 +20,29 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetCurrentVersionAsync_ExcludesClosedPartitionsButIncludesHiddenOpenPartitions()
+    {
+        string name = $"compat-discovery-closed-{Guid.NewGuid():N}";
+        using var index = new DailyIndex<object>(_configuration, name, 3);
+        string closedIndex = $"{name}-v1-2024.01.01";
+        string hiddenIndex = $"{name}-v2-2024.01.02";
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{closedIndex},{hiddenIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        var closed = await _client.Indices.CreateAsync(closedIndex, d => d
+            .Settings(s => s.NumberOfReplicas(0))
+            .Aliases(a => a.Add($"{name}-2024.01.01", new Alias())), TestCancellationToken);
+        Assert.True(closed.IsValidResponse, closed.GetErrorMessage());
+        var close = await _client.Indices.CloseAsync(closedIndex, TestCancellationToken);
+        Assert.True(close.IsValidResponse, close.GetErrorMessage());
+        var hidden = await _client.Indices.CreateAsync(hiddenIndex, d => d
+            .Settings(s => s.Hidden(true).NumberOfReplicas(0))
+            .Aliases(a => a.Add($"{name}-2024.01.02", new Alias { IsHidden = true })), TestCancellationToken);
+        Assert.True(hidden.IsValidResponse, hidden.GetErrorMessage());
+
+        Assert.Equal(2, await index.GetCurrentVersionAsync());
+    }
+
+    [Fact]
     public async Task GetIndexCompatibilityAsync_ForVersionedIndex_ExcludesSuffixLookalikes()
     {
         string name = $"compat-discovery-versioned-{Guid.NewGuid():N}";

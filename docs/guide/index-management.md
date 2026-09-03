@@ -1194,6 +1194,8 @@ flowchart LR
 
 Normal index configuration has **zero compatibility-check requests** and this feature is off unless an operator explicitly calls it. Each per-index preflight adds one server-info request and one settings-and-aliases request, regardless of the number of daily/monthly partitions. A multi-index upgrade validates every caller-supplied entry, compatibility state, and deterministic target lineage before its first mutation. Each planned index is then recomputed and cluster-validated after acquiring its distributed lock and checked again after cutover. These checks are intentional maintenance-window I/O, not startup overhead.
 
+Normal schema and mapping discovery requests open and hidden indexes, preserving existing date/version naming overrides for native names. Closed partitions remain excluded from normal discovery. Explicit compatibility preflight also inspects closed indexes so an upgrade can reject an unsupported source before mutation.
+
 This is a **Foundatio-owned index preflight**, not a cluster-upgrade certificate. It does not discover unmanaged indexes, data streams, system indexes, archive indices, or every ILM/CCR topology. Run Elastic's Upgrade Assistant and deprecation checks for cluster readiness even when every Foundatio result is `Current`.
 
 **How explicit remediation works:**

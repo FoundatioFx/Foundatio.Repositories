@@ -39,6 +39,25 @@ public partial class IndexCompatibilityTests
         Assert.Equal(1, configuration.RequestCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NormalDiscovery_RequestsOpenAndHiddenButNotClosedIndexes(bool mapping)
+    {
+        var invoker = new SequenceRequestInvoker(new StubResponse(200, "{}"));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new CustomDateIndex(configuration);
+
+        if (mapping)
+            Assert.Null(index.GetLatestMapping());
+        else
+            Assert.Equal(0, await index.CountDiscoveredIndexesAsync());
+
+        Assert.NotNull(configuration.LastRequestUri);
+        Assert.Contains("expand_wildcards=open,hidden", Uri.UnescapeDataString(configuration.LastRequestUri.Query));
+        Assert.Equal(1, configuration.RequestCount);
+    }
+
     [Fact]
     public void GetLatestIndexMapping_WithCustomNaming_UsesVirtualDateAndVersionParsers()
     {
