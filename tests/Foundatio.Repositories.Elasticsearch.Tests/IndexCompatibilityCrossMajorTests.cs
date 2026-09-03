@@ -13,7 +13,7 @@ public sealed class IndexCompatibilityCrossMajorTests
 {
     private const string IndexName = "compatibility-major-chain";
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task UpgradeIndexCompatibilityAsync_AcrossSequentialMajors_PreservesDataAndCanonicalNames()
     {
         string? phaseValue = Environment.GetEnvironmentVariable("FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR");
