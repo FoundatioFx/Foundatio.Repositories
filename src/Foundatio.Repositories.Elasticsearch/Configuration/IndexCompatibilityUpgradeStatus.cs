@@ -54,7 +54,7 @@ public sealed record IndexCompatibilityUpgradeStatus
 
     /// <summary>
     /// Number of active reindex tasks carrying this operation's exact <c>X-Opaque-Id</c>, or <c>null</c> when
-    /// Elasticsearch did not return a complete task listing.
+    /// Elasticsearch did not return a complete task listing or any listed reindex task has a missing or different identity.
     /// </summary>
     public int? ActiveReindexTaskCount { get; init; }
 

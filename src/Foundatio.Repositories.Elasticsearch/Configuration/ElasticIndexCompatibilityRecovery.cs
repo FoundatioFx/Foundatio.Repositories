@@ -206,11 +206,15 @@ internal sealed class ElasticIndexCompatibilityRecovery
 
             foreach (var task in node.Tasks.Values)
             {
-                if (task.Headers?.TryGetValue(ElasticReindexTaskRunner.OpaqueIdHeader, out string? taskOpaqueId) is true
-                    && String.Equals(taskOpaqueId, opaqueId, StringComparison.Ordinal))
+                if (task.Headers?.TryGetValue(ElasticReindexTaskRunner.OpaqueIdHeader, out string? taskOpaqueId) is not true
+                    || !String.Equals(taskOpaqueId, opaqueId, StringComparison.Ordinal))
                 {
-                    count++;
+                    // Task descriptions cannot prove which indexes an unidentified writer may mutate.
+                    _logger.LogErrorRequest(response, "An unidentified reindex task prevents safe compatibility recovery for {SourceIndex} -> {TargetIndex}", sourceIndex, targetIndex);
+                    return null;
                 }
+
+                count++;
             }
         }
 
@@ -302,9 +306,8 @@ internal sealed class ElasticIndexCompatibilityRecovery
             if (!topology.SourceWorkflowMarker && !topology.SourceWriteBlocked)
                 return IndexCompatibilityRecoveryAction.None;
 
-            return topology.SourceWorkflowMarker && topology.ActiveTaskCount is 0
-                ? IndexCompatibilityRecoveryAction.Reset
-                : IndexCompatibilityRecoveryAction.ManualIntervention;
+            // A timed-out block or create request may still complete after this metadata snapshot.
+            return IndexCompatibilityRecoveryAction.ManualIntervention;
         }
 
         if (topology.SourceExists && topology.TargetExists)

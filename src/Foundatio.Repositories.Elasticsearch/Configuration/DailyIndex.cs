@@ -497,15 +497,13 @@ public class DailyIndex : VersionedIndex
         }
 
         var latestIndex = indicesResponse.Indices
-            .Where(i => i.Value is not null
-                && MatchesCompatibilitySource(i.Key, i.Value.Aliases)
-                && !i.Value.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
-            .Where(i => GetIndexVersion(i.Key) == Version)
+            .Where(i => IsDiscoveryCandidate(i.Key, i.Value))
             .Select(i =>
             {
                 string indexName = i.Key;
                 return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
             })
+            .Where(i => i.Version == Version && i.DateUtc != DateTime.MaxValue)
             .OrderByDescending(i => i.DateUtc)
             .FirstOrDefault();
 

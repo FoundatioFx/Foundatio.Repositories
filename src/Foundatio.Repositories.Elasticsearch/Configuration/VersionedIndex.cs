@@ -434,29 +434,41 @@ public class VersionedIndex : Index, IVersionedIndex
         if (response.Indices.Count == 0)
             return new List<IndexInfo>();
 
-        var indices = response.Indices
-            .Where(i => i.Value is not null
-                && MatchesCompatibilitySource(i.Key, i.Value.Aliases)
-                && !i.Value.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
-            .Where(i => version < 0 || GetIndexVersion(i.Key) == version)
-            .Select(i =>
-            {
-                var indexState = i.Value!;
-                string indexName = i.Key;
-                var indexDate = GetIndexDate(indexName);
-                string indexAliasName = GetIndexByDate(GetIndexDate(indexName));
+        var indices = new List<IndexInfo>(response.Indices.Count);
+        foreach (var entry in response.Indices)
+        {
+            string indexName = entry.Key;
+            if (!IsDiscoveryCandidate(indexName, entry.Value))
+                continue;
 
-                int currentVersion = -1;
-                if (indexState.Aliases?.ContainsKey(indexAliasName) is true)
-                    currentVersion = GetIndexVersion(indexName);
+            int indexVersion = GetIndexVersion(indexName);
+            if (indexVersion < 0 || (version >= 0 && indexVersion != version))
+                continue;
 
-                return new IndexInfo { DateUtc = indexDate, Index = indexName, Version = GetIndexVersion(indexName), CurrentVersion = currentVersion };
-            })
-            .OrderBy(i => i.DateUtc)
-            .ToList();
+            var indexDate = GetIndexDate(indexName);
+            if (HasMultipleIndexes && indexDate == DateTime.MaxValue)
+                continue;
+
+            string indexAliasName = GetIndexByDate(indexDate);
+            int currentVersion = entry.Value.Aliases?.ContainsKey(indexAliasName) is true ? indexVersion : -1;
+            indices.Add(new IndexInfo { DateUtc = indexDate, Index = indexName, Version = indexVersion, CurrentVersion = currentVersion });
+        }
+
+        indices = indices.OrderBy(i => i.DateUtc).ToList();
 
         _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", indices.Count, sw.Elapsed);
         return indices;
+    }
+
+    private protected bool IsDiscoveryCandidate(string indexName, IndexState? state)
+    {
+        if (state is null || state.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
+            return false;
+
+        // Native names use the existing virtual date/version parsers; only wrappers need ownership checks.
+        ReadOnlySpan<char> name = indexName;
+        return (name.StartsWith(Name.AsSpan(), StringComparison.Ordinal) && name[Name.Length..].StartsWith("-v", StringComparison.Ordinal))
+            || MatchesCompatibilitySource(indexName, state.Aliases);
     }
 
     protected virtual DateTime GetIndexDate(string name)
