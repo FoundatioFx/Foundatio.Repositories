@@ -1178,10 +1178,11 @@ flowchart LR
     E --> F[Atomic remove source and attach canonical aliases]
     F --> G[Unblock target]
     G --> H[Remove workflow marker last]
-    C -. failure before cutover .-> R[Reset only marked partial target]
+    C -. failure before cutover .-> I[Inspect observed topology]
     F -. lost response .-> I[Inspect observed topology]
+    I --> R[Reset only with both marked indexes and no active tasks]
     I --> J[Finish only marked committed target]
-    I --> K[Manual intervention for foreign or contradictory state]
+    I --> K[Manual intervention for source-only, unknown, or foreign state]
 ```
 
 **How detection works:**
@@ -1202,7 +1203,7 @@ The implementation uses a Foundatio-specific maintenance lifecycle informed by E
 1. Validate the complete requested batch—registered index identity, reindex throttle, source, destination, duplicate source/target lineage, schema precedence, and unsupported topology—before the first mutation. Repeat source, destination, and schema validation after acquiring `reindex:{logical-name}`. Closed indexes, data-stream backing indexes, system indexes, ILM-managed indexes, CCR followers, non-standard index modes, `_source`-disabled indexes, and existing read/metadata/read-only blocks are rejected. A pre-existing write block is also rejected so it can never be confused with Foundatio recovery evidence.
 2. Add the reserved hidden workflow marker, then call Elasticsearch's dedicated add-index-block API. Proceed only when the cluster acknowledgement, shard acknowledgement, and exact source's `blocked` result are all true. Unlike ordinary `PutSettings`, Elasticsearch's [block verification](https://github.com/elastic/elasticsearch/blob/v8.19.1/server/src/main/java/org/elasticsearch/action/admin/indices/readonly/TransportVerifyShardIndexBlockAction.java#L40-L45) acquires every primary and replica operation permit so a successful response accounts for the block on every shard after earlier writes finish. Refresh the exact source and reject partial shard failures.
 3. Create `reindexed-v{serverMajor}-{canonicalSourceName}` with [`_create_from`](https://www.elastic.co/docs/api/doc/elasticsearch/v8/operation/operation-indices-create-from). Elasticsearch labels this API **Technical Preview** and introduced it in 8.18. It copies the source settings and mappings without reconstructing them from application configuration. Foundatio rejects system/dot indexes, data streams, ILM, CCR, closed indexes, non-standard index modes, and `_source`-disabled indexes rather than claiming support for those lifecycles. Destination templates must not add aliases, mappings, or explicit settings. A failed or lost create response is treated as unknown; Foundatio does not guess that a partial destination is safe to delete.
-4. Add the workflow marker to the target before copying, preserve `.foundatio-reindex-error` when migrating a Foundatio error index, and verify the cloned mapping and settings. `_create_from` temporarily sets replicas to `0`, refresh interval to `-1`, and both `index.default_pipeline` and `index.final_pipeline` to `_none`. Reindex with `op_type=create`, conflict abort, automatic slicing, and destination pipeline `_none` so existing documents are not transformed a second time.
+4. Add the workflow marker to the target before copying, preserve `.foundatio-reindex-error` when migrating a Foundatio error index, and verify the cloned mapping and settings. `_create_from` temporarily sets replicas to `0`, refresh interval to `-1`, and both `index.default_pipeline` and `index.final_pipeline` to `_none`. Reindex with `op_type=create`, conflict abort, one unsliced task, and destination pipeline `_none` so existing documents are not transformed a second time.
 5. Tag `_reindex` with a deterministic `X-Opaque-Id` and require a clean typed task result. Immediately after the task finishes, apply the dedicated write block to the target before refresh or counting; this drains in-flight writes and keeps the verified destination stable through cutover. Then require zero failed count/refresh shards and exact source/task/target document counts, restore replicas, refresh interval, and both pipeline settings exactly—including restoring originally absent settings as unset—and wait for primary shards.
 6. Re-read the source aliases and explicit settings immediately before cutover and fail before deletion if either changed. This includes alias filters, routing, hidden state, write-index state, and non-generated index settings. Alias/index-management processes must still be stopped because Elasticsearch does not provide a compare-and-swap token for the final read-to-swap interval.
 7. Atomically delete the exact source and add every original alias plus one canonical old physical-name alias to the destination. Keep the workflow marker through this cutover. Generated compatibility prefixes from earlier majors are replaced, not accumulated as aliases.
@@ -1216,11 +1217,11 @@ If an interrupted attempt leaves evidence behind, the next run stops. Use `Inspe
 | --- | --- | --- |
 | `None` | No interrupted workflow, or a clean completed cutover | No mutation |
 | `Wait` | Both marked indexes exist and the exact reindex task is active | Wait and inspect again |
-| `Reset` | Marked source is intact; optional marked target is partial; no exact task is active | Delete only the marked target, confirm absence, unblock only the marked source, remove its marker last |
+| `Reset` | Both marked indexes exist; the source is blocked and the target is partial; task listing proves no reindex is active | Delete only the marked target, confirm absence, unblock only the marked source, remove its marker last |
 | `Finish` | Source is gone; marked target has the canonical source alias; no exact task is active | Unblock the target and remove its marker last |
 | `ManualIntervention` | Evidence is unmarked, foreign, incomplete, or contradictory | No mutation |
 
-`RecoverIndexCompatibilityUpgradeAsync()` acquires the same distributed lock and applies only `Reset` or `Finish`. It has no public “force unblock” flag. A partial task listing, missing task headers, duplicate exact tasks, an unmarked destination, a multi-target alias, a marked destination from another Elasticsearch major, or uncertain lineage remains manual. If both marked indexes exist and no exact task is active, recovery deletes the marked partial target and restarts later from the intact blocked source; it never resumes a possibly partial destination. Error-index recovery additionally requires the persistent `.foundatio-reindex-error` marker on every surviving source or target artifact.
+`RecoverIndexCompatibilityUpgradeAsync()` acquires the same distributed lock and applies only `Reset` or `Finish`. It has no public “force unblock” flag. A partial task listing, any reindex task with missing or different headers, duplicate exact tasks, a source marker without a visible target, an unmarked destination, a multi-target alias, a marked destination from another Elasticsearch major, or uncertain lineage remains manual. An unrelated reindex with a different identity also prevents automatic recovery; wait for it to finish and inspect again. A source-only marker cannot distinguish an interrupted attempt from a block or create request still completing after a lost response; keep maintenance mode enabled and reconcile pending operations before manually changing its block or marker. If both marked indexes exist and the task listing proves no reindex is active, recovery deletes the marked partial target and restarts later from the intact blocked source; it never resumes a possibly partial destination. Error-index recovery additionally requires the persistent `.foundatio-reindex-error` marker on every surviving source or target artifact.
 
 ```csharp
 public interface IIndexCompatibility : IIndex
@@ -1298,7 +1299,7 @@ Recommended sequence:
 6. After the rollback window closes, stop all writers and index-management processes, run `GetIndexCompatibilityAsync()` as the preflight, and call `UpgradeIndexCompatibilityAsync()` while monitoring disk, task progress, document counts, and aliases.
 7. Take and verify a new snapshot after compatibility reindexing before planning the next Elasticsearch major upgrade.
 
-Repeat that sequence for every major. A 7-created index is reindexed on Elasticsearch 8 before starting Elasticsearch 9; the same repository `VersionedIndex.Version` may remain unchanged. The repository keeps a persistent-data-directory 7→8→9 test as an explicit manual/release validation, not a normal CI job. Direct 7→9 remediation is rejected.
+Repeat that sequence for every major. A 7-created index is reindexed on Elasticsearch 8 before starting Elasticsearch 9; the same repository `VersionedIndex.Version` may remain unchanged. The repository keeps a persistent-data-directory 7→8→9 test as an explicit manual/release validation, not a normal CI job. It requires both `FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR` (8 or 9) and `ELASTICSEARCH_URL` pointing to the isolated validation cluster; it skips rather than falling back to the application's cluster. Direct 7→9 remediation is rejected.
 
 Physical names change because Elasticsearch cannot reindex in place; repository-facing aliases remain stable:
 
@@ -1466,7 +1467,7 @@ For indexes with millions of documents that take hours to reindex, the lock is a
 
 ### Crash Recovery
 
-If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is resume-safe — it picks up from the last document using timestamp-based or ID-based range queries.
+If an instance crashes mid-reindex, the lock expires after its last renewal, but the server-side task may continue running. Schema reindexing can resume copying with timestamp-based or ID-based range queries; it is not a durable crash-recovery protocol. Once aliases point to the configured schema version, a retry can skip unfinished catch-up or source deletion. Inspect tasks, physical indexes, aliases, and document consistency before retrying or deleting a retained source. Explicit compatibility upgrades use the separate inspection and recovery APIs described above.
 
 ### Second-Pass Catch-Up Strategy
 
