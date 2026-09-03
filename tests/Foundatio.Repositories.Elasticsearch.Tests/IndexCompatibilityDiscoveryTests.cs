@@ -20,6 +20,30 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task DeleteAsync_WithVersionWildcard_PreservesClosedIndexes()
+    {
+        string name = $"compat-delete-closed-{Guid.NewGuid():N}";
+        using var index = new DailyIndex<object>(_configuration, name, 1);
+        string openName = $"{name}-v1-2024.01.01";
+        string closedName = $"{name}-v1-2024.01.02";
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{openName},{closedName}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        var open = await _client.Indices.CreateAsync(openName, cancellationToken: TestCancellationToken);
+        var closed = await _client.Indices.CreateAsync(closedName, cancellationToken: TestCancellationToken);
+        Assert.True(open.IsValidResponse, open.GetErrorMessage());
+        Assert.True(closed.IsValidResponse, closed.GetErrorMessage());
+        var close = await _client.Indices.CloseAsync(closedName, TestCancellationToken);
+        Assert.True(close.IsValidResponse, close.GetErrorMessage());
+
+        await index.DeleteAsync();
+
+        var closedExists = await _client.Indices.ExistsAsync(closedName, cancellationToken: TestCancellationToken);
+        var openExists = await _client.Indices.ExistsAsync(openName, cancellationToken: TestCancellationToken);
+        Assert.True(closedExists.Exists, closedExists.GetErrorMessage());
+        Assert.False(openExists.Exists, openExists.DebugInformation);
+    }
+
+    [Fact]
     public async Task GetCurrentVersionAsync_ExcludesClosedPartitionsButIncludesHiddenOpenPartitions()
     {
         string name = $"compat-discovery-closed-{Guid.NewGuid():N}";

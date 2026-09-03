@@ -1196,6 +1196,8 @@ Normal index configuration has **zero compatibility-check requests** and this fe
 
 Normal schema and mapping discovery requests open and hidden indexes, preserving existing date/version naming overrides for native names. Closed partitions remain excluded from normal discovery. Explicit compatibility preflight also inspects closed indexes so an upgrade can reject an unsupported source before mutation.
 
+Wildcard deletion likewise excludes closed indexes while including hidden canonical aliases for upgraded partitions. An explicitly named closed physical index can still be deleted; the exclusion applies only to wildcard expansion.
+
 This is a **Foundatio-owned index preflight**, not a cluster-upgrade certificate. It does not discover unmanaged indexes, data streams, system indexes, archive indices, or every ILM/CCR topology. Run Elastic's Upgrade Assistant and deprecation checks for cluster readiness even when every Foundatio result is `Current`.
 
 **How explicit remediation works:**
@@ -1252,6 +1254,7 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
 ```
 
 - **`IIndexCompatibility`** is implemented by the built-in `Index` hierarchy. It is separate from `IIndex`, so custom `IIndex` implementations do not gain new required members.
+- Subclasses using custom physical names must override both `GetCompatibilityIndexPattern()` and `IsNativeIndexName(ReadOnlySpan<char>)` (use `protected override` outside this assembly). The latter must match the complete unwrapped native name, not a wildcard. Canonical-alias, error-marker, registration-conflict, and schema-precedence checks still apply; do not bypass them by overriding only the public discovery method.
 - **`IElasticConfigurationCompatibility`** is implemented by `ElasticConfiguration`. It is separate from `IElasticConfiguration`, so custom configuration implementations remain source-compatible.
 - **`InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, cancellationToken)`** is read-only and returns direct observed facts plus `None`, `Wait`, `Reset`, `Finish`, or `ManualIntervention`.
 - **`RecoverIndexCompatibilityUpgradeAsync(index, sourceIndex, cancellationToken)`** is intentionally narrow. It mutates only exact, marked evidence and never chooses between two aliased indexes.

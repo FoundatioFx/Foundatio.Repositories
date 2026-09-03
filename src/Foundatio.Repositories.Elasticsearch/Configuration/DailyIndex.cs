@@ -155,7 +155,7 @@ public class DailyIndex : VersionedIndex
         return $"{Name}-v*-*";
     }
 
-    internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
+    protected internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
     {
         if (!base.IsNativeIndexName(sourceIndex))
             return false;

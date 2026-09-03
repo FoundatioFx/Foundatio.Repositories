@@ -382,7 +382,7 @@ public class VersionedIndex : Index, IVersionedIndex
         return $"{Name}-v*";
     }
 
-    internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
+    protected internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
     {
         ReadOnlySpan<char> name = Name;
         if (sourceIndex.Length <= name.Length + 2

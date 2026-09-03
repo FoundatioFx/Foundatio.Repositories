@@ -329,7 +329,7 @@ public class Index : IIndexCompatibility, IHaveLogger
             // through the names-and-aliases index metadata response, matching the established implementation.
             var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d
                 .LimitToNamesAndAliases()
-                .ExpandWildcards(ExpandWildcard.All)
+                .ExpandWildcards(ExpandWildcard.Open, ExpandWildcard.Hidden)
                 .IgnoreUnavailable()).AnyContext();
             if (getResponse.IsValidResponse && getResponse.Indices is not null)
             {
@@ -613,7 +613,15 @@ public class Index : IIndexCompatibility, IHaveLogger
         return infos;
     }
 
-    internal virtual bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
+    /// <summary>
+    /// Determines whether a complete, unwrapped physical index name belongs to this index's naming scheme.
+    /// Override together with <see cref="GetCompatibilityIndexPattern"/> when using custom physical names.
+    /// </summary>
+    /// <remarks>
+    /// Match the complete native structure, not a wildcard or compatibility prefix. The caller separately
+    /// verifies canonical aliases, generated error-index markers, and conflicts with other registered indexes.
+    /// </remarks>
+    protected internal virtual bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
     {
         return sourceIndex.Equals(Name.AsSpan(), StringComparison.Ordinal);
     }
