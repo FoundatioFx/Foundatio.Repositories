@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Serializer;
@@ -20,102 +21,176 @@ namespace Foundatio.Repositories
         PointInTime
     }
 
+    internal sealed record PointInTimeState(string Id, bool IsRepositoryOwned);
+
     public static class SearchAfterQueryExtensions
     {
         internal const string SearchAfterPagingKey = "@SearchAfterPaging";
         internal const string SearchAfterPagingModeKey = "@SearchAfterPagingMode";
         internal const string SearchAfterKey = "@SearchAfter";
         internal const string SearchBeforeKey = "@SearchBefore";
-        internal const string PointInTimeIdKey = "@PointInTimeId";
-        internal const string RepoOwnedPointInTimeKey = "@RepoOwnedPointInTime";
+        internal const string PointInTimeStateKey = "@PointInTimeState";
         internal const string UnstableSortWarnedKey = "@SearchAfterUnstableSortWarned";
 
+        /// <summary>
+        /// Enables search-after paging in the current mode, or clears the local paging session when disabled.
+        /// </summary>
+        /// <remarks>
+        /// Search-after requests bypass repository caching, including Live cursors used with scalar queries.
+        /// The repository evaluates cache eligibility after BeforeQuery handlers run.
+        /// </remarks>
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
-            return options.BuildOption(SearchAfterPagingKey, enabled);
+            if (!enabled)
+                return DisableSearchAfterPaging(options);
+
+            return options.BuildOption(SearchAfterPagingKey, true);
         }
 
+        /// <summary>
+        /// Enables search-after paging with the specified consistency mode, or clears the local session when disabled.
+        /// </summary>
+        /// <remarks>
+        /// Failed point-in-time searches, including expired snapshots, throw DocumentException.
+        /// The repository attempts to close snapshots it owns on failure without masking the original exception.
+        /// After cleanup clears the session, NextPageAsync throws QueryValidationException; restart with FindAsync.
+        /// Retained sessions continue with the latest point-in-time ID stored in the options.
+        /// </remarks>
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
         {
-            options.BuildOption(SearchAfterPagingKey, enabled);
-            return options.BuildOption(SearchAfterPagingModeKey, enabled ? mode : SearchAfterPagingMode.Live);
+            if (!enabled)
+                return DisableSearchAfterPaging(options);
+
+            if (options.ShouldUseSearchAfterPaging() && options.GetSearchAfterPagingMode() != mode)
+                ClearSearchAfterPagingSession(options);
+
+            options.BuildOption(SearchAfterPagingKey, true);
+            return options.BuildOption(SearchAfterPagingModeKey, mode);
         }
 
+        /// <summary>
+        /// Sets a caller-owned Elasticsearch point-in-time ID, or clears it when no ID is supplied.
+        /// </summary>
+        /// <remarks>
+        /// Caller-owned points in time are never closed automatically by the repository. Replacing
+        /// a repository-owned ID transfers lifecycle responsibility to the caller; close the active
+        /// repository-owned point in time before replacing it to avoid retaining it until expiry.
+        /// </remarks>
         public static T PointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
         {
-            if (!String.IsNullOrEmpty(pointInTimeId))
-                options.Values.Set(PointInTimeIdKey, pointInTimeId);
-            else
-                options.Values.Remove(PointInTimeIdKey);
-
-            return options;
+            return SetPointInTimeState(options, pointInTimeId, false);
         }
 
-        internal static T RepoOwnedPointInTime<T>(this T options, bool repoOwned = true) where T : ICommandOptions
+        internal static T RepositoryOwnedPointInTimeId<T>(this T options, string pointInTimeId) where T : ICommandOptions
         {
-            return options.BuildOption(RepoOwnedPointInTimeKey, repoOwned);
+            ArgumentException.ThrowIfNullOrEmpty(pointInTimeId);
+            return SetPointInTimeState(options, pointInTimeId, true);
         }
 
-        public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions
+        internal static T UpdatePointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
-            if (values != null && values.Count(v => v != null) > 0)
-            {
-                options.Values.Set(SearchAfterKey, values);
-            }
-            else
-            {
-                options.Values.Remove(SearchAfterKey);
-            }
+            return SetPointInTimeState(options, pointInTimeId, options.IsRepoOwnedPointInTime());
+        }
 
-            return options;
+        /// <summary>
+        /// Pages results forwards from the supplied sort values, enabling search-after paging.
+        /// </summary>
+        /// <param name="options">The command options.</param>
+        /// <param name="values">The sort values of the last hit on the previous page, in sort order.</param>
+        /// <remarks>
+        /// Calling this method always enables search-after paging, even when no cursor is stored.
+        /// Passing no values, a null array reference, or an array whose elements are all null clears
+        /// any stored cursor. A cursor needs at least one non-null sort value to be meaningful; when
+        /// paging on a model without an id tiebreaker whose only sort field can be missing (producing
+        /// all-null cursors), use <see cref="SearchAfterToken"/> instead -- tokens round-trip null
+        /// values exactly.
+        /// </remarks>
+        public static T SearchAfter<T>(this T options, params object?[]? values) where T : ICommandOptions
+        {
+            return SetCursor(options, SearchAfterKey, SearchBeforeKey, NormalizeRawCursor(values));
         }
 
         public static T SearchAfterToken<T>(this T options, string? searchAfterToken, ITextSerializer serializer) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
-            if (!String.IsNullOrEmpty(searchAfterToken))
-            {
-                object[]? values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
-                if (values is not null)
-                    options.Values.Set(SearchAfterKey, values);
-            }
-            else
-            {
-                options.Values.Remove(SearchAfterKey);
-            }
+            ArgumentNullException.ThrowIfNull(serializer);
 
-            return options;
+            object?[]? values = null;
+            if (!String.IsNullOrEmpty(searchAfterToken))
+                values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
+
+            return SetCursor(options, SearchAfterKey, SearchBeforeKey, values);
         }
 
-        public static T SearchBefore<T>(this T options, params object[] values) where T : ICommandOptions
+        /// <summary>
+        /// Pages results backwards from the supplied sort values, enabling search-after paging in reverse.
+        /// </summary>
+        /// <param name="options">The command options.</param>
+        /// <param name="values">The sort values of the first hit on the next page, in sort order.</param>
+        /// <remarks>
+        /// Calling this method always enables search-after paging, even when no cursor is stored.
+        /// Passing no values, a null array reference, or an array whose elements are all null clears
+        /// any stored cursor. A cursor needs at least one non-null sort value to be meaningful; when
+        /// paging on a model without an id tiebreaker whose only sort field can be missing (producing
+        /// all-null cursors), use <see cref="SearchBeforeToken"/> instead -- tokens round-trip null
+        /// values exactly.
+        /// </remarks>
+        public static T SearchBefore<T>(this T options, params object?[]? values) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
-            if (values != null && values.Count(v => v != null) > 0)
-            {
-                options.Values.Set(SearchBeforeKey, values);
-            }
-            else
-            {
-                options.Values.Remove(SearchBeforeKey);
-            }
-
-            return options;
+            return SetCursor(options, SearchBeforeKey, SearchAfterKey, NormalizeRawCursor(values));
         }
 
         public static T SearchBeforeToken<T>(this T options, string? searchBeforeToken, ITextSerializer serializer) where T : ICommandOptions
         {
-            options.SearchAfterPaging();
+            ArgumentNullException.ThrowIfNull(serializer);
+
+            object?[]? values = null;
             if (!String.IsNullOrEmpty(searchBeforeToken))
-            {
-                object[]? values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
-                if (values is not null)
-                    options.Values.Set(SearchBeforeKey, values);
-            }
+                values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
+
+            return SetCursor(options, SearchBeforeKey, SearchAfterKey, values);
+        }
+
+        private static T SetCursor<T>(T options, string cursorKey, string oppositeCursorKey, object?[]? values) where T : ICommandOptions
+        {
+            options.SearchAfterPaging();
+            options.Values.Remove(oppositeCursorKey);
+
+            if (values is not null)
+                options.Values.Set(cursorKey, values);
             else
-            {
-                options.Values.Remove(SearchBeforeKey);
-            }
+                options.Values.Remove(cursorKey);
+
+            return options;
+        }
+
+        internal static T DisableSearchAfterPaging<T>(this T options) where T : ICommandOptions
+        {
+            ClearSearchAfterPagingSession(options);
+            options.BuildOption(SearchAfterPagingKey, false);
+            options.BuildOption(SearchAfterPagingModeKey, SearchAfterPagingMode.Live);
+            return options;
+        }
+
+        private static void ClearSearchAfterPagingSession(ICommandOptions options)
+        {
+            options.PageNumber(1);
+            options.Values.Remove(SearchAfterKey);
+            options.Values.Remove(SearchBeforeKey);
+            options.Values.Remove(PointInTimeStateKey);
+            options.Values.Remove(UnstableSortWarnedKey);
+        }
+
+        private static object?[]? NormalizeRawCursor(object?[]? values)
+        {
+            return values is { Length: > 0 } && values.Any(static value => value is not null) ? values : null;
+        }
+
+        private static T SetPointInTimeState<T>(T options, string? pointInTimeId, bool isRepositoryOwned) where T : ICommandOptions
+        {
+            if (!String.IsNullOrEmpty(pointInTimeId))
+                options.Values.Set(PointInTimeStateKey, new PointInTimeState(pointInTimeId, isRepositoryOwned));
+            else
+                options.Values.Remove(PointInTimeStateKey);
 
             return options;
         }
@@ -143,7 +218,7 @@ namespace Foundatio.Repositories.Options
 
         public static string? GetPointInTimeId(this ICommandOptions options)
         {
-            return options.SafeGetOption<string?>(SearchAfterQueryExtensions.PointInTimeIdKey);
+            return options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeStateKey)?.Id;
         }
 
         public static bool HasPointInTimeId(this ICommandOptions options)
@@ -153,7 +228,7 @@ namespace Foundatio.Repositories.Options
 
         internal static bool IsRepoOwnedPointInTime(this ICommandOptions options)
         {
-            return options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey, false);
+            return options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeStateKey)?.IsRepositoryOwned is true;
         }
 
         public static object[]? GetSearchAfter(this ICommandOptions options)
@@ -183,20 +258,33 @@ namespace Foundatio.Repositories.Options
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 {
     /// <summary>
-    /// Handles search_after paging by collecting sorts from context data,
-    /// adding the ID field for uniqueness, and reversing sorts for SearchBefore.
+    /// Handles search_after paging by collecting sorts from context data, ensuring a deterministic
+    /// tiebreaker when possible, and reversing sorts for SearchBefore.
     /// This builder runs last (Int32.MaxValue priority) so it sees all accumulated sorts.
     /// </summary>
     /// <remarks>
+    /// Elasticsearch documents that point-in-time searches add an implicit <c>_shard_doc</c>
+    /// tiebreaker. This builder includes it explicitly because backward paging must reverse the
+    /// complete sort tuple. See
+    /// <see href="https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after">Elasticsearch search-after pagination</see>.
+    ///
     /// Also logs a warning when Live-mode search_after paging is combined with an unstable sort
     /// key (<c>_doc</c> or <c>_score</c>), since those keys are only stable within a Point-In-Time
     /// and can otherwise cause paging to silently skip documents or stop early. Because the same
     /// <see cref="ICommandOptions"/> instance is reused across <c>FindResults.NextPageAsync()</c>
     /// calls, the warning is only logged once per paging session (i.e. on the first page).
+    /// See <see cref="IdTiebreakerField.TryEnsure{T}"/> for when the id tiebreaker is skipped
+    /// entirely (models without <see cref="IIdentity"/>, or indexes that opt out via
+    /// <see cref="Foundatio.Repositories.Elasticsearch.Configuration.IIndex.HasSortableIdField"/>);
+    /// Live-mode callers of a search_after query against such a model or index must supply their
+    /// own unique, sortable field(s) to keep the cursor stable; the builder throws
+    /// <see cref="QueryValidationException"/> when no sort is available. Point-in-time mode makes
+    /// Elasticsearch's implicit <c>_shard_doc</c> tiebreaker explicit so forward and backward
+    /// cursors can reverse the complete sort tuple.
     /// </remarks>
     public class SearchAfterQueryBuilder : IElasticQueryBuilder
     {
-        private const string Id = nameof(IIdentity.Id);
+        private const string ShardDocumentSort = "_shard_doc";
 
         // Internal Lucene/relevance sort keys that are not stable across index refreshes or
         // segment merges. Using them as a search_after cursor in Live paging mode can silently
@@ -216,19 +304,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 sortFields = sorts;
             }
 
-            // For search_after paging, we need to ensure we have at least the ID field for uniqueness
+            // Search-after paging requires a concrete sort so every cursor can be replayed.
             if (ctx.Options.ShouldUseSearchAfterPaging())
             {
                 sortFields ??= new List<SortOptions>();
 
                 var resolver = ctx.GetMappingResolver();
-                string idField = resolver.GetResolvedField(Id) ?? "_id";
+                bool hasIdTiebreaker = IdTiebreakerField.TryEnsure(ctx, sortFields);
 
                 // Live search_after paging with an unstable sort key (e.g. _doc, _score) is only safe
                 // within a Point-In-Time: index refreshes and segment merges can invalidate the cursor,
                 // silently skipping documents or stopping paging early. Not applicable in PointInTime
                 // mode, where a frozen view keeps these sort keys stable.
-                bool warnOnUnstableSort = ctx.Options.GetSearchAfterPagingMode() is SearchAfterPagingMode.Live;
+                bool isLivePaging = ctx.Options.GetSearchAfterPagingMode() is SearchAfterPagingMode.Live;
 
                 // The same ICommandOptions instance is reused across FindResults.NextPageAsync() calls,
                 // so BuildAsync runs once per page. Only warn on the first page to avoid flooding logs
@@ -236,15 +324,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 bool alreadyWarned = ctx.Options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false);
 
                 // Single pass: resolve each sort's unstable field name (if any) once to check
-                // both for the ID tiebreaker and for unstable sort keys, avoiding redundant
-                // resolver calls. SortOptions is a discriminated union: _doc/_score can arrive
+                // whether a shard-document tiebreaker is already present and for unstable sort
+                // keys. SortOptions is a discriminated union: _doc/_score can arrive
                 // either as a FieldSort with a literal field name, or as the ES client's typed
                 // Doc/Score variants, so both shapes need to be checked.
-                bool hasIdField = false;
+                bool hasShardDocumentSort = false;
                 foreach (var sort in sortFields)
                 {
                     string? fieldName;
-                    bool isIdField = false;
 
                     if (sort?.Field?.Field is { } sortField)
                     {
@@ -252,7 +339,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         if (fieldName is null)
                             continue;
 
-                        isIdField = String.Equals(fieldName, idField, StringComparison.Ordinal);
+                        if (String.Equals(fieldName, ShardDocumentSort, StringComparison.Ordinal))
+                            hasShardDocumentSort = true;
                     }
                     else if (sort?.Doc is not null)
                     {
@@ -267,10 +355,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         continue;
                     }
 
-                    if (isIdField)
-                        hasIdField = true;
-
-                    if (warnOnUnstableSort && !alreadyWarned && UnstableSortFields.Contains(fieldName))
+                    if (isLivePaging && !alreadyWarned && UnstableSortFields.Contains(fieldName))
                     {
                         var logger = (ctx.Options.GetElasticIndex() as IHaveLogger)?.Logger ?? NullLogger.Instance;
                         logger.LogWarning("Sorting by {SortField} with Live search_after paging is unstable: {SortField} is not stable across index refreshes or segment merges, so the cursor can become invalid and paging may silently stop early (especially while writing to the index being paged). Sort by a stable, unique field or use SearchAfterPaging(SearchAfterPagingMode.PointInTime).", fieldName, fieldName);
@@ -279,13 +364,27 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                     }
                 }
 
-                if (!hasIdField)
+                if (isLivePaging && !hasIdTiebreaker && sortFields.Count is 0)
+                    throw new QueryValidationException("Live search_after paging requires at least one sortable field. Supply an explicit stable sort or use PointInTime mode.");
+
+                // Elasticsearch implicitly appends _shard_doc ascending to PIT searches. Keep it
+                // explicit so SearchBefore can reverse the complete cursor tuple.
+                if (!isLivePaging && !hasShardDocumentSort)
                 {
-                    sortFields.Add(new FieldSort { Field = idField });
+                    sortFields.Add(new FieldSort { Field = ShardDocumentSort });
                 }
 
+                bool hasSearchAfter = ctx.Options.HasSearchAfter();
+                bool hasSearchBefore = ctx.Options.HasSearchBefore();
+                if (hasSearchAfter && hasSearchBefore)
+                    throw new QueryValidationException("Search-after paging requires exactly one cursor direction; SearchAfter and SearchBefore cannot both be set.");
+
+                object[]? cursor = hasSearchAfter ? ctx.Options.GetSearchAfter() : hasSearchBefore ? ctx.Options.GetSearchBefore() : null;
+                if (cursor is not null && cursor.Length != sortFields.Count)
+                    throw new QueryValidationException($"Search-after cursor contains {cursor.Length} value(s), but the final sort contains {sortFields.Count} field(s).");
+
                 // Reverse sort orders if searching before
-                if (ctx.Options.HasSearchBefore())
+                if (hasSearchBefore)
                 {
                     sortFields = sortFields.Select(s => s.ReverseOrder()!).ToList();
                 }

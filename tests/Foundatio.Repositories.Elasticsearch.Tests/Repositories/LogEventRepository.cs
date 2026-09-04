@@ -126,3 +126,18 @@ public class MonthlyLogEventRepository : DailyLogEventRepository
     {
     }
 }
+
+/// <summary>
+/// Read-only repository over an externally-managed index (see
+/// <see cref="Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes.ExternallyManagedLogEventIndex"/>).
+/// Read-only on purpose: this
+/// library never writes to the index in tests, so <c>EnsureIndexAsync</c> is never given the
+/// chance to create it with this library's own mapping, keeping the fixture honest about
+/// mirroring an index this library does not own.
+/// </summary>
+public class ExternallyManagedLogEventRepository : ElasticReadOnlyRepositoryBase<LogEvent>
+{
+    public ExternallyManagedLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ExternallyManagedLogEvents)
+    {
+    }
+}

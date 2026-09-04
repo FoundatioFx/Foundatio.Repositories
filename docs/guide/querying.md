@@ -385,10 +385,57 @@ var results = await repository.FindAsync(
     o => o.SearchAfterPaging());
 
 // For subsequent pages, use the token
+ITextSerializer serializer = new SystemTextJsonSerializer();
 var nextResults = await repository.FindAsync(
     q => q.SortDescending(e => e.CreatedUtc),
-    o => o.SearchAfterToken(results.GetSearchAfterToken()));
+    o => o.SearchAfterToken(results.GetSearchAfterToken(), serializer));
 ```
+
+`SearchAfter(...)` and `SearchAfterToken(...)` select forward paging and clear any backward
+cursor. `SearchBefore(...)` and `SearchBeforeToken(...)` do the reverse. Calling
+`SearchAfterPaging(false)` ends the local paging session by clearing both cursors, the paging
+mode, and any stored point-in-time state, and resetting the page number to one. The page limit is
+preserved, so re-enabling starts a new Live session at the beginning. If you stop a
+point-in-time traversal early, close the result first with
+`ISupportPointInTime.ClosePointInTimeAsync(results)`; otherwise Elasticsearch retains it until its
+keep-alive expires.
+
+Raw cursor arrays passed to `SearchAfter(...)` or `SearchBefore(...)` treat null, empty, and
+all-null arrays as "clear the cursor." Tokens preserve every decoded sort value, including nulls,
+because a missing field can legitimately produce a null element inside Elasticsearch's sort tuple.
+The cursor must contain exactly one value for each final sort field; malformed cardinality and
+simultaneous forward/backward cursors fail with `QueryValidationException` before a request is sent.
+Search-after requests bypass repository query-result caching because the cache key does not contain
+the cursor tuple. Cache options can remain on shared option builders, but they are ignored for both
+Live and point-in-time search-after sessions.
+This also applies to Live cursors passed to `FindOneAsync` and `CountAsync`. Both scalar operations
+run `BeforeQuery` before deciding whether to read or write the cache, including on cache hits.
+
+A failed PIT search, including an expired or closed PIT returning HTTP 404, throws `DocumentException`
+with the server diagnostics. It does not return an empty terminal page. Ordinary missing-index searches
+retain their empty-result behavior. On failure, the repository attempts to close a repository-owned
+PIT using the latest returned ID; cleanup never replaces the original exception. If cleanup succeeds,
+the session is cleared and retrying `NextPageAsync()` throws `QueryValidationException` before sending
+another request. Start over with a new `FindAsync` call. If the session remains open, continuation uses
+the latest PIT ID stored in the options, including an ID returned before an `AfterQuery` failure.
+
+Backward paging reverses request-owned copies of field, score, document, geographic-distance, and
+script sorts. Reusing a query leaves the caller's sort objects and settings unchanged, including
+date formats used to interpret cursor values. Calling the public `ReverseOrder` helper directly
+still modifies the supplied sort in place.
+
+Changing between `Live` and `PointInTime` starts a new paging session at page one and clears cursors,
+PIT ownership/id, and warning state. Reapplying the current mode preserves the active session and page.
+The repository evaluates the final paging mode after `BeforeQuery` handlers run, so a handler can
+enable or disable paging without leaving request setup, validation, or caching on the previous mode.
+Calling `PointInTimeId(...)` establishes a caller-owned PIT, even when the options previously held
+a repository-owned PIT; close the active repository-owned PIT before replacing its ID so the old
+PIT is not retained until expiry. Snapshot/scroll paging cannot be combined with search-after
+paging in either mode. Async queries cannot be combined with search-after paging because partial or
+polled results cannot safely advance cursor and PIT state. `FindOneAsync`, `CountAsync`, and all
+`ExistsAsync` overloads also reject PIT search-after options because scalar results cannot return
+the updated PIT id and cursor required for safe continuation. These unsupported combinations fail
+with `QueryValidationException` before Elasticsearch receives a request.
 
 > [!WARNING]
 > **Avoid unstable sort keys (`_doc`, `_score`) with search after paging.** These keys are only
@@ -407,8 +454,22 @@ var nextResults = await repository.FindAsync(
 >     o => o.SearchAfterPaging(SearchAfterPagingMode.PointInTime));
 > ```
 >
-> Note: the repository always appends the document id as a tiebreaker, so a query with no explicit
-> sort is safe. The danger is an explicit unstable sort key in `Live` mode.
+> Note: the repository appends the document id's sort-safe mapped field (for example `id.sort`)
+> as a tiebreaker whenever the model's id field is mapped and sortable in the target index, so a
+> query with no explicit sort is safe in that case.
+> The id tiebreaker is skipped entirely for models that don't implement `IIdentity` (there is no id
+> to sort by) and for indexes managed outside this library (see
+> [Externally-Managed Indexes](index-management.md#externally-managed-indexes)). In both cases,
+> Live mode requires your own stable, unique sort field and throws `QueryValidationException` if
+> none is available. [Elasticsearch automatically adds `_shard_doc` to PIT searches](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after);
+> point-in-time mode makes that tiebreaker explicit after any caller sorts so both forward and
+> backward cursors can reverse the same complete sort tuple. An explicit unstable sort key remains
+> dangerous in `Live` mode.
+
+Backward paging preserves the original sort value for multivalued fields and reverses `_first`/`_last`
+missing-value placement along with the direction. Explicit replacement values and sort modes remain
+unchanged. This follows [Elasticsearch's sort defaults](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/sort-search-results),
+including descending as the default direction for `_score`.
 
 ## Aggregations
 
