@@ -328,6 +328,7 @@ Use `DailyIndex<T>` or `MonthlyIndex<T>` over externally-created partitions only
 
 - `.Index(start, end)` targets unversioned dated names such as `{Name}-2026.08.05`.
 - Queries without `.Index(...)`, plus large-range fallbacks, target the `{Name}` umbrella alias; the external system must maintain it.
+- A derived index must pass `IElasticConfiguration` to its base constructor; see the complete `ExternallyManagedIndex` example in `docs/guide/index-management.md`.
 - For unversioned names, override `MappingIndexPattern` and `GetIndexDate()` together. The pattern is the authoritative candidate set; return `DateTime.MaxValue` for malformed names so mapping selection ignores those wildcard matches.
 - **v8+ only:** Set `HasSortableIdField = false` when the server mapping does not guarantee a sortable id. Live `SearchAfterPaging()` must then include an explicit stable, unique sort or it throws `QueryValidationException`; point-in-time mode always makes Elasticsearch's implicit `_shard_doc` tiebreaker explicit after caller sorts so backward cursors can reverse the complete sort tuple.
 

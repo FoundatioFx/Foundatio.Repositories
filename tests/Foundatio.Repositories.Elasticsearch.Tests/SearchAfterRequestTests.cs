@@ -17,6 +17,225 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class SearchAfterRequestTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FindAsync_WithExpiredPointInTime_ThrowsAndRespectsOwnership(bool callerOwned)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, ErrorResponse, 404));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        if (callerOwned)
+            options.PointInTimeId("caller-pit");
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options));
+
+        Assert.Contains("expected failure", exception.Message);
+        if (callerOwned)
+            Assert.Single(invoker.Requests);
+        else
+            AssertClosed(invoker, "opened-pit");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FindAsync_WithMissingIndex_ReturnsEmptyResults(bool livePaging)
+    {
+        using var invoker = new StubInvoker(_ => (ErrorResponse, 404));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().SearchAfterPaging(livePaging);
+
+        var result = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+
+        Assert.Empty(result.Hits);
+        Assert.False(result.HasMore);
+        Assert.Single(invoker.Requests);
+    }
+
+    [Theory]
+    [InlineData("request")]
+    [InlineData("conversion")]
+    [InlineData("event")]
+    public async Task NextPageAsync_AfterOwnedPointInTimeFailure_RejectsRetryWithoutRequest(string failure)
+    {
+        int searches = 0;
+        using var invoker = new StubInvoker(endpoint =>
+        {
+            bool fail = endpoint.Uri.AbsolutePath is "/_search" && ++searches is 2;
+            string response = fail ? failure switch
+            {
+                "request" => ErrorResponse,
+                "conversion" => InvalidHitResponse,
+                _ => PageResponse
+            } : PageResponse;
+            return GetPointInTimeResponse(endpoint, response, fail && failure is "request" ? 400 : 200);
+        });
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        int events = 0;
+        var expectedException = new InvalidOperationException("event failure");
+        repository.AfterQuery.AddHandler((_, _) =>
+        {
+            if (++events is 2 && failure is "event")
+                throw expectedException;
+            return Task.CompletedTask;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            await page.NextPageAsync();
+        });
+
+        Assert.NotNull(exception);
+        if (failure is "event")
+            Assert.Same(expectedException, exception);
+        AssertClosed(invoker, "updated-pit");
+        Assert.False(options.HasPointInTimeId());
+        int requests = invoker.Requests.Count;
+        await Assert.ThrowsAsync<QueryValidationException>(() => page.NextPageAsync());
+        Assert.Equal(requests, invoker.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NextPageAsync_AfterRetainedPointInTimeFailure_UsesLatestId(bool callerOwned)
+    {
+        int searches = 0;
+        using var invoker = new StubInvoker(endpoint =>
+        {
+            if (endpoint.Uri.AbsolutePath is "/_search")
+                searches++;
+            return GetPointInTimeResponse(endpoint, PageResponse.Replace("updated-pit", $"pit-{searches}"), closeFails: true);
+        });
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        int events = 0;
+        var expectedException = new InvalidOperationException("event failure");
+        repository.AfterQuery.AddHandler((_, _) =>
+        {
+            if (++events is 2)
+                throw expectedException;
+            return Task.CompletedTask;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        if (callerOwned)
+            options.PointInTimeId("caller-pit");
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+
+        Assert.Same(expectedException, await Record.ExceptionAsync(async () =>
+        {
+            await page.NextPageAsync();
+        }));
+        Assert.Equal("pit-2", options.GetPointInTimeId());
+        Assert.True(await page.NextPageAsync());
+
+        using var request = JsonDocument.Parse(invoker.Requests[^1].Body!);
+        Assert.Equal("pit-2", request.RootElement.GetProperty("pit").GetProperty("id").GetString());
+        Assert.Equal(1, request.RootElement.GetProperty("search_after")[0].GetInt32());
+        Assert.False(request.RootElement.TryGetProperty("from", out _));
+        Assert.Equal(2, page.Page);
+        if (callerOwned)
+            Assert.DoesNotContain(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
+        else
+            AssertClosed(invoker, "pit-2");
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public async Task ScalarQuery_WithLiveCursors_BypassesCache(bool count, bool backward, bool enableInBeforeQuery)
+    {
+        int searches = 0;
+        using var invoker = new StubInvoker(_ => (PageResponse.Replace("\"name\":\"a\"", $"\"name\":\"{++searches}\"").Replace("\"value\":2", $"\"value\":{searches}"), 200));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        bool enablePaging = false;
+        repository.BeforeQuery.AddHandler((_, args) =>
+        {
+            if (enablePaging && enableInBeforeQuery)
+                SetCursor(args.Options, backward, searches);
+            return Task.CompletedTask;
+        });
+
+        async Task<string> ExecuteAsync(bool cursor)
+        {
+            var options = new CommandOptions<NonIdentityDocument>().Cache("same-key");
+            if (cursor && !enableInBeforeQuery)
+                SetCursor(options, backward, searches);
+            var query = new RepositoryQuery<NonIdentityDocument>();
+            return count ? (await repository.CountAsync(query, options)).Total.ToString()
+                : (await repository.FindOneAsync(query, options)).Document!.Name;
+        }
+
+        Assert.Equal("1", await ExecuteAsync(false));
+        enablePaging = true;
+        Assert.Equal("2", await ExecuteAsync(true));
+        Assert.Equal("3", await ExecuteAsync(true));
+        enablePaging = false;
+        Assert.Equal("1", await ExecuteAsync(false));
+        Assert.Equal(3, invoker.Requests.Count);
+        for (int i = 1; i < invoker.Requests.Count; i++)
+        {
+            using var request = JsonDocument.Parse(invoker.Requests[i].Body!);
+            Assert.Equal(i, request.RootElement.GetProperty("search_after")[0].GetInt32());
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ScalarQuery_WithPointInTimeEnabledByBeforeQuery_RejectsCachedResult(bool count)
+    {
+        using var invoker = new StubInvoker(_ => (PageResponse, 200));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var query = new RepositoryQuery<NonIdentityDocument>();
+        async Task<object> ExecuteAsync()
+        {
+            var options = new CommandOptions<NonIdentityDocument>().Cache("same-key");
+            if (count)
+                return await repository.CountAsync(query, options);
+            return await repository.FindOneAsync(query, options);
+        }
+        await ExecuteAsync();
+        repository.BeforeQuery.AddHandler((_, args) =>
+        {
+            args.Options.SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+            return Task.CompletedTask;
+        });
+
+        await Assert.ThrowsAsync<QueryValidationException>(ExecuteAsync);
+
+        Assert.Single(invoker.Requests);
+    }
+
+    private static void SetCursor(ICommandOptions options, bool backward, int cursor)
+    {
+        options.SearchAfterPaging();
+        if (backward)
+            options.SearchBefore(cursor);
+        else
+            options.SearchAfter(cursor);
+    }
+
+    [Theory]
     [InlineData(SearchAfterPagingMode.Live, SearchAfterPagingMode.PointInTime, false)]
     [InlineData(SearchAfterPagingMode.PointInTime, SearchAfterPagingMode.Live, false)]
     [InlineData(SearchAfterPagingMode.Live, SearchAfterPagingMode.Live, true)]
@@ -197,6 +416,8 @@ public sealed class SearchAfterRequestTests
             return (CloseResponse, closeFails ? 500 : 200);
         if (endpoint.Uri.AbsolutePath.EndsWith("/_pit", StringComparison.Ordinal))
             return (OpenResponse, 200);
+        if (endpoint.Uri.AbsolutePath is not "/_search")
+            searchResponse = searchResponse.Replace("\"pit_id\":\"updated-pit\",", String.Empty);
         return (searchResponse, searchStatus);
     }
 

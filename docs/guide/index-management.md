@@ -882,8 +882,18 @@ This matters for two reasons:
 1. **The server-side mapping lookup pattern must match your naming.** `GetLatestIndexMapping()` (used by the `ElasticMappingResolver` to resolve field names and types for building queries, sorts, and aggregations) defaults to filtering indexes by `{Name}-v{Version}-*`. That filter is the authoritative candidate set, so an externally-managed index with no version segment must override it. Override `GetIndexDate()` as well so the resolver can select the latest valid partition:
 
    ```csharp
+   using System;
+   using System.Globalization;
+   using Foundatio.Repositories.Elasticsearch.Configuration;
+
    public class ExternallyManagedIndex : DailyIndex<LogEvent>
    {
+       public ExternallyManagedIndex(IElasticConfiguration configuration)
+           : base(configuration, "logs", 1, doc => ((LogEvent)doc).Date.UtcDateTime)
+       {
+           HasSortableIdField = false;
+       }
+
        protected override string MappingIndexPattern => $"{Name}-*";
 
        protected override DateTime GetIndexDate(string index)
@@ -896,22 +906,13 @@ This matters for two reasons:
    }
    ```
 
+   This example assumes your `LogEvent` model has a `DateTimeOffset Date` property.
+
    Keep a custom filter version-qualified when the external naming scheme has multiple incompatible mapping versions. `GetLatestIndexMapping()` does not apply a second version check after the filter.
 
    If no valid dated index matches the filter, `GetLatestIndexMapping()` logs a warning (`"No indexes matched filter ... field resolution will fall back to the code-declared mapping only"`) rather than failing silently — check your logs for this message if queries against an externally-managed index behave unexpectedly. Wildcard matches whose `GetIndexDate()` result is `DateTime.MaxValue` are treated as malformed and ignored, so a stray prefixed index cannot outrank the latest valid partition.
 
-2. **The id tiebreaker cannot be trusted to detect sortability on its own.** `FindAsync`/`CountAsync` queries normally get an automatic `id` sort appended as a tiebreaker for deterministic pagination (see [Search After Paging](querying.md#search-after-paging)). That tiebreaker is derived from the *code* mapping, which always declares `id` for any model implementing `IIdentity` — regardless of whether the real, externally-managed index has an `id` field at all. Because the mapping resolver merges server and code mappings (backfilling anything missing on the server from the code mapping), there is no reliable way to detect at query time whether `id` is genuinely sortable on the server. Set `HasSortableIdField = false` in the index constructor to opt out explicitly:
-
-   ```csharp
-   public class ExternallyManagedIndex : DailyIndex<LogEvent>
-   {
-       public ExternallyManagedIndex(IElasticConfiguration configuration)
-           : base(configuration, "logs", 1, doc => ((LogEvent)doc).Date.UtcDateTime)
-       {
-           HasSortableIdField = false;
-       }
-   }
-   ```
+2. **The id tiebreaker cannot be trusted to detect sortability on its own.** `FindAsync`/`CountAsync` queries normally get an automatic `id` sort appended as a tiebreaker for deterministic pagination (see [Search After Paging](querying.md#search-after-paging)). That tiebreaker is derived from the *code* mapping, which always declares `id` for any model implementing `IIdentity` — regardless of whether the real, externally-managed index has an `id` field at all. Because the mapping resolver merges server and code mappings (backfilling anything missing on the server from the code mapping), there is no reliable way to detect at query time whether `id` is genuinely sortable on the server. Set `HasSortableIdField = false` in the index constructor to opt out explicitly, as shown in the complete example above.
 
    With `HasSortableIdField = false`, no query automatically attempts to sort by `id`, so an unmapped or wrongly-typed (dynamically-mapped `text`) `id` field can no longer break an otherwise unsorted query with `all shards failed` or `Fielddata is disabled on text fields`. An explicit caller-provided `id` sort is still honored. Pair Live [search after paging](querying.md#search-after-paging) with your own stable, unique sort field; the query builder throws `QueryValidationException` when Live mode has neither an explicit sort nor an automatic id sort, instead of silently falling back to offset paging.
 

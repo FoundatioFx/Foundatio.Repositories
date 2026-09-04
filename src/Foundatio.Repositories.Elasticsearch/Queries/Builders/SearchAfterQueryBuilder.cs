@@ -32,6 +32,13 @@ namespace Foundatio.Repositories
         internal const string PointInTimeStateKey = "@PointInTimeState";
         internal const string UnstableSortWarnedKey = "@SearchAfterUnstableSortWarned";
 
+        /// <summary>
+        /// Enables search-after paging in the current mode, or clears the local paging session when disabled.
+        /// </summary>
+        /// <remarks>
+        /// Search-after requests bypass repository caching, including Live cursors used with scalar queries.
+        /// The repository evaluates cache eligibility after BeforeQuery handlers run.
+        /// </remarks>
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
             if (!enabled)
@@ -40,6 +47,15 @@ namespace Foundatio.Repositories
             return options.BuildOption(SearchAfterPagingKey, true);
         }
 
+        /// <summary>
+        /// Enables search-after paging with the specified consistency mode, or clears the local session when disabled.
+        /// </summary>
+        /// <remarks>
+        /// Failed point-in-time searches, including expired snapshots, throw DocumentException.
+        /// The repository attempts to close snapshots it owns on failure without masking the original exception.
+        /// After cleanup clears the session, NextPageAsync throws QueryValidationException; restart with FindAsync.
+        /// Retained sessions continue with the latest point-in-time ID stored in the options.
+        /// </remarks>
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
         {
             if (!enabled)

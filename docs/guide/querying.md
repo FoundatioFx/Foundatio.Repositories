@@ -408,6 +408,21 @@ simultaneous forward/backward cursors fail with `QueryValidationException` befor
 Search-after requests bypass repository query-result caching because the cache key does not contain
 the cursor tuple. Cache options can remain on shared option builders, but they are ignored for both
 Live and point-in-time search-after sessions.
+This also applies to Live cursors passed to `FindOneAsync` and `CountAsync`. Both scalar operations
+run `BeforeQuery` before deciding whether to read or write the cache, including on cache hits.
+
+A failed PIT search, including an expired or closed PIT returning HTTP 404, throws `DocumentException`
+with the server diagnostics. It does not return an empty terminal page. Ordinary missing-index searches
+retain their empty-result behavior. On failure, the repository attempts to close a repository-owned
+PIT using the latest returned ID; cleanup never replaces the original exception. If cleanup succeeds,
+the session is cleared and retrying `NextPageAsync()` throws `QueryValidationException` before sending
+another request. Start over with a new `FindAsync` call. If the session remains open, continuation uses
+the latest PIT ID stored in the options, including an ID returned before an `AfterQuery` failure.
+
+Backward paging reverses request-owned copies of field, score, document, geographic-distance, and
+script sorts. Reusing a query leaves the caller's sort objects and settings unchanged, including
+date formats used to interpret cursor values. Calling the public `ReverseOrder` helper directly
+still modifies the supplied sort in place.
 
 Changing between `Live` and `PointInTime` starts a new paging session at page one and clears cursors,
 PIT ownership/id, and warning state. Reapplying the current mode preserves the active session and page.

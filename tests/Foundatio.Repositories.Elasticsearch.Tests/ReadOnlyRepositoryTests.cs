@@ -61,13 +61,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employeeResult1);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(0, _cache.Misses);
+        Assert.Equal(1, _cache.Misses); // BeforeQuery checks soft-deleted IDs even on a cache hit.
 
         var employeeResult2 = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache("test"));
         Assert.NotNull(employeeResult2);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(2, _cache.Hits);
-        Assert.Equal(0, _cache.Misses);
+        Assert.Equal(1, _cache.Misses);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Null(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(3, _cache.Misses);
 
         await _cache.RemoveAsync("Employee:test");
         Assert.Equal(0, _cache.Count);
@@ -95,13 +95,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(4, _cache.Misses);
+        Assert.Equal(5, _cache.Misses);
 
         employeeResult = await _employeeRepository.FindOneAsync(new RepositoryQuery(), new CommandOptions().Cache(true).CacheKey("test"));
         Assert.NotNull(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(2, _cache.Hits);
-        Assert.Equal(4, _cache.Misses);
+        Assert.Equal(6, _cache.Misses);
     }
 
     [Fact]

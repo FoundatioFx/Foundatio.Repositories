@@ -34,21 +34,52 @@ public static class ResolverExtensions
 
     public static SortOptions? ResolveFieldSort(this ElasticMappingResolver resolver, SortOptions? sort)
     {
-        // SortOptions is a discriminated union - check if it's a field sort
-        if (sort?.Field != null)
+        if (sort?.Field is { } fieldSort)
         {
-            var fieldSort = sort.Field;
             var resolvedField = resolver.GetSortFieldName(fieldSort.Field);
-            // Create a new FieldSort with the resolved field name
             return new FieldSort
             {
                 Field = resolvedField,
+                Format = fieldSort.Format,
                 Missing = fieldSort.Missing,
                 Mode = fieldSort.Mode,
                 Nested = fieldSort.Nested,
                 NumericType = fieldSort.NumericType,
                 Order = fieldSort.Order,
                 UnmappedType = fieldSort.UnmappedType
+            };
+        }
+
+        if (sort?.Score is { } scoreSort)
+            return new SortOptions { Score = new ScoreSort { Order = scoreSort.Order } };
+
+        if (sort?.Doc is { } docSort)
+            return new SortOptions { Doc = new ScoreSort { Order = docSort.Order } };
+
+        if (sort?.GeoDistance is { } geoSort)
+        {
+            return new GeoDistanceSort
+            {
+                Field = geoSort.Field,
+                Location = geoSort.Location,
+                DistanceType = geoSort.DistanceType,
+                IgnoreUnmapped = geoSort.IgnoreUnmapped,
+                Mode = geoSort.Mode,
+                Nested = geoSort.Nested,
+                Order = geoSort.Order,
+                Unit = geoSort.Unit
+            };
+        }
+
+        if (sort?.Script is { } scriptSort)
+        {
+            return new ScriptSort
+            {
+                Script = scriptSort.Script,
+                Type = scriptSort.Type,
+                Mode = scriptSort.Mode,
+                Nested = scriptSort.Nested,
+                Order = scriptSort.Order
             };
         }
 

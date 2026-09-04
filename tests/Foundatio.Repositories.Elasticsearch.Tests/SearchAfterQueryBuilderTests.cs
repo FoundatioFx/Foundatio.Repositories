@@ -4,7 +4,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
+using Elastic.Transport.Extensions;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -55,6 +57,73 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     private static List<SortOptions> GetAppliedSort(QueryBuilderContext<Employee> ctx)
     {
         return ((SearchRequest)ctx.Search).Sort!.ToList();
+    }
+
+    [Theory]
+    [InlineData("field")]
+    [InlineData("score")]
+    [InlineData("doc")]
+    [InlineData("geo")]
+    [InlineData("script")]
+    public async Task BuildAsync_WithRepeatedBackwardQuery_PreservesCallerSortAndSettings(string variant)
+    {
+        var nested = new NestedSortValue { Path = "nested", MaxChildren = 3 };
+        SortOptions original = variant switch
+        {
+            "field" => new FieldSort("date")
+            {
+                Format = "strict_date_optional_time_nanos",
+                Missing = "_last",
+                Mode = SortMode.Max,
+                Nested = nested,
+                NumericType = FieldSortNumericType.DateNanos,
+                Order = SortOrder.Desc,
+                UnmappedType = FieldType.Date
+            },
+            "score" => new SortOptions { Score = new ScoreSort { Order = SortOrder.Desc } },
+            "doc" => new SortOptions { Doc = new ScoreSort { Order = SortOrder.Desc } },
+            "geo" => new GeoDistanceSort("location", new List<GeoLocation> { GeoLocation.Text("40,-70") })
+            {
+                DistanceType = GeoDistanceType.Plane,
+                IgnoreUnmapped = true,
+                Mode = SortMode.Max,
+                Nested = nested,
+                Order = SortOrder.Desc,
+                Unit = DistanceUnit.Miles
+            },
+            _ => new ScriptSort(new Script { Source = "return 1", Lang = "painless" })
+            {
+                Mode = SortMode.Max,
+                Nested = nested,
+                Order = SortOrder.Desc,
+                Type = ScriptSortType.Number
+            }
+        };
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new Uri("http://localhost:9200")));
+        string callerJson = client.RequestResponseSerializer.SerializeToString(original);
+        var resolver = CreateKeywordIdResolver();
+        var copy = resolver.ResolveFieldSort(original)!;
+        Assert.Equal(callerJson, client.RequestResponseSerializer.SerializeToString(copy));
+        var query = new RepositoryQuery<Employee>().SortAscending("unused");
+        query.GetSorts().Clear();
+        query.GetSorts().Add(original);
+        var options = new CommandOptions<Employee>().ElasticIndex(new UnsortableIdFakeIndex { MappingResolver = resolver })
+            .SearchAfterPaging().SearchBefore(1);
+
+        async Task<string> BuildAsync()
+        {
+            var context = new QueryBuilderContext<Employee>(query, options);
+            await new SortQueryBuilder().BuildAsync(context);
+            await new SearchAfterQueryBuilder().BuildAsync(context);
+            return client.RequestResponseSerializer.SerializeToString((SearchRequest)context.Search);
+        }
+
+        string firstRequest = await BuildAsync();
+        string secondRequest = await BuildAsync();
+
+        Assert.Equal(firstRequest, secondRequest);
+        Assert.Contains("\"order\":\"asc\"", firstRequest);
+        Assert.Equal(callerJson, client.RequestResponseSerializer.SerializeToString(original));
     }
 
     [Fact]

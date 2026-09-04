@@ -582,13 +582,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return results;
         }
 
+        if (!String.IsNullOrEmpty(previousResults.GetPointInTimeId()) &&
+            (!options.ShouldUseSearchAfterPagingPointInTime() || !options.HasPointInTimeId()))
+            throw new QueryValidationException("The point-in-time paging session has been closed or cleared. Start a new search with FindAsync.");
+
         if (options.ShouldUseSearchAfterPaging())
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
-        if (options.ShouldUseSearchAfterPagingPointInTime())
-            options.UpdatePointInTimeId(previousResults.GetPointInTimeId());
-
-        options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
+        options.PageNumber(previousResults.Page + 1);
         return await FindAsAsync<TResult>(query, options).AnyContext();
     }
 
@@ -601,15 +602,16 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         options = ConfigureOptions(options?.As<T>());
         ThrowIfPointInTimePagingIsUnsupported(options, nameof(FindOneAsync));
-        if (IsCacheEnabled && (options.ShouldUseCache() || options.ShouldReadCache()) && !options.HasCacheKey())
-            throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
-
-        var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
-        if (result != null)
-            return result.FirstOrDefault() ?? FindHit<T>.Empty;
-
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
         ThrowIfPointInTimePagingIsUnsupported(options, nameof(FindOneAsync));
+
+        bool allowCaching = IsCacheEnabled && !options.ShouldUseSearchAfterPaging();
+        if (allowCaching && (options.ShouldUseCache() || options.ShouldReadCache()) && !options.HasCacheKey())
+            throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
+
+        var result = allowCaching && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
+        if (result != null)
+            return result.FirstOrDefault() ?? FindHit<T>.Empty;
 
         await RefreshForConsistency(query, options).AnyContext();
 
@@ -628,7 +630,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         result = response.Hits.Select(h => h.ToFindHit()).ToList();
 
-        if (IsCacheEnabled && options.ShouldUseCache())
+        if (allowCaching && options.ShouldUseCache())
             await AddDocumentsToCacheAsync(result, options, options.GetConsistency(DefaultConsistency) == Consistency.Eventual).AnyContext();
 
         return result.FirstOrDefault() ?? FindHit<T>.Empty;
@@ -643,17 +645,17 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         options = ConfigureOptions(options?.As<T>());
         ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
+        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
 
+        bool allowCaching = IsCacheEnabled && !options.ShouldUseSearchAfterPaging();
         CountResult? result;
-        if (IsCacheEnabled && options.ShouldReadCache())
+        if (allowCaching && options.ShouldReadCache())
         {
             result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
             if (result != null)
                 return result;
         }
-
-        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
 
         await RefreshForConsistency(query, options).AnyContext();
 
@@ -699,7 +701,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await OnAfterQueryAsync(query, options, result).AnyContext();
 
-        if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
+        if (allowCaching && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
             await SetCachedQueryResultAsync(options, result, "count").AnyContext();
 
         return result;
