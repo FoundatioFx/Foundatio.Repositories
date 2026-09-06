@@ -24,8 +24,9 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
 
     /// <summary>
     /// Applies the evidence-based <see cref="IndexCompatibilityUpgradeStatus.Action"/> returned by inspection.
-    /// It either resets a marked interrupted attempt or finishes a marked committed cutover. Foreign, unmarked,
-    /// active, or contradictory states are never changed.
+    /// It finishes only a marked committed cutover. Interrupted pre-cutover attempts require manual reconciliation:
+    /// an empty task listing cannot prove a timed-out request will not still arrive. Foreign, unmarked, active,
+    /// or contradictory states are never changed.
     /// </summary>
     /// <param name="index">The configured index that owns <paramref name="sourceIndex"/>.</param>
     /// <param name="sourceIndex">The exact original physical source name used to start the compatibility upgrade.</param>
@@ -45,6 +46,8 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
     /// Elasticsearch's <c>_create_from</c> API, copies documents without applying ingest pipelines, atomically
     /// moves aliases, and deletes the source. Stop all writers and index-management processes, take and verify a
     /// snapshot, and do not invoke it while rollback to the previous Elasticsearch major remains an option.
+    /// Mapping-level source includes/excludes and generated names over 255 UTF-8 bytes are rejected before
+    /// batch mutation. Ambiguous requests retain the marked artifacts for manual reconciliation.
     /// Restart or drain application instances before resuming writes because cached document concurrency tokens
     /// belong to the deleted physical index.
     /// </remarks>

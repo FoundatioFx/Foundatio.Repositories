@@ -78,19 +78,10 @@ internal sealed class ElasticIndexCompatibilityRecovery
         CancellationToken cancellationToken)
     {
         var status = await InspectAsync(index, sourceIndex, cancellationToken).AnyContext();
-        switch (status.Action)
-        {
-            case IndexCompatibilityRecoveryAction.Reset:
-                await ResetAsync(status, cancellationToken).AnyContext();
-                break;
-            case IndexCompatibilityRecoveryAction.Finish:
-                await FinishAsync(status, cancellationToken).AnyContext();
-                break;
-            default:
-                throw new RepositoryException(
-                    $"Compatibility upgrade for '{sourceIndex}' requires action '{status.Action}' and cannot be recovered automatically. No cluster state was changed.");
-        }
+        if (status.Action is not IndexCompatibilityRecoveryAction.Finish)
+            throw new RepositoryException($"Compatibility upgrade for '{sourceIndex}' requires action '{status.Action}' and cannot be recovered automatically. No cluster state was changed.");
 
+        await FinishAsync(status, cancellationToken).AnyContext();
         return await InspectAsync(index, sourceIndex, cancellationToken).AnyContext();
     }
 
@@ -164,6 +155,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
         return new IndexCompatibilityUpgradeStatus
         {
             IndexName = index.Name,
+            ErrorLineageAuthenticated = errorLineageAuthenticated,
             SourceIndex = sourceIndex,
             TargetIndex = targetIndex,
             Action = GetRecoveryAction(observed),
@@ -221,37 +213,43 @@ internal sealed class ElasticIndexCompatibilityRecovery
         return count;
     }
 
-    private async Task ResetAsync(IndexCompatibilityUpgradeStatus status, CancellationToken cancellationToken)
+    internal static bool CanResetCurrentAttempt(IndexCompatibilityUpgradeStatus status)
     {
-        if (!status.SourceExists || !status.SourceWorkflowMarkerPresent)
-            throw new RepositoryException($"Compatibility source '{status.SourceIndex}' no longer has the marked state required for reset.");
+        return status.Action is IndexCompatibilityRecoveryAction.ManualIntervention
+            && status.ErrorLineageAuthenticated
+            && status.SourceExists && status.TargetExists
+            && status.SourceWriteBlocked && status.SourceWorkflowMarkerPresent && status.TargetWorkflowMarkerPresent
+            && !status.TargetHasCanonicalSourceAlias
+            && status.ActiveReindexTaskCount is 0
+            && status.UnexpectedResolvedIndexes.Count is 0
+            && status.TargetAliases.All(alias => alias is ElasticIndexCompatibilityUpgrader.OwnershipAlias or ElasticReindexer.ErrorIndexOwnershipAlias);
+    }
 
-        if (status.TargetExists)
+    // The caller must also hold positive evidence that its own requests cannot still mutate either index.
+    internal async Task ResetCurrentAttemptAsync(Index index, string sourceIndex, CancellationToken cancellationToken)
+    {
+        var status = await InspectAsync(index, sourceIndex, cancellationToken).AnyContext();
+        if (!CanResetCurrentAttempt(status))
+            throw new RepositoryException($"Compatibility source '{sourceIndex}' no longer has the marked state required for cleanup. Keep writes stopped and inspect both indexes.");
+
+        var deleteResponse = await _client.Indices.DeleteAsync(status.TargetIndex, cancellationToken).AnyContext();
+        if (!deleteResponse.IsValidResponse || !deleteResponse.Acknowledged)
         {
-            if (!status.SourceWriteBlocked || !status.TargetWorkflowMarkerPresent || status.TargetHasCanonicalSourceAlias)
-                throw new RepositoryException($"Compatibility destination '{status.TargetIndex}' is not a marked partial destination and was not changed.");
-
-            var deleteResponse = await _client.Indices.DeleteAsync(status.TargetIndex, cancellationToken).AnyContext();
-            if (!deleteResponse.IsValidResponse || !deleteResponse.Acknowledged)
-            {
-                _logger.LogErrorRequest(deleteResponse, "Unable to remove interrupted compatibility destination {TargetIndex}", status.TargetIndex);
-                throw new RepositoryException(deleteResponse.GetErrorMessage($"Unable to remove interrupted compatibility destination '{status.TargetIndex}'. The source remains write blocked."), deleteResponse.OriginalException());
-            }
-
-            _logger.LogRequest(deleteResponse);
-            var existsResponse = await _client.Indices.ExistsAsync(status.TargetIndex, cancellationToken).AnyContext();
-            if ((!existsResponse.IsValidResponse && existsResponse.ApiCallDetails.HttpStatusCode is not 404) || existsResponse.Exists)
-            {
-                _logger.LogErrorRequest(existsResponse, "Unable to confirm removal of compatibility destination {TargetIndex}", status.TargetIndex);
-                throw new RepositoryException(existsResponse.GetErrorMessage($"Unable to confirm removal of compatibility destination '{status.TargetIndex}'. The source remains write blocked."), existsResponse.OriginalException());
-            }
-
-            _logger.LogRequest(existsResponse);
+            _logger.LogErrorRequest(deleteResponse, "Unable to remove interrupted compatibility destination {TargetIndex}", status.TargetIndex);
+            throw new RepositoryException(deleteResponse.GetErrorMessage($"Unable to remove interrupted compatibility destination '{status.TargetIndex}'. The source remains write blocked."), deleteResponse.OriginalException());
         }
 
-        if (status.SourceWriteBlocked)
-            await SetWriteBlockAsync(status.SourceIndex, false, cancellationToken).AnyContext();
+        _logger.LogRequest(deleteResponse);
+        var existsResponse = await _client.Indices.ExistsAsync(status.TargetIndex, cancellationToken).AnyContext();
+        if ((!existsResponse.IsValidResponse && existsResponse.ApiCallDetails.HttpStatusCode is not 404) || existsResponse.Exists)
+        {
+            _logger.LogErrorRequest(existsResponse, "Unable to confirm removal of compatibility destination {TargetIndex}", status.TargetIndex);
+            throw new RepositoryException(existsResponse.GetErrorMessage($"Unable to confirm removal of compatibility destination '{status.TargetIndex}'. The source remains write blocked."), existsResponse.OriginalException());
+        }
 
+        _logger.LogRequest(existsResponse);
+
+        await SetWriteBlockAsync(status.SourceIndex, false, cancellationToken).AnyContext();
         await RemoveWorkflowMarkerAsync(status.SourceIndex, cancellationToken).AnyContext();
     }
 
@@ -317,9 +315,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
 
             return topology.ActiveTaskCount is 1
                 ? IndexCompatibilityRecoveryAction.Wait
-                : topology.ActiveTaskCount is 0
-                    ? IndexCompatibilityRecoveryAction.Reset
-                    : IndexCompatibilityRecoveryAction.ManualIntervention;
+                : IndexCompatibilityRecoveryAction.ManualIntervention;
         }
 
         if (topology.TargetWorkflowMarker && topology.TargetHasCanonicalSourceAlias)

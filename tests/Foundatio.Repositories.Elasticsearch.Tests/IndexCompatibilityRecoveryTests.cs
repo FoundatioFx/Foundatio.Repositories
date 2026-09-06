@@ -55,7 +55,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task RecoverIndexCompatibilityUpgradeAsync_WithMarkedInterruptedAttempt_ResetsOnlyMarkedArtifacts()
+    public async Task RecoverIndexCompatibilityUpgradeAsync_WithMarkedInterruptedAttempt_PreservesArtifactsWithoutTerminationEvidence()
     {
         string name = $"compat-recovery-{Guid.NewGuid():N}";
         var (configuration, index) = CreateRegisteredIndex(name);
@@ -81,15 +81,17 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
             Assert.True(targetMarker.IsValidResponse, targetMarker.GetErrorMessage());
 
             var before = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
-            var after = await configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+            await Assert.ThrowsAsync<RepositoryException>(() => configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken));
+            var after = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
 
-            Assert.Equal(IndexCompatibilityRecoveryAction.Reset, before.Action);
-            Assert.True(before.CanRecover);
-            Assert.Equal(IndexCompatibilityRecoveryAction.None, after.Action);
+            Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, before.Action);
+            Assert.False(before.CanRecover);
+            Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, after.Action);
             Assert.True(after.SourceExists);
-            Assert.False(after.SourceWriteBlocked);
-            Assert.False(after.SourceWorkflowMarkerPresent);
-            Assert.False(after.TargetExists);
+            Assert.True(after.SourceWriteBlocked);
+            Assert.True(after.SourceWorkflowMarkerPresent);
+            Assert.True(after.TargetExists);
+            Assert.True(after.TargetWorkflowMarkerPresent);
         }
     }
 
@@ -204,7 +206,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     }
 
     [Theory]
-    [InlineData(true, IndexCompatibilityRecoveryAction.Reset)]
+    [InlineData(true, IndexCompatibilityRecoveryAction.ManualIntervention)]
     [InlineData(false, IndexCompatibilityRecoveryAction.ManualIntervention)]
     public async Task InspectIndexCompatibilityUpgradeAsync_WithInterruptedErrorTarget_RequiresPersistentErrorMarker(
         bool includeTargetErrorMarker,

@@ -262,7 +262,7 @@ public partial class IndexCompatibilityTests
         }
     }
 
-    private sealed record StubResponse(int StatusCode, string Content, Exception? Exception = null);
+    private sealed record StubResponse(int StatusCode, string Content, Exception? Exception = null, string? Request = null);
 
     private sealed class SequenceRequestInvoker : IRequestInvoker
     {
@@ -280,25 +280,31 @@ public partial class IndexCompatibilityTests
         }
 
         public ResponseFactory ResponseFactory => _responseFactory.ResponseFactory;
+        public List<string> Requests { get; } = [];
+        public int RemainingResponses => _responses.Count;
 
         public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
             where TResponse : TransportResponse, new()
         {
-            return GetResponse().Request<TResponse>(endpoint, boundConfiguration, postData);
+            return GetResponse(endpoint).Request<TResponse>(endpoint, boundConfiguration, postData);
         }
 
         public Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
             where TResponse : TransportResponse, new()
         {
-            return GetResponse().RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken);
+            return GetResponse(endpoint).RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken);
         }
 
-        private InMemoryRequestInvoker GetResponse()
+        private InMemoryRequestInvoker GetResponse(Endpoint endpoint)
         {
+            string request = $"{endpoint.Method} {Uri.UnescapeDataString(endpoint.Uri.AbsolutePath)}";
+            Requests.Add(request);
             if (_responses.Count is 0)
                 throw new InvalidOperationException("No response configured for request.");
 
             var response = _responses.Dequeue();
+            if (response.Request is not null)
+                global::Xunit.Assert.Equal(response.Request, request);
             return new InMemoryRequestInvoker(
                 response.Exception is null ? Encoding.UTF8.GetBytes(response.Content) : [],
                 response.StatusCode,

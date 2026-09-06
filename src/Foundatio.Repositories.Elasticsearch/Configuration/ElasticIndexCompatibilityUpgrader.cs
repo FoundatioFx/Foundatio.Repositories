@@ -105,6 +105,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         }
 
         bool workflowAttempted = false;
+        bool canResetCurrentAttempt = false;
         IReadOnlyDictionary<string, Alias>? expectedCutoverAliases = null;
         try
         {
@@ -123,6 +124,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             await CreateTargetAsync(sourceIndex, targetIndex, cancellationToken).AnyContext();
             bool isErrorIndex = sourceState.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias);
             await AddWorkflowMarkerAsync(targetIndex, isErrorIndex, cancellationToken).AnyContext();
+            canResetCurrentAttempt = true;
             var targetState = await GetIndexStateAsync(targetIndex, cancellationToken).AnyContext();
             if (!HasExpectedWorkflowMarkers(targetState.Aliases, isErrorIndex))
                 throw new RepositoryException($"Compatibility destination index '{targetIndex}' has unexpected aliases before reindexing. The marked source remains intact and write blocked.");
@@ -131,20 +133,27 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             EnsureExplicitSettingsMatch(sourceState.ExplicitSettings, targetState.ExplicitSettings, ignoreTemporarySettings: true, targetIndex);
             await ReportProgressAsync(10, $"Created {targetIndex} from {sourceIndex}").AnyContext();
 
+            // Only acknowledged setup or confirmed termination of this attempt's exact task permits cleanup.
+            canResetCurrentAttempt = false;
             var reindexResult = await _reindexTaskRunner.RunCompatibilityReindexAsync(
                 sourceIndex,
                 targetIndex,
                 index.ReindexBatchSize,
                 index.ReindexRequestsPerSecond,
                 ReportProgressAsync,
+                () => canResetCurrentAttempt = true,
                 cancellationToken).AnyContext();
 
             // _create_from must remove the copied source block so _reindex can write. Reapply the dedicated block
             // as soon as the task completes, before counting, so the verified destination stays stable through cutover.
+            canResetCurrentAttempt = false;
             await AddWriteBlockAsync(targetIndex, cancellationToken).AnyContext();
+            canResetCurrentAttempt = true;
             await RefreshAsync(targetIndex, cancellationToken).AnyContext();
             await VerifyDocumentCountsAsync(sourceIndex, targetIndex, reindexResult, cancellationToken).AnyContext();
+            canResetCurrentAttempt = false;
             await RestoreTargetSettingsAsync(targetIndex, sourceState.Settings, cancellationToken).AnyContext();
+            canResetCurrentAttempt = true;
             await WaitForTargetHealthAsync(targetIndex, cancellationToken).AnyContext();
             await ReportProgressAsync(92, $"Validated {reindexResult.Total:N0} documents and restored index settings").AnyContext();
             targetState = await GetIndexStateAsync(targetIndex, cancellationToken).AnyContext();
@@ -187,6 +196,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             // Once this request is dispatched, Elasticsearch may have committed the atomic alias swap even if
             // the client observes a timeout or cancellation. Never delete the destination after that point until
             // the resulting topology has been positively established.
+            canResetCurrentAttempt = false;
             var cutoverResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(aliasActions), cancellationToken).AnyContext();
             if (cutoverResponse.IsValidResponse && cutoverResponse.Acknowledged)
                 _logger.LogRequest(cutoverResponse);
@@ -234,11 +244,11 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                     new AggregateException(upgradeException, inspectionException));
             }
 
-            if (status.Action is IndexCompatibilityRecoveryAction.Reset)
+            if (canResetCurrentAttempt && ElasticIndexCompatibilityRecovery.CanResetCurrentAttempt(status))
             {
                 try
                 {
-                    await _recovery.RecoverUnderLockAsync(index, sourceIndex, recoveryCancellation.Token).AnyContext();
+                    await _recovery.ResetCurrentAttemptAsync(index, sourceIndex, recoveryCancellation.Token).AnyContext();
                 }
                 catch (Exception recoveryException)
                 {
@@ -321,6 +331,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             settings,
             state.DataStream,
             state.Mappings?.Source?.Enabled,
+            state.Mappings?.Source?.Includes is { Count: > 0 } || state.Mappings?.Source?.Excludes is { Count: > 0 },
             _client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(state.Mappings),
             CreateRestorableSettingsSignature(settings),
             explicitSettings);
@@ -336,6 +347,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
         if (source.SourceEnabled is false)
             throw new RepositoryException($"Index '{source.Name}' has _source disabled and cannot be reindexed.");
+
+        if (source.SourceFiltered)
+            throw new RepositoryException($"Index '{source.Name}' has _source includes or excludes and cannot be copied without risking data loss. Rebuild it from the original documents instead of using the compatibility upgrader.");
 
         if (source.IsClosed)
             throw new RepositoryException($"Index '{source.Name}' is closed and must be opened before using the Foundatio compatibility upgrader.");
@@ -874,6 +888,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         IndexSettings Settings,
         string? DataStream,
         bool? SourceEnabled,
+        bool SourceFiltered,
         string Mapping,
         string RestorableSettingsSignature,
         IReadOnlyDictionary<string, string?> ExplicitSettings);

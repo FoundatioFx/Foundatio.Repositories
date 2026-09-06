@@ -7,6 +7,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 /// </summary>
 public sealed record IndexCompatibilityUpgradeStatus
 {
+    internal bool ErrorLineageAuthenticated { get; init; }
+
     /// <summary>The configured repository index name.</summary>
     public required string IndexName { get; init; }
 
@@ -59,7 +61,7 @@ public sealed record IndexCompatibilityUpgradeStatus
     public int? ActiveReindexTaskCount { get; init; }
 
     /// <summary>Whether the recovery API can apply <see cref="Action"/>.</summary>
-    public bool CanRecover => Action is IndexCompatibilityRecoveryAction.Reset or IndexCompatibilityRecoveryAction.Finish;
+    public bool CanRecover => Action is IndexCompatibilityRecoveryAction.Finish;
 }
 
 /// <summary>The operator-facing action supported by the observed compatibility-upgrade evidence.</summary>
@@ -70,9 +72,6 @@ public enum IndexCompatibilityRecoveryAction
 
     /// <summary>An exactly identified compatibility reindex task is still active; wait and inspect again.</summary>
     Wait,
-
-    /// <summary>Delete the marked partial destination, then unblock and unmark the intact source.</summary>
-    Reset,
 
     /// <summary>Finish a committed cutover by unblocking and unmarking its destination.</summary>
     Finish,

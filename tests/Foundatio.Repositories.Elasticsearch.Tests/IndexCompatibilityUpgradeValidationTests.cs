@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -16,6 +17,106 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed partial class IndexCompatibilityUpgradeTests
 {
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WhenDestinationAliasesChangeBeforeCutover_FailsBeforeDeletingSource()
+    {
+        string name = $"compat-target-alias-change-{Guid.NewGuid():N}";
+        string unexpectedAlias = $"{name}-unexpected";
+        var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        await index.DeleteAsync();
+        await index.ConfigureAsync();
+        var repository = new EmployeeRepository(index);
+        await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        bool aliasAdded = false;
+
+        RegisterCompatibilityIndex(index);
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() => _configuration.UpgradeIndexCompatibilityAsync(
+            [index],
+            async (progress, message) =>
+            {
+                if (progress is not 92 || aliasAdded || message?.Contains("restored index settings", StringComparison.Ordinal) is not true)
+                    return;
+
+                var aliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+                    .Index(targetIndex)
+                    .Alias(unexpectedAlias))), TestCancellationToken);
+                Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
+                aliasAdded = true;
+            },
+            TestCancellationToken));
+
+        Assert.True(aliasAdded);
+        Assert.Contains("unexpected aliases before cutover", exception.ToString());
+        await AssertIndexExistsAsync(name, true);
+        await AssertIndexExistsAsync(targetIndex, true);
+        var status = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+        Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
+        Assert.True(status.SourceWriteBlocked);
+        Assert.True(status.TargetWriteBlocked);
+    }
+
+    [Theory]
+    [InlineData("includes")]
+    [InlineData("excludes")]
+    [InlineData("long-name")]
+    public async Task UpgradeIndexCompatibilityAsync_WithInvalidLaterSource_PreservesEntireBatch(string invalidSource)
+    {
+        string validName = $"compat-batch-valid-{Guid.NewGuid():N}";
+        string invalidName = $"compat-batch-invalid-{Guid.NewGuid():N}";
+        if (invalidSource is "long-name")
+            invalidName = invalidName.PadRight(246, 'a');
+        using var validIndex = new ForcedIncompatibleEmployeeIndex(_configuration, validName);
+        using var invalidIndex = new ForcedIncompatibleEmployeeIndex(_configuration, invalidName);
+        RegisterCompatibilityIndex(validIndex);
+        RegisterCompatibilityIndex(invalidIndex);
+        await validIndex.ConfigureAsync();
+        var create = await _client.Indices.CreateAsync(new CreateIndexRequest(invalidName)
+        {
+            Settings = new IndexSettings { NumberOfShards = 1, NumberOfReplicas = 0 },
+            Mappings = new TypeMapping
+            {
+                Source = new SourceField
+                {
+                    Includes = invalidSource is "includes" ? ["visible"] : null,
+                    Excludes = invalidSource is "excludes" ? ["secret"] : null
+                },
+                Properties = new Properties
+                {
+                    ["visible"] = new KeywordProperty(),
+                    ["secret"] = new KeywordProperty { Store = true }
+                }
+            }
+        }, TestCancellationToken);
+        Assert.True(create.IsValidResponse, create.GetErrorMessage());
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{validName},{invalidName}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        var document = await _client.IndexAsync(new { visible = "keep", secret = "indexed-value" }, d => d.Index(invalidName).Id("1").Refresh(Refresh.True), TestCancellationToken);
+        Assert.True(document.IsValidResponse, document.GetErrorMessage());
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            _configuration.UpgradeIndexCompatibilityAsync([validIndex, invalidIndex], cancellationToken: TestCancellationToken));
+
+        Assert.Contains(invalidSource is "long-name" ? "255" : "_source", exception.Message);
+        var states = await _client.Indices.GetAsync(Indices.Parse($"{validName},{invalidName}"), cancellationToken: TestCancellationToken);
+        Assert.True(states.IsValidResponse, states.GetErrorMessage());
+        Assert.Equal(2, states.Indices.Count);
+        foreach (var state in states.Indices.Values)
+        {
+            Assert.False(state.Settings?.Index?.Blocks?.Write is true);
+            Assert.DoesNotContain(ElasticIndexCompatibilityUpgrader.OwnershipAlias, state.Aliases!.Keys);
+        }
+        var count = await _client.CountAsync<object>(d => d.Indices(invalidName).Query(q => q.Term(t => t.Field("secret").Value("indexed-value"))), TestCancellationToken);
+        Assert.True(count.IsValidResponse, count.GetErrorMessage());
+        Assert.Equal(1, count.Count);
+        int major = Assert.Single(await validIndex.GetIndexCompatibilityAsync(TestCancellationToken)).ServerMajor;
+        await AssertIndexExistsAsync($"reindexed-v{major}-{validName}", false);
+        await AssertIndexExistsAsync($"reindexed-v{major}-{invalidName}", false);
+    }
+
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WithPendingDailySchemaUpgrade_ThrowsBeforeChanges()
     {

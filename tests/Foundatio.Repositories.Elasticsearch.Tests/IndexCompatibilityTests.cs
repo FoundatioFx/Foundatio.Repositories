@@ -57,81 +57,6 @@ public partial class IndexCompatibilityTests
         Assert.True(ElasticIndexCompatibilityUpgrader.JsonDefinitionsMatch(expected, actual));
     }
 
-    [Fact]
-    public async Task UpgradeAsync_WhenCreateFromOutcomeIsUnknown_RetainsTargetAndFailsClosed()
-    {
-        // Arrange
-        var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
-        var requestInvoker = new SequenceRequestInvoker(
-            new StubResponse(404, """{"error":{"type":"index_not_found_exception","reason":"no such index [reindexed-v9-employees]"},"status":404}"""),
-            new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
-            new StubResponse(200, """{"employees":{"settings":{}}}"""),
-            new StubResponse(200, """{"acknowledged":true}"""),
-            new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}"""),
-            new StubResponse(200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
-            new StubResponse(500, "", new TimeoutException("The _create_from response was not received.")));
-        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
-        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
-        using var index = new Index<object>(new ElasticConfiguration(), "employees");
-        var compatibility = new IndexCompatibilityInfo
-        {
-            Name = "employees",
-            CreatedMajor = 8,
-            ServerMajor = 9,
-            ServerVersion = "9.0.0"
-        };
-        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
-        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
-
-        // Act
-        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
-            upgrader.UpgradeAsync(index, compatibility, reindexLock!, (_, _) => Task.CompletedTask, CancellationToken.None));
-
-        Assert.Contains("recovery evidence could not be inspected", exception.Message);
-        Assert.Contains("_create_from response was not received", exception.ToString());
-    }
-
-    [Fact]
-    public async Task UpgradeAsync_WhenTargetCleanupCannotBeConfirmed_KeepsSourceWriteBlocked()
-    {
-        // Arrange
-        var requestInvoker = new SequenceRequestInvoker(
-            new StubResponse(404, """{"error":{"type":"index_not_found_exception","reason":"no such index [reindexed-v9-employees]"},"status":404}"""),
-            new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
-            new StubResponse(200, """{"employees":{"settings":{}}}"""),
-            new StubResponse(200, """{"acknowledged":true}"""),
-            new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}"""),
-            new StubResponse(200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
-            new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"index":"reindexed-v9-employees"}"""),
-            new StubResponse(200, """{"acknowledged":true}"""),
-            new StubResponse(200, """{"reindexed-v9-employees":{"aliases":{"unexpected":{}},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
-            new StubResponse(200, """{"reindexed-v9-employees":{"settings":{}}}"""),
-            new StubResponse(500, """{"error":{"type":"master_not_discovered_exception","reason":"delete outcome unknown"},"status":500}"""),
-            new StubResponse(200, """{"acknowledged":true}"""));
-        var requestPaths = new List<string>();
-        var settings = new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker)
-            .OnRequestCompleted(call => requestPaths.Add($"{call.HttpMethod} {call.Uri?.AbsolutePath}"));
-        var client = new ElasticsearchClient(settings);
-        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
-        using var index = new Index<object>(new ElasticConfiguration(), "employees");
-        var compatibility = new IndexCompatibilityInfo
-        {
-            Name = "employees",
-            CreatedMajor = 8,
-            ServerMajor = 9,
-            ServerVersion = "9.0.0"
-        };
-        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
-        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
-
-        // Act
-        await Assert.ThrowsAsync<RepositoryException>(() =>
-            upgrader.UpgradeAsync(index, compatibility, reindexLock!, (_, _) => Task.CompletedTask, CancellationToken.None));
-
-        // Assert: exposing the source to writes is unsafe while the destination may still exist.
-        Assert.DoesNotContain("PUT /employees/_settings", requestPaths);
-    }
-
     [Theory]
     [InlineData(0, null)]
     [InlineData(-1, null)]
@@ -453,21 +378,26 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_RechecksCompatibilityInsideLock()
     {
-        using var configuration = new ElasticConfiguration();
+        var invoker = new SequenceRequestInvoker(
+            new StubResponse(404, "{}", Request: "HEAD /reindexed-v9-becomes-compatible"),
+            new StubResponse(200, """{"becomes-compatible":{"aliases":{},"mappings":{},"settings":{}}}""", Request: "GET /becomes-compatible"),
+            new StubResponse(200, """{"becomes-compatible":{"settings":{}}}""", Request: "GET /becomes-compatible/_settings"));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
         using var index = new BecomesCompatibleIndex(configuration);
         configuration.AddIndex(index);
-        await index.ConfigureAsync();
-        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
 
         await configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, index.CompatibilityChecks);
+        Assert.Equal(0, invoker.RemainingResponses);
+        Assert.Equal(3, invoker.Requests.Count);
     }
 
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenSourcesShareDestination_ThrowsBeforeMutation()
     {
-        using var configuration = new ElasticConfiguration();
+        var invoker = new SequenceRequestInvoker(new StubResponse(200, "{}"), new StubResponse(200, "{}"));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
         using var index = new ConflictingDestinationIndex(configuration);
         configuration.AddIndex(index);
 

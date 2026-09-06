@@ -36,7 +36,7 @@ public partial class IndexCompatibilityTests
 
         // Act
         var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
-            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
         // Assert
         Assert.Contains("is unknown", exception.Message);
@@ -54,7 +54,7 @@ public partial class IndexCompatibilityTests
 
         // Act
         var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
-            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
         // Assert
         Assert.Contains("no task ID", exception.Message);
@@ -72,7 +72,7 @@ public partial class IndexCompatibilityTests
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
         await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
-            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
         Assert.NotNull(requestUri);
         Assert.StartsWith("/_reindex", requestUri, StringComparison.Ordinal);
@@ -122,7 +122,7 @@ public partial class IndexCompatibilityTests
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => runner.RunCompatibilityReindexAsync(
-            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
         Assert.Contains("Version conflicts: 1", exception.Message);
     }
@@ -158,7 +158,7 @@ public partial class IndexCompatibilityTests
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
         var exception = await Assert.ThrowsAnyAsync<RepositoryException>(() => runner.RunCompatibilityReindexAsync(
-            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
         Assert.Contains("search_phase_execution_exception: source failed", exception.Message);
     }
@@ -264,7 +264,7 @@ public partial class IndexCompatibilityTests
     }
 
     [Theory]
-    [InlineData(0, IndexCompatibilityRecoveryAction.Reset)]
+    [InlineData(0, IndexCompatibilityRecoveryAction.ManualIntervention)]
     [InlineData(1, IndexCompatibilityRecoveryAction.Wait)]
     [InlineData(2, IndexCompatibilityRecoveryAction.ManualIntervention)]
     public async Task InspectAsync_WithExactTaskIdentities_ReportsTaskCount(int exactTaskCount, IndexCompatibilityRecoveryAction expectedAction)
@@ -275,9 +275,16 @@ public partial class IndexCompatibilityTests
         {
             tasks.Add($"node-1:{id}", new
             {
-                node = "node-1", id, type = "transport", action = "indices:data/write/reindex",
-                status = new { }, description = "Description is not task identity",
-                start_time_in_millis = 1, running_time_in_nanos = 1, cancellable = true, cancelled = false,
+                node = "node-1",
+                id,
+                type = "transport",
+                action = "indices:data/write/reindex",
+                status = new { },
+                description = "Description is not task identity",
+                start_time_in_millis = 1,
+                running_time_in_nanos = 1,
+                cancellable = true,
+                cancelled = false,
                 headers = new Dictionary<string, string> { [ElasticReindexTaskRunner.OpaqueIdHeader] = opaqueId }
             });
         }

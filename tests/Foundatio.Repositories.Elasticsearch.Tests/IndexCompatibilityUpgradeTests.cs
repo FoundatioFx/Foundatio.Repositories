@@ -844,43 +844,6 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     }
 
     [Fact]
-    public async Task UpgradeIndexCompatibilityAsync_WhenDestinationAliasesChangeBeforeCutover_FailsBeforeDeletingSource()
-    {
-        string name = $"compat-target-alias-change-{Guid.NewGuid():N}";
-        string unexpectedAlias = $"{name}-unexpected";
-        var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
-        await index.DeleteAsync();
-        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
-        await index.ConfigureAsync();
-        var repository = new EmployeeRepository(index);
-        await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
-        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
-        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
-        bool aliasAdded = false;
-
-        RegisterCompatibilityIndex(index);
-        var exception = await Assert.ThrowsAsync<RepositoryException>(() => _configuration.UpgradeIndexCompatibilityAsync(
-            [index],
-            async (progress, message) =>
-            {
-                if (progress is not 92 || aliasAdded || message?.Contains("restored index settings", StringComparison.Ordinal) is not true)
-                    return;
-
-                var aliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
-                    .Index(targetIndex)
-                    .Alias(unexpectedAlias))), TestCancellationToken);
-                Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
-                aliasAdded = true;
-            },
-            TestCancellationToken));
-
-        Assert.True(aliasAdded);
-        Assert.Contains("unexpected aliases before cutover", exception.Message);
-        await AssertIndexExistsAsync(name, true);
-        await AssertIndexExistsAsync(targetIndex, false);
-    }
-
-    [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenLaterDestinationExists_PrevalidatesWholeBatchBeforeBlockingFirstSource()
     {
         string firstName = $"compat-batch-first-{Guid.NewGuid():N}";

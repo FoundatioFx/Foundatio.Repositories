@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
@@ -35,6 +37,7 @@ public sealed class IndexCompatibilityCrossMajorTests
         Assert.Equal(serverMajor, before.ServerMajor);
         Assert.Equal(IndexCompatibilityState.RequiresReindex, before.State);
         string targetIndex = CompatibilityIndexName.Create(before.Name, serverMajor, IndexName);
+        await AssertDocumentsAsync(client);
 
         // Act
         await configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken);
@@ -43,6 +46,7 @@ public sealed class IndexCompatibilityCrossMajorTests
         var countResponse = await client.CountAsync<object>(d => d.Indices(IndexName), TestContext.Current.CancellationToken);
         Assert.True(countResponse.IsValidResponse, countResponse.GetErrorMessage());
         Assert.Equal(2, countResponse.Count);
+        await AssertDocumentsAsync(client);
 
         var canonicalResponse = await client.Indices.GetAsync((Indices)$"{IndexName}-v1", cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(canonicalResponse.IsValidResponse, canonicalResponse.GetErrorMessage());
@@ -64,6 +68,24 @@ public sealed class IndexCompatibilityCrossMajorTests
         Assert.NotNull(aliases);
         Assert.DoesNotContain($"reindexed-v{serverMajor - 1}-{IndexName}-v1", aliases.Keys.Select(k => k.ToString()));
         Assert.DoesNotContain(ElasticIndexCompatibilityUpgrader.OwnershipAlias, aliases.Keys.Select(k => k.ToString()));
+    }
+
+    private static async Task AssertDocumentsAsync(ElasticsearchClient client)
+    {
+        for (int id = 1; id <= 2; id++)
+        {
+            string message = id is 1 ? "first" : "second";
+            string expected = $$"""{"message":"{{message}}","sequence":{{id}},"nested":{"enabled":true},"tags":["a","b"]}""";
+            var document = await client.GetAsync<JsonElement>(id.ToString(), d => d.Index(IndexName).Routing($"tenant-{id}"), TestContext.Current.CancellationToken);
+            Assert.True(document.IsValidResponse, document.GetErrorMessage());
+            Assert.True(document.Found);
+            Assert.Equal(id.ToString(), document.Id);
+            Assert.Equal($"tenant-{id}", document.Routing);
+            Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(document.Source.GetRawText())));
+            var count = await client.CountAsync<JsonElement>(d => d.Indices(IndexName).Query(q => q.Term(t => t.Field("message").Value(message))), TestContext.Current.CancellationToken);
+            Assert.True(count.IsValidResponse, count.GetErrorMessage());
+            Assert.Equal(1, count.Count);
+        }
     }
 
     private sealed class ChainElasticConfiguration(Uri address) : ElasticConfiguration

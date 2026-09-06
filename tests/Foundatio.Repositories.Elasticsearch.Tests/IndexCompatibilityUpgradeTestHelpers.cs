@@ -27,7 +27,7 @@ public sealed partial class IndexCompatibilityUpgradeTests
         Assert.True(expected ? response.Exists : !response.Exists, response.DebugInformation);
     }
 
-    private sealed class EndpointAwareElasticConfiguration : ElasticConfiguration
+    private class EndpointAwareElasticConfiguration : ElasticConfiguration
     {
         protected override NodePool CreateConnectionPool()
         {
@@ -153,7 +153,7 @@ public sealed partial class IndexCompatibilityUpgradeTests
             : i with { CreatedMajor = i.ServerMajor - 1 }).ToArray();
     }
 
-    private sealed class RequestCountingElasticConfiguration : ElasticConfiguration
+    private sealed class RequestCountingElasticConfiguration : EndpointAwareElasticConfiguration
     {
         private int _infoRequestCount;
         private int _compatibilityMetadataRequestCount;

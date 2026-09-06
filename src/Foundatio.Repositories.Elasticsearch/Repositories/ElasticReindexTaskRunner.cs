@@ -39,11 +39,13 @@ internal sealed class ElasticReindexTaskRunner
         int? batchSize,
         float? requestsPerSecond,
         Func<int, string?, Task> progressCallbackAsync,
+        Action onTaskTerminated,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
         ArgumentException.ThrowIfNullOrEmpty(targetIndex);
         ArgumentNullException.ThrowIfNull(progressCallbackAsync);
+        ArgumentNullException.ThrowIfNull(onTaskTerminated);
         ValidateOptions(batchSize, requestsPerSecond);
 
         var workItem = new ReindexWorkItem
@@ -92,16 +94,19 @@ internal sealed class ElasticReindexTaskRunner
 
         _logger.LogRequest(startResponse);
 
+        bool taskTerminated = false;
+        void ConfirmTermination()
+        {
+            taskTerminated = true;
+            onTaskTerminated();
+        }
+
         ElasticReindexTaskResponse result;
         try
         {
-            result = await WaitForCompletionAsync(startResponse.Task, workItem, progressCallbackAsync, cancellationToken).AnyContext();
+            result = await WaitForCompletionAsync(startResponse.Task, workItem, progressCallbackAsync, ConfirmTermination, cancellationToken).AnyContext();
         }
-        catch (ElasticReindexTaskTerminalException)
-        {
-            throw;
-        }
-        catch (Exception reindexException)
+        catch (Exception reindexException) when (!taskTerminated)
         {
             await ElasticReindexTaskCancellation.CancelAndConfirmAsync(
                 _client,
@@ -110,6 +115,7 @@ internal sealed class ElasticReindexTaskRunner
                 sourceIndex,
                 targetIndex,
                 reindexException).AnyContext();
+            ConfirmTermination();
             throw;
         }
 
@@ -137,6 +143,7 @@ internal sealed class ElasticReindexTaskRunner
         TaskId taskId,
         ReindexWorkItem workItem,
         Func<int, string?, Task> progressCallbackAsync,
+        Action onTaskTerminated,
         CancellationToken cancellationToken)
     {
         int statusFailures = 0;
@@ -162,14 +169,17 @@ internal sealed class ElasticReindexTaskRunner
             _logger.LogRequest(status);
             statusFailures = 0;
 
+            if (status.Completed)
+                onTaskTerminated();
+
             if (status.Error is not null)
             {
-                throw new ElasticReindexTaskTerminalException(
+                throw new RepositoryException(
                     $"Compatibility reindex task '{taskId.FullyQualifiedId}' failed: {status.Error.Type}: {status.Error.Reason}");
             }
 
-            var taskStatus = ElasticReindexTaskResponseReader.ReadStatus(status.Task.Status)
-                ?? throw new ElasticReindexTaskTerminalException(
+            var taskStatus = ElasticReindexTaskResponseReader.ReadStatus(status.Task?.Status)
+                ?? throw new RepositoryException(
                     $"Compatibility reindex task '{taskId.FullyQualifiedId}' returned an unrecognized status payload.");
             long completed = taskStatus.Created + taskStatus.Updated + taskStatus.Deleted + taskStatus.Noops + taskStatus.VersionConflicts;
             if (completed > lastProgress)
@@ -182,7 +192,7 @@ internal sealed class ElasticReindexTaskRunner
             if (status.Completed)
             {
                 return ElasticReindexTaskResponseReader.ReadCompleted(status.Response)
-                    ?? throw new ElasticReindexTaskTerminalException(
+                    ?? throw new RepositoryException(
                         $"Compatibility reindex task '{taskId.FullyQualifiedId}' completed without a recognized response.");
             }
 
@@ -216,11 +226,6 @@ internal sealed class ElasticReindexTaskRunner
         hasher.Append([0]);
         hasher.Append(Encoding.UTF8.GetBytes(targetIndex));
         return $"foundatio-compat-{hasher.GetCurrentHashAsUInt64():x16}";
-    }
-
-    private sealed class ElasticReindexTaskTerminalException : RepositoryException
-    {
-        public ElasticReindexTaskTerminalException(string message) : base(message) { }
     }
 }
 
