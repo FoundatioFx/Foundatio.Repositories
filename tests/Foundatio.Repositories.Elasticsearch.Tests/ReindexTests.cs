@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
-using Foundatio.AsyncEx;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -875,28 +874,23 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
 
-        var countdown = new AsyncCountdownEvent(1);
-        var reindexTask = version2Index.ReindexAsync(async (progress, message) =>
+        bool writesCompleted = false;
+        await version2Index.ReindexAsync(async (progress, message) =>
         {
             _logger.LogInformation("Reindex Progress {Progress}%: {Message}", progress, message);
-            // Signal after any progress is made (reindex has started processing)
-            if (progress > 0 && countdown.CurrentCount > 0)
-            {
-                countdown.Signal();
-                await Task.Delay(1000, TestCancellationToken);
-            }
+            if (progress is not 91 || writesCompleted)
+                return;
+
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow));
+            employee.Name = "Updated";
+            await repository.SaveAsync(employee);
+            var source = await _client.GetAsync<Employee>(employee.Id, d => d.Index(version1Index.VersionedName), TestCancellationToken);
+            Assert.True(source.IsValidResponse, source.GetErrorMessage());
+            Assert.Equal("Updated", source.Source!.Name);
+            writesCompleted = true;
         });
-
-        // Wait until the first reindex pass is done (with timeout to prevent hang).
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await countdown.WaitAsync(cts.Token);
-        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
-        await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow));
-        employee.Name = "Updated";
-        await repository.SaveAsync(employee);
-
-        // Resume after everythings been indexed.
-        await reindexTask;
+        Assert.True(writesCompleted);
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
@@ -962,26 +956,18 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
 
-        var countdown = new AsyncCountdownEvent(1);
-        var reindexTask = version2Index.ReindexAsync(async (progress, message) =>
+        bool deletionCompleted = false;
+        await version2Index.ReindexAsync(async (progress, message) =>
         {
             _logger.LogInformation("Reindex Progress {Progress}%: {Message}", progress, message);
-            // Signal after any progress is made (reindex has started processing)
-            if (progress > 0 && countdown.CurrentCount > 0)
-            {
-                countdown.Signal();
-                await Task.Delay(1000, TestCancellationToken);
-            }
+            if (progress is not 91 || deletionCompleted)
+                return;
+
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            await repository.RemoveAllAsync(o => o.ImmediateConsistency());
+            deletionCompleted = true;
         });
-
-        // Wait until the first reindex pass is done (with timeout to prevent hang).
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await countdown.WaitAsync(cts.Token);
-        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
-        await repository.RemoveAllAsync(o => o.ImmediateConsistency());
-
-        // Resume after everythings been indexed.
-        await reindexTask;
+        Assert.True(deletionCompleted);
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
