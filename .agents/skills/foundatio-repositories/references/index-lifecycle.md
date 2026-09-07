@@ -487,3 +487,5 @@ public class EmployeeIndex : VersionedIndex<Employee>
 | Error | `Failed to get the status {N} times in a row for reindex task ... reindexing {OldIndex} -> {NewIndex}` | Status polling gave up after `MAX_STATUS_FAILS` (10) consecutive failures; reindex progress can no longer be tracked, but the server-side `_reindex` task keeps running |
 
 DailyIndex never emits mapping errors from the built-in configuration path (since `ConfigureAsync` is a no-op).
+
+Structured sort, field-condition, include/exclude, date-range, and paging query builders await mapping resolution. Async custom builders should use `GetResolvedFieldsAsync`, `ResolveFieldNameAsync`, and `ResolveFieldSortAsync` to preserve boosts and sort settings. Protected GET/multi-GET request configuration hooks remain synchronous for compatibility.

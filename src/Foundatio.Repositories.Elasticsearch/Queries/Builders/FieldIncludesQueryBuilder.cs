@@ -361,7 +361,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     /// </remarks>
     public class FieldIncludesQueryBuilder : IElasticQueryBuilder
     {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
             var resolver = ctx.GetMappingResolver();
 
@@ -394,14 +394,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (requiredFields.Count > 0 && includes.Count > 0)
                 includes.AddRange(requiredFields);
 
-            var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
-            var resolvedExcludes = resolver.GetResolvedFields(excludes)
+            var resolvedIncludes = (await resolver.GetResolvedFieldsAsync(includes).AnyContext()).ToArray();
+            var resolvedExcludes = (await resolver.GetResolvedFieldsAsync(excludes).AnyContext())
                 .Where(f => !resolvedIncludes.Contains(f))
                 .ToArray();
 
             if (requiredFields.Count > 0 && resolvedIncludes.Length is 0)
             {
-                var resolvedRequiredFields = resolver.GetResolvedFields(requiredFields);
+                var resolvedRequiredFields = await resolver.GetResolvedFieldsAsync(requiredFields).AnyContext();
                 resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
             }
 
@@ -415,8 +415,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                 ctx.Search.Source(new SourceConfig(filter));
             }
-
-            return Task.CompletedTask;
         }
     }
 }

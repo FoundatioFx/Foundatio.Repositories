@@ -870,6 +870,12 @@ POST /logs-v1-2025.05.*/_update_by_query?conflicts=proceed
 
 ### Mapping Resolver Cache (Query-Time Mapping Awareness)
 
+Structured search builders for sorts, field conditions, includes/excludes, date ranges, and search-after
+paging await mapping resolution. Custom async builders can use `GetResolvedFieldsAsync`,
+`ResolveFieldNameAsync`, and `ResolveFieldSortAsync` to preserve field boosts and sort settings while
+awaiting mapping I/O. Existing synchronous resolver helpers and protected GET/multi-GET request
+configuration hooks retain their synchronous behavior.
+
 The repository framework does **not** cache the PUT Mapping request/response (that's purely server-side). However, the **query parser** uses an `ElasticMappingResolver` that caches field-to-type resolution for building queries, sorting, and aggregations. This resolver combines two sources:
 
 1. **Code mapping** — derived from your `ConfigureIndexMapping` method at startup (immutable for the process lifetime)

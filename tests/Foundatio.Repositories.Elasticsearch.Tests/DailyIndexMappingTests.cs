@@ -6,7 +6,11 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Transport;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Options;
 using Xunit;
 using FieldMapping = Foundatio.Parsers.ElasticQueries.FieldMapping;
 
@@ -34,6 +38,102 @@ public class DailyIndexMappingTests
         Assert.Equal(2, invoker.Requests.Count);
         Assert.Contains("features=aliases", invoker.Requests[0].Query);
         Assert.Equal($"/{latest}/_mapping", invoker.Requests[1].AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData("sort")]
+    [InlineData("condition")]
+    [InlineData("includes")]
+    [InlineData("date-range")]
+    [InlineData("default-sort")]
+    [InlineData("search-after")]
+    public async Task BuildAsync_WithTimeSeriesMapping_ReturnsWithoutBlockingCaller(string operation)
+    {
+        using var invoker = new MappingRequestInvoker("events-v1-2026.09.07") { BlockDiscovery = true };
+        using var configuration = new MappingConfiguration(invoker);
+        using var index = new DailyIndex(configuration, "events");
+        var query = new RepositoryQuery<MappingDocument>();
+        var options = new CommandOptions<MappingDocument>().ElasticIndex(index);
+        IElasticQueryBuilder builder;
+        switch (operation)
+        {
+            case "sort":
+                query.Sort("dynamic");
+                builder = new SortQueryBuilder();
+                break;
+            case "condition":
+                query.FieldEquals("dynamic", "value");
+                builder = new FieldConditionsQueryBuilder();
+                break;
+            case "includes":
+                query.Include("dynamic");
+                builder = new FieldIncludesQueryBuilder();
+                break;
+            case "date-range":
+                query.DateRange(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow, "dynamic");
+                builder = new DateRangeQueryBuilder();
+                break;
+            case "default-sort":
+                builder = new DefaultSortQueryBuilder();
+                break;
+            default:
+                options.SearchAfterPaging();
+                builder = new SearchAfterQueryBuilder();
+                break;
+        }
+
+        var context = new QueryBuilderContext<MappingDocument>(query, options);
+        var returned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var invocation = Task.Run(async () =>
+        {
+            var build = builder.BuildAsync(context);
+            returned.TrySetResult();
+            await build;
+        }, TestContext.Current.CancellationToken);
+
+        try
+        {
+            await invoker.DiscoveryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await returned.Task.WaitAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+            Assert.False(invocation.IsCompleted);
+            Assert.Equal(0, invoker.SyncRequests);
+        }
+        finally
+        {
+            invoker.ReleaseDiscovery.TrySetResult();
+            await invocation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(2, invoker.Requests.Count);
+    }
+
+    [Fact]
+    public async Task GetResolvedFieldsAsync_WithBoostsAndSortVariants_PreservesRequestSettings()
+    {
+        using var settings = new ElasticsearchClientSettings(new Uri("http://localhost:9200"));
+        using var resolver = ElasticMappingResolver.CreateWithAsyncLoader(_ => Task.FromResult<TypeMapping?>(new TypeMapping
+        {
+            Properties = new Properties
+            {
+                { "name", new TextProperty { Fields = new Properties { { "keyword", new KeywordProperty() } } } }
+            }
+        }), new Inferrer(settings));
+        var score = new SortOptions { Score = new ScoreSort { Order = SortOrder.Desc } };
+        SortOptions field = new FieldSort { Field = "name", Order = SortOrder.Desc, Mode = SortMode.Max };
+
+        var fields = await resolver.GetResolvedFieldsAsync(new List<Field> { new("name", 2) }, TestContext.Current.CancellationToken);
+        var sorts = await resolver.GetResolvedFieldsAsync(new List<SortOptions> { field, score, null! }, TestContext.Current.CancellationToken);
+
+        var resolvedField = Assert.Single(fields);
+        Assert.Equal("name", resolvedField.Name);
+        Assert.Equal(2, resolvedField.Boost);
+        Assert.Equal(2, sorts.Count);
+        Assert.Contains(score, sorts);
+        var resolvedSort = Assert.Single(sorts, sort => sort.Field is not null).Field!;
+        Assert.Equal("name.keyword", resolvedSort.Field.Name);
+        Assert.Equal(SortOrder.Desc, resolvedSort.Order);
+        Assert.Equal(SortMode.Max, resolvedSort.Mode);
+        Assert.Equal("name", field.Field!.Field.Name);
     }
 
     [Fact]
