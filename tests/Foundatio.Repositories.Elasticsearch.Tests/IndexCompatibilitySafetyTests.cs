@@ -15,6 +15,36 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public partial class IndexCompatibilityTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task InspectIndexCompatibilityUpgradeAsync_WithoutWorkflowMarkers_DoesNotHideActiveTask(bool sourceExists, bool taskActive)
+    {
+        string topology = sourceExists ? """{"employees":{"aliases":{},"settings":{}}}""" : "{}";
+        string opaqueId = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
+        string tasks = taskActive ? """
+            {"nodes":{"node":{"name":"node","transport_address":"localhost:9300","host":"localhost","ip":"127.0.0.1","roles":[],"attributes":{},"tasks":{
+              "node:1":{"node":"node","id":1,"type":"transport","action":"indices:data/write/reindex","status":{},"start_time_in_millis":1,"running_time_in_nanos":1,"cancellable":true,"headers":{"X-Opaque-Id":"OPAQUE_ID"}}
+            }}}}
+            """.Replace("OPAQUE_ID", opaqueId, StringComparison.Ordinal) : """{"nodes":{}}""";
+        var invoker = new SequenceRequestInvoker(
+            new StubResponse(200, SafetyInfo, Request: "GET /"),
+            new StubResponse(200, topology, Request: "GET /employees,reindexed-v9-employees,.foundatio-compatibility-upgrade"),
+            new StubResponse(200, tasks, Request: "GET /_tasks"));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new Index<object>(configuration, "employees");
+        configuration.AddIndex(index);
+
+        var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, "employees", TestContext.Current.CancellationToken);
+
+        Assert.Equal(taskActive ? IndexCompatibilityRecoveryAction.ManualIntervention : IndexCompatibilityRecoveryAction.None, status.Action);
+        Assert.Equal(taskActive ? 1 : 0, status.ActiveReindexTaskCount);
+        Assert.False(status.CanRecover);
+        Assert.Equal(0, invoker.RemainingResponses);
+    }
+
     [Fact]
     public async Task GetIndexCompatibilityAsync_WithCanceledToken_ThrowsCancellationBeforeRequests()
     {

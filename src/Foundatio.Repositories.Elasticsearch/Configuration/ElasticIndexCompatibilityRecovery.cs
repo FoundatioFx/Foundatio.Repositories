@@ -293,7 +293,8 @@ internal sealed class ElasticIndexCompatibilityRecovery
 
     private static IndexCompatibilityRecoveryAction GetRecoveryAction(ObservedTopology topology)
     {
-        if (topology.HasUnexpectedIndex || !topology.ErrorLineageAuthenticated || !topology.ActiveTaskCount.HasValue)
+        if (topology.HasUnexpectedIndex || !topology.ErrorLineageAuthenticated || !topology.ActiveTaskCount.HasValue
+            || (topology.ActiveTaskCount > 0 && (!topology.SourceExists || !topology.TargetExists)))
             return IndexCompatibilityRecoveryAction.ManualIntervention;
 
         if (!topology.SourceExists && !topology.TargetExists)

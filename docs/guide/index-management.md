@@ -1226,7 +1226,7 @@ If an interrupted attempt leaves evidence behind, the next run stops. Use `Inspe
 
 `RecoverIndexCompatibilityUpgradeAsync()` acquires the same distributed lock and applies only `Finish`. A complete, empty task listing is a snapshot, not proof that a timed-out submission or cutover request cannot still arrive. After a restart or ambiguous request, both marked pre-cutover indexes therefore require `ManualIntervention`. Keep maintenance mode enabled, reconcile outstanding requests and exact task IDs, and verify the intact source before manually deleting a partial target or changing write blocks. The public API has no force-unblock or reset operation.
 
-Partial task listings, unidentified or unrelated tasks, duplicate exact tasks, source-only markers, unmarked destinations, multi-target aliases, prior-major marked destinations, and uncertain lineage also prevent automatic recovery. Error-index recovery requires the persistent `.foundatio-reindex-error` marker on every surviving artifact.
+Partial task listings, unidentified or unrelated tasks, duplicate exact tasks, an active task with a missing source or destination, source-only markers, unmarked destinations, multi-target aliases, prior-major marked destinations, and uncertain lineage also prevent automatic recovery. Error-index recovery requires the persistent `.foundatio-reindex-error` marker on every surviving artifact.
 
 ```csharp
 public interface IIndexCompatibility : IIndex
