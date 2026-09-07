@@ -15,6 +15,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public partial class IndexCompatibilityTests
 {
+    [Fact]
+    public async Task GetIndexCompatibilityAsync_WithCanceledToken_ThrowsCancellationBeforeRequests()
+    {
+        var invoker = new SequenceRequestInvoker([]);
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new Index<object>(configuration, "employees");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => index.GetIndexCompatibilityAsync(cancellation.Token));
+
+        Assert.Empty(invoker.Requests);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

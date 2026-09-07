@@ -50,6 +50,11 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
     /// batch mutation. Ambiguous requests retain the marked artifacts for manual reconciliation.
     /// Restart or drain application instances before resuming writes because cached document concurrency tokens
     /// belong to the deleted physical index.
+    /// Progress callbacks are awaited and report each physical index separately. A callback failure before
+    /// cutover aborts that attempt and invokes the same evidence-based cleanup as other failures. A failure
+    /// reporting 100 percent is logged without undoing the completed cutover. The batch is not transactional:
+    /// earlier physical indexes remain upgraded if a later operation fails or is canceled. Cancellation may
+    /// be reported after a cutover has committed; inspect the original physical source before retrying.
     /// </remarks>
     /// <param name="indexes">The indexes to inspect and upgrade, or <c>null</c> for all configured indexes.</param>
     /// <param name="progressCallbackAsync">An optional callback for per-index progress updates.</param>

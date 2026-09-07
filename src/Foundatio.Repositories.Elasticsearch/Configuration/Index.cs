@@ -566,6 +566,7 @@ public class Index : IIndexCompatibility, IHaveLogger
         // The response is keyed by concrete index name, so aliases in the pattern resolve and de-duplicate for
         // free. Include aliases in the same request so generated error indexes can be authenticated before use.
         var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexCompatibility().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable(), cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
         if (!response.IsValidResponse)
         {
             if (response.ElasticsearchServerError?.Status is 404)
@@ -730,7 +731,9 @@ public class Index : IIndexCompatibility, IHaveLogger
 
     private async Task<(int Major, string Version)> GetServerVersionAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var response = await Configuration.Client.InfoAsync(cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
         if (!response.IsValidResponse)
         {
             _logger.LogErrorRequest(response, "Unable to determine the current Elasticsearch server version while checking index compatibility");
