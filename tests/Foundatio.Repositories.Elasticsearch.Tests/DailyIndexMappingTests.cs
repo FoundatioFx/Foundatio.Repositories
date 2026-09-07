@@ -279,6 +279,41 @@ public class DailyIndexMappingTests
         Assert.Single(invoker.Requests);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dispose_WithResolverNotYetPublished_PreventsLaterMappingLoads(bool creationStarted)
+    {
+        using var invoker = new MappingRequestInvoker("events-v1-2026.09.07");
+        using var configuration = new MappingConfiguration(invoker);
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var index = new BlockingMappingIndex(configuration, started, release);
+        Task<ElasticMappingResolver>? creation = null;
+        try
+        {
+            if (creationStarted)
+            {
+                creation = Task.Factory.StartNew(() => index.MappingResolver, TestContext.Current.CancellationToken,
+                    TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            }
+
+            index.Dispose();
+            Assert.Equal(creationStarted, started.IsSet);
+        }
+        finally
+        {
+            release.Set();
+            if (creation is not null)
+                await creation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+
+        var mapping = await index.MappingResolver.GetMappingAsync("dynamic", cancellationToken: TestContext.Current.CancellationToken);
+        Assert.False(mapping?.Found);
+        Assert.Empty(invoker.Requests);
+    }
+
     private static DailyIndex CreateIndex(ElasticConfiguration configuration, bool monthly, bool typed) => (monthly, typed) switch
     {
         (true, true) => new MonthlyIndex<MappingDocument>(configuration, "events"),
@@ -286,6 +321,17 @@ public class DailyIndexMappingTests
         (false, true) => new DailyIndex<MappingDocument>(configuration, "events"),
         _ => new DailyIndex(configuration, "events")
     };
+
+    private sealed class BlockingMappingIndex(IElasticConfiguration configuration, ManualResetEventSlim started,
+        ManualResetEventSlim release) : DailyIndex(configuration, "events")
+    {
+        protected override ElasticMappingResolver CreateMappingResolver()
+        {
+            started.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            return base.CreateMappingResolver();
+        }
+    }
 
     private sealed class MappingDocument;
 
