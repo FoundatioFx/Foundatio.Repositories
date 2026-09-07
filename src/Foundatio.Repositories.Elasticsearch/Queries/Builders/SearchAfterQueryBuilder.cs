@@ -21,7 +21,11 @@ namespace Foundatio.Repositories
         PointInTime
     }
 
-    internal sealed record PointInTimeState(string Id, bool IsRepositoryOwned);
+    internal sealed class PointInTimeState(string id, bool isRepositoryOwned)
+    {
+        public string Id { get; set; } = id;
+        public bool IsRepositoryOwned { get; set; } = isRepositoryOwned;
+    }
 
     public static class SearchAfterQueryExtensions
     {
@@ -30,6 +34,7 @@ namespace Foundatio.Repositories
         internal const string SearchAfterKey = "@SearchAfter";
         internal const string SearchBeforeKey = "@SearchBefore";
         internal const string PointInTimeStateKey = "@PointInTimeState";
+        internal const string PointInTimeContinuationKey = "@PointInTimeContinuation";
         internal const string UnstableSortWarnedKey = "@SearchAfterUnstableSortWarned";
 
         /// <summary>
@@ -55,6 +60,8 @@ namespace Foundatio.Repositories
         /// The repository attempts to close snapshots it owns on failure without masking the original exception.
         /// After cleanup clears the session, NextPageAsync throws QueryValidationException; restart with FindAsync.
         /// Retained sessions continue with the latest point-in-time ID stored in the options.
+        /// Resetting or replacing a session invalidates its existing continuations, including changes in BeforeQuery.
+        /// Live and point-in-time cursor searches reject timeouts and partial shard failures before returning results.
         /// </remarks>
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
         {
@@ -85,11 +92,6 @@ namespace Foundatio.Repositories
         {
             ArgumentException.ThrowIfNullOrEmpty(pointInTimeId);
             return SetPointInTimeState(options, pointInTimeId, true);
-        }
-
-        internal static T UpdatePointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
-        {
-            return SetPointInTimeState(options, pointInTimeId, options.IsRepoOwnedPointInTime());
         }
 
         /// <summary>
@@ -187,6 +189,9 @@ namespace Foundatio.Repositories
 
         private static T SetPointInTimeState<T>(T options, string? pointInTimeId, bool isRepositoryOwned) where T : ICommandOptions
         {
+            if (options.GetPointInTimeState() is { } previous)
+                previous.IsRepositoryOwned = false;
+
             if (!String.IsNullOrEmpty(pointInTimeId))
                 options.Values.Set(PointInTimeStateKey, new PointInTimeState(pointInTimeId, isRepositoryOwned));
             else
@@ -216,9 +221,14 @@ namespace Foundatio.Repositories.Options
             return options.ShouldUseSearchAfterPaging() && options.GetSearchAfterPagingMode() is SearchAfterPagingMode.PointInTime;
         }
 
+        internal static PointInTimeState? GetPointInTimeState(this ICommandOptions options)
+        {
+            return options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeStateKey);
+        }
+
         public static string? GetPointInTimeId(this ICommandOptions options)
         {
-            return options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeStateKey)?.Id;
+            return options.GetPointInTimeState()?.Id;
         }
 
         public static bool HasPointInTimeId(this ICommandOptions options)

@@ -418,6 +418,16 @@ PIT using the latest returned ID; cleanup never replaces the original exception.
 the session is cleared and retrying `NextPageAsync()` throws `QueryValidationException` before sending
 another request. Start over with a new `FindAsync` call. If the session remains open, continuation uses
 the latest PIT ID stored in the options, including an ID returned before an `AfterQuery` failure.
+A continuation belongs to its original PIT session: resetting or replacing that session invalidates
+its results even if a new `FindAsync` call opens another PIT with the same options. This is checked
+after `BeforeQuery` as well as before continuation. Clearing a repository-owned session inside an
+event handler still allows the active request to close its PIT; explicitly calling `PointInTimeId(...)`
+transfers ownership to the caller instead, including when supplying the same ID.
+
+Both Live and PIT cursor searches request `allow_partial_search_results=false`. A response that
+reports a timeout or failed shards still throws `DocumentException` before returning hits or advancing
+the cursor, even when Elasticsearch returns HTTP 200. This prevents incomplete pages from silently
+ending a traversal or skipping documents.
 
 Backward paging reverses request-owned copies of field, score, document, geographic-distance, and
 script sorts. Reusing a query leaves the caller's sort objects and settings unchanged, including
@@ -427,7 +437,8 @@ still modifies the supplied sort in place.
 Changing between `Live` and `PointInTime` starts a new paging session at page one and clears cursors,
 PIT ownership/id, and warning state. Reapplying the current mode preserves the active session and page.
 The repository evaluates the final paging mode after `BeforeQuery` handlers run, so a handler can
-enable or disable paging without leaving request setup, validation, or caching on the previous mode.
+enable or disable paging for a new search without leaving request setup, validation, or caching on the
+previous mode. A PIT continuation cannot switch modes or replace its session in that handler.
 Calling `PointInTimeId(...)` establishes a caller-owned PIT, even when the options previously held
 a repository-owned PIT; close the active repository-owned PIT before replacing its ID so the old
 PIT is not retained until expiry. Snapshot/scroll paging cannot be combined with search-after

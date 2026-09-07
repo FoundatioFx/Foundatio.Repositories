@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Options;
@@ -16,6 +17,256 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class SearchAfterRequestTests
 {
+    public static TheoryData<SearchAfterPagingMode, bool, bool, bool, bool> IncompleteSearchCases
+    {
+        get
+        {
+            var cases = new TheoryData<SearchAfterPagingMode, bool, bool, bool, bool>();
+            foreach (var mode in new[] { SearchAfterPagingMode.Live, SearchAfterPagingMode.PointInTime })
+                foreach (bool callerOwned in new[] { false, true })
+                    foreach (bool timedOut in new[] { false, true })
+                        foreach (bool hasHits in new[] { false, true })
+                            foreach (bool backwards in new[] { false, true })
+                            {
+                                if (mode is SearchAfterPagingMode.Live && callerOwned)
+                                    continue;
+                                cases.Add(mode, callerOwned, timedOut, hasHits, backwards);
+                            }
+            return cases;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(IncompleteSearchCases))]
+    public async Task FindAsync_WithIncompleteCursorSearch_ThrowsBeforeReturningResults(SearchAfterPagingMode mode, bool callerOwned, bool timedOut, bool hasHits, bool backwards)
+    {
+        string response = hasHits ? PageResponse : SearchResponse;
+        string json = timedOut ? response.Replace("\"timed_out\":false", "\"timed_out\":true")
+            : response.Replace("\"total\":1,\"successful\":1,\"failed\":0", "\"total\":2,\"successful\":1,\"failed\":1");
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, json));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(mode);
+        if (callerOwned)
+            options.PointInTimeId("caller-pit");
+        if (backwards)
+            options.SearchBefore(10);
+        else
+            options.SearchAfter(0);
+        bool afterQueryCalled = false;
+        repository.AfterQuery.AddHandler((_, _) =>
+        {
+            afterQueryCalled = true;
+            return Task.CompletedTask;
+        });
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options));
+        Assert.Contains(timedOut ? "timed_out=True" : "failed shards=1", exception.Message);
+        Assert.False(afterQueryCalled);
+        var search = Assert.Single(invoker.Requests, r => r.Path.EndsWith("/_search", StringComparison.Ordinal));
+        Assert.Contains("allow_partial_search_results=false", search.Query);
+        if (mode is SearchAfterPagingMode.PointInTime && !callerOwned)
+            AssertClosed(invoker, "updated-pit");
+        else
+            Assert.DoesNotContain(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
+    }
+
+    [Theory]
+    [InlineData(false, "disable")]
+    [InlineData(true, "disable")]
+    [InlineData(false, "live")]
+    [InlineData(true, "live")]
+    [InlineData(false, "replace")]
+    [InlineData(true, "replace")]
+    public async Task NextPageAsync_WhenBeforeQueryChangesSession_RejectsBeforeSearching(bool callerOwned, string change)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        int calls = 0;
+        repository.BeforeQuery.AddHandler((_, args) =>
+        {
+            if (++calls is 2)
+            {
+                if (change is "replace")
+                    args.Options.PointInTimeId("replacement");
+                else if (change is "live")
+                    args.Options.SearchAfterPaging(SearchAfterPagingMode.Live);
+                else
+                    args.Options.SearchAfterPaging(false);
+            }
+            return Task.CompletedTask;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        if (callerOwned)
+            options.PointInTimeId("caller-pit");
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        await Assert.ThrowsAsync<QueryValidationException>(() => page.NextPageAsync());
+        Assert.Single(invoker.Requests, r => r.Path.EndsWith("/_search", StringComparison.Ordinal));
+        if (!callerOwned && change is not "replace")
+            AssertClosed(invoker, "updated-pit");
+        else
+            Assert.DoesNotContain(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
+    }
+
+    [Fact]
+    public async Task NextPageAsync_AfterStartingReplacementSession_RejectsOldResults()
+    {
+        int opens = 0;
+        using var invoker = new StubInvoker(endpoint =>
+        {
+            if (endpoint.Method is Elastic.Transport.HttpMethod.DELETE)
+                return (CloseResponse, 200);
+            if (endpoint.Uri.AbsolutePath.EndsWith("/_pit", StringComparison.Ordinal))
+                return (OpenResponse.Replace("opened-pit", $"opened-{++opens}"), 200);
+            return (PageResponse.Replace("updated-pit", $"session-{opens}"), 200);
+        });
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        int events = 0;
+        repository.AfterQuery.AddHandler((_, _) =>
+        {
+            if (++events is 2)
+                throw new InvalidOperationException("expected failure");
+            return Task.CompletedTask;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        var oldPage = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => oldPage.NextPageAsync());
+        options.SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        int requests = invoker.Requests.Count;
+        await Assert.ThrowsAsync<QueryValidationException>(() => oldPage.NextPageAsync());
+        Assert.Equal(requests, invoker.Requests.Count);
+        Assert.Equal("session-2", options.GetPointInTimeId());
+    }
+
+    [Fact]
+    public async Task FindAsync_WhenAfterQueryClearsSessionAndThrows_PreservesExceptionAndClosesPit()
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var expected = new InvalidOperationException("expected failure");
+        repository.AfterQuery.AddHandler((_, args) =>
+        {
+            args.Options.SearchAfterPaging(false);
+            throw expected;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        var error = await Record.ExceptionAsync(async () =>
+        {
+            await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        });
+        Assert.Same(expected, error);
+        AssertClosed(invoker, "updated-pit");
+    }
+
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FindAsync_WhenAfterQueryClearsSession_ClosesOwnedPointInTime(bool hasMore)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, hasMore ? PageResponse : SearchResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        repository.AfterQuery.AddHandler((_, args) =>
+        {
+            args.Options.SearchAfterPaging(false);
+            return Task.CompletedTask;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+
+        AssertClosed(invoker, "updated-pit");
+        if (hasMore)
+            await Assert.ThrowsAsync<QueryValidationException>(() => page.NextPageAsync());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("updated-pit")]
+    [InlineData("replacement-pit")]
+    public async Task FindAsync_WhenAfterQueryTransfersOwnership_DoesNotClosePointInTime(string? replacement)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var expected = new InvalidOperationException("expected failure");
+        repository.AfterQuery.AddHandler((_, args) =>
+        {
+            args.Options.PointInTimeId(replacement);
+            throw expected;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        var error = await Record.ExceptionAsync(async () =>
+        {
+            await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        });
+
+        Assert.Same(expected, error);
+        Assert.DoesNotContain(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
+        Assert.Equal(replacement, options.GetPointInTimeId());
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task NextPageAsync_WithIncompleteResponse_DoesNotAdvancePage(bool callerOwned, bool timedOut)
+    {
+        int searches = 0;
+        using var invoker = new StubInvoker(endpoint =>
+        {
+            string response = PageResponse;
+            if (endpoint.Uri.AbsolutePath is "/_search" && ++searches is 2)
+            {
+                response = timedOut ? PageResponse.Replace("\"timed_out\":false", "\"timed_out\":true")
+                    : PageResponse.Replace("\"failed\":0", "\"failed\":1");
+            }
+            return GetPointInTimeResponse(endpoint, response.Replace("updated-pit", $"pit-{searches}"));
+        });
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        if (callerOwned)
+            options.PointInTimeId("caller-pit");
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        string? cursor = page.GetSearchAfterToken();
+
+        await Assert.ThrowsAsync<DocumentException>(() => page.NextPageAsync());
+
+        Assert.Equal(1, page.Page);
+        Assert.True(page.HasMore);
+        Assert.Equal(cursor, page.GetSearchAfterToken());
+        if (callerOwned)
+        {
+            Assert.DoesNotContain(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
+            await page.NextPageAsync();
+            Assert.Equal(2, page.Page);
+            using var request = JsonDocument.Parse(invoker.Requests[^1].Body!);
+            Assert.Equal("pit-2", request.RootElement.GetProperty("pit").GetProperty("id").GetString());
+        }
+        else
+        {
+            AssertClosed(invoker, "pit-2");
+            int requests = invoker.Requests.Count;
+            await Assert.ThrowsAsync<QueryValidationException>(() => page.NextPageAsync());
+            Assert.Equal(requests, invoker.Requests.Count);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -450,13 +701,13 @@ public sealed class SearchAfterRequestTests
     private sealed class StubInvoker(Func<Endpoint, (string Json, int Status)> response)
         : InMemoryRequestInvoker(null, 200, null, "application/json", new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] }), IRequestInvoker
     {
-        public List<(Elastic.Transport.HttpMethod Method, string Path, byte[]? Body)> Requests { get; } = [];
+        public List<(Elastic.Transport.HttpMethod Method, string Path, byte[]? Body, string Query)> Requests { get; } = [];
 
         async Task<TResponse> IRequestInvoker.RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
         {
             var (json, status) = response(endpoint);
             var result = await BuildResponseAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken, Encoding.UTF8.GetBytes(json), status);
-            Requests.Add((endpoint.Method, endpoint.Uri.AbsolutePath, postData?.WrittenBytes));
+            Requests.Add((endpoint.Method, endpoint.Uri.AbsolutePath, postData?.WrittenBytes, endpoint.Uri.Query));
             return result;
         }
     }
