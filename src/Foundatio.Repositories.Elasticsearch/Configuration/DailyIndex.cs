@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -447,13 +448,38 @@ public class DailyIndex : VersionedIndex
 
     protected override ElasticMappingResolver CreateMappingResolver()
     {
-        return ElasticMappingResolver.Create(GetLatestIndexMapping, Configuration.Client.Infer, _logger);
+        return ElasticMappingResolver.CreateWithAsyncLoader(GetLatestIndexMappingAsync, Configuration.Client.Infer, logger: _logger);
     }
 
     protected TypeMapping? GetLatestIndexMapping()
     {
         string filter = $"{Name}-v{Version}-*";
         var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases());
+        string? latestIndex = GetLatestIndexName(indicesResponse, filter);
+        if (latestIndex is null)
+            return null;
+
+        var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(latestIndex));
+        return GetLatestIndexMapping(mappingResponse, latestIndex);
+    }
+
+    /// <summary>Loads the mapping of the newest partition using asynchronous metadata requests.</summary>
+    /// <remarks>Index discovery retrieves names and aliases only. The full mapping is requested for one partition.</remarks>
+    protected async Task<TypeMapping?> GetLatestIndexMappingAsync(CancellationToken cancellationToken = default)
+    {
+        string filter = $"{Name}-v{Version}-*";
+        var indicesResponse = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter,
+            d => d.LimitToNamesAndAliases(), cancellationToken).AnyContext();
+        string? latestIndex = GetLatestIndexName(indicesResponse, filter);
+        if (latestIndex is null)
+            return null;
+
+        var mappingResponse = await Configuration.Client.Indices.GetMappingAsync(new GetMappingRequest(latestIndex), cancellationToken).AnyContext();
+        return GetLatestIndexMapping(mappingResponse, latestIndex);
+    }
+
+    private string? GetLatestIndexName(GetIndexResponse indicesResponse, string filter)
+    {
         if (!indicesResponse.IsValidResponse)
         {
             if (indicesResponse.ElasticsearchServerError?.Status == 404)
@@ -462,31 +488,39 @@ public class DailyIndex : VersionedIndex
             throw new RepositoryException(indicesResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), indicesResponse.OriginalException());
         }
 
-        var latestIndex = indicesResponse.Indices.Keys
-            .Where(i => GetIndexVersion(i.ToString()) == Version)
-            .Select(i =>
+        string? latestIndex = null;
+        var latestDate = DateTime.MinValue;
+        foreach (var index in indicesResponse.Indices.Keys)
+        {
+            string name = index.ToString();
+            if (GetIndexVersion(name) != Version)
+                continue;
+
+            var date = GetIndexDate(name);
+            if (latestIndex is null || date > latestDate)
             {
-                string indexName = i.ToString();
-                return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
-            })
-            .OrderByDescending(i => i.DateUtc)
-            .FirstOrDefault();
+                latestIndex = name;
+                latestDate = date;
+            }
+        }
 
-        if (latestIndex == null)
-            return null;
+        return latestIndex;
+    }
 
-        var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(latestIndex.Index));
-        _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));
+    private TypeMapping? GetLatestIndexMapping(GetMappingResponse mappingResponse, string latestIndex)
+    {
+        if (_logger.IsEnabled(LogLevel.Trace))
+            _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));
 
         if (!mappingResponse.IsValidResponse)
         {
             if (mappingResponse.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
             {
-                _logger.LogWarning("Index {Index} not found when getting mapping", latestIndex.Index);
+                _logger.LogWarning("Index {Index} not found when getting mapping", latestIndex);
                 return null;
             }
 
-            _logger.LogError("Error getting mapping for {Index}: {Error}", latestIndex.Index, mappingResponse.ElasticsearchServerError);
+            _logger.LogError("Error getting mapping for {Index}: {Error}", latestIndex, mappingResponse.ElasticsearchServerError);
             return null;
         }
 
@@ -591,7 +625,7 @@ public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
 
     protected override ElasticMappingResolver CreateMappingResolver()
     {
-        return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
+        return ElasticMappingResolver.CreateWithAsyncLoader<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMappingAsync, logger: _logger);
     }
 
     public virtual void ConfigureIndexMapping(TypeMappingDescriptor<T> map)

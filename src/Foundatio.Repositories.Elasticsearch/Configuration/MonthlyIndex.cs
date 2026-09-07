@@ -64,7 +64,7 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class
 
     protected override ElasticMappingResolver CreateMappingResolver()
     {
-        return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
+        return ElasticMappingResolver.CreateWithAsyncLoader<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMappingAsync, logger: _logger);
     }
 
     public virtual void ConfigureIndexMapping(TypeMappingDescriptor<T> map)

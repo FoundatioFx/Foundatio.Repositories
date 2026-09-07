@@ -873,11 +873,24 @@ POST /logs-v1-2025.05.*/_update_by_query?conflicts=proceed
 The repository framework does **not** cache the PUT Mapping request/response (that's purely server-side). However, the **query parser** uses an `ElasticMappingResolver` that caches field-to-type resolution for building queries, sorting, and aggregations. This resolver combines two sources:
 
 1. **Code mapping** — derived from your `ConfigureIndexMapping` method at startup (immutable for the process lifetime)
-2. **Server mapping** — fetched from the Elasticsearch GET Mapping API, cached in memory and **automatically refreshed at most once per minute**
+2. **Server mapping** — loaded on first use, then reloaded when a field cannot be resolved, with a five-second cooldown between automatic reload attempts. Successful lookups do not trigger periodic reloads.
+
+Daily and monthly indexes discover the newest partition using an index request limited to names and aliases,
+then retrieve the full mapping of that single partition. Both requests use asynchronous I/O on asynchronous
+query paths. Concurrent lookups share one load through the index's long-lived resolver. Synchronous resolver
+calls remain supported, but block while the asynchronous load completes. Disposing an index disposes its
+initialized resolver and cancels outstanding mapping I/O without creating an unused resolver.
+
+Each reload discovers the latest partition again so newly created partitions are visible without restarting
+the application. This does not merge mappings across historical partitions. Keep indexes and their resolvers
+long-lived; creating one per request bypasses their caches and multiplies metadata requests. Automatic reload
+limits apply independently to each resolver in each process. Do not call `RefreshMapping()` after every write.
 
 #### What this means after a manual PUT Mapping
 
-If you manually apply a mapping change (e.g., `PUT /index/_mapping` via the Elasticsearch API or a script), the `ElasticMappingResolver` will automatically pick it up within ~60 seconds on the next field resolution. You typically do not need to do anything in application code.
+Requests for an unresolved field can discover new mappings after the cooldown. The cooldown is not a freshness
+guarantee: slow or failed requests can extend the stale window. Changes to an already-resolved field or alias
+require explicit invalidation.
 
 If you need immediate recognition (e.g., in tests or a migration script that queries the new field right after applying the mapping), call:
 
@@ -891,7 +904,7 @@ This clears the cached server mapping and forces the next `GetMapping()` call to
 
 | Cache layer | Lifetime | How to invalidate |
 |---|---|---|
-| `ElasticMappingResolver` field cache | Auto-refreshes from server every ~60 seconds | `index.MappingResolver.RefreshMapping()` |
+| `ElasticMappingResolver` field cache | Snapshot lifetime; unresolved fields trigger reloads with a five-second cooldown | `index.MappingResolver.RefreshMapping()` |
 | `_isEnsured` flag (`Index<T>` / `VersionedIndex<T>`) | Process lifetime (one-time flag) | Deleting the index resets it; otherwise persists until app restart |
 | `_ensuredDates` (`DailyIndex<T>`) | Process lifetime per-date | Cleared on `DeleteAsync(name)` or `Dispose()`; otherwise persists until app restart |
 | `ConfigureIndexesAsync` cache marker | 5 minutes (distributed via `ICacheClient`) | Automatically expires; or call `ConfigureIndexesAsync(force: true)` |
@@ -900,7 +913,7 @@ This clears the cached server mapping and forces the next `GetMapping()` call to
 
 Elasticsearch itself has no mapping cache you need to invalidate — once a PUT Mapping succeeds, the mapping is immediately active for new indexing and queries. The only caching is in-process within the .NET application:
 
-- **For queries**: The `ElasticMappingResolver` auto-refreshes. If you need it sooner, call `RefreshMapping()`.
+- **For queries**: Unresolved fields can trigger mapping reloads. For a known mapping change that must be visible immediately, call `RefreshMapping()` after Elasticsearch acknowledges the change.
 - **For writes**: The `_isEnsured` / `_ensuredDates` flags only control whether `ConfigureAsync` runs again. They don't prevent writes to the index — they just skip redundant index creation/mapping calls. Manual PUT Mapping changes are orthogonal to these flags.
 
 ### In-Place Analysis Updates (analyzers, tokenizers, filters)

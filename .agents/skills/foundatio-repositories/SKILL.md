@@ -132,6 +132,7 @@ IReadOnlyRepository<T>
 - **`ExistsAsync(query)` is a dirty read**: Uses the Search API (`size: 0`), NOT the realtime Document Exists API. After a write without `ImmediateConsistency`, it can return stale results.
 - **`ExistsAsync(id)` is real-time even with soft deletes**: Uses the GET API with a source filter for `IsDeleted`.
 - **Register repositories as singletons**: Repository instances maintain internal state (index configuration, cache references).
+- **Keep mapping resolvers long-lived**: Daily/monthly query mapping loads use async names-and-aliases discovery plus one partition mapping request. Concurrent lookups share a load per index and process; disposing the index cancels its active mapping load. See [index lifecycle](references/index-lifecycle.md#mapping-resolver-cache) for refresh behavior.
 - **`FieldEquals` with multiple values is OR**: `.FieldEquals(e => e.Field, "A", "B")` produces an OR filter, not AND.
 - **`FieldContains` is token matching, NOT wildcard**: `FieldContains(f => f.Name, "Er")` will NOT match "Eric". Use `FilterExpression("field:pattern*")` for prefix/wildcard matching.
 - **`FieldNot` is AND-NOT**: Multiple conditions inside `FieldNot` mean NOT A AND NOT B. For NOT (A AND B), nest `FieldAnd` inside `FieldNot`.

@@ -337,10 +337,17 @@ var results = await repository.FindAsync(q => q.Index("logs-last-7-days"));
 
 | Cache layer | Lifetime | How to invalidate |
 |---|---|---|
-| `ElasticMappingResolver` field cache | Auto-refreshes ~60 seconds | `index.MappingResolver.RefreshMapping()` |
+| `ElasticMappingResolver` field cache | Snapshot lifetime; unresolved fields trigger reloads with a five-second cooldown | `index.MappingResolver.RefreshMapping()` |
 | `_isEnsured` flag (Index/VersionedIndex) | Process lifetime | App restart or index deletion |
 | `_ensuredDates` (DailyIndex) | Process lifetime per-date | `DeleteAsync(name)` or `Dispose()` |
 | `ConfigureIndexesAsync` cache marker | 5 minutes (distributed) | Expires automatically; or `ConfigureIndexesAsync(force: true)` |
+
+Daily/monthly resolvers asynchronously discover the newest partition using names and aliases only, then load
+that partition's mapping. Concurrent lookups share one load per resolver. Index disposal cancels active mapping
+I/O without initializing an unused resolver. Keep indexes long-lived and do not invalidate after every write.
+The cooldown is not a freshness guarantee, and successful lookups do not trigger periodic refreshes. Use
+`RefreshMapping()` after known mapping changes, including changes to an already-resolved alias. Mappings from
+historical partitions are not merged into the newest partition's mapping.
 
 ## Index Operations
 

@@ -415,6 +415,8 @@ public class Index : IIndex, IHaveLogger
 
         _disposedCancellationTokenSource.Cancel();
         _disposedCancellationTokenSource.Dispose();
+        if (_mappingResolver.IsValueCreated)
+            _mappingResolver.Value.Dispose();
     }
 }
 
