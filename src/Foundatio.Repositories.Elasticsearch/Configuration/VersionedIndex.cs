@@ -271,7 +271,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
         var reindexWorkItem = CreateReindexWorkItem(lease.CurrentVersion);
 
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
         await reindexer.ReindexAsync(reindexWorkItem, CreateReindexProgressCallback(lease.Lock, progressCallbackAsync), cancellationToken).AnyContext();
     }
 

@@ -10,6 +10,8 @@ using Elastic.Clients.Elasticsearch.Core.Search;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
+using Elastic.Clients.Elasticsearch.Tasks;
+using Elastic.Transport;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -361,7 +363,7 @@ public class ElasticReindexer
             // reported to the caller as a non-cancelled, unsuccessful-but-silent result.
             cancellationToken.ThrowIfCancellationRequested();
 
-            var status = await _client.Tasks.GetAsync(result.Task.FullyQualifiedId, cancellationToken).AnyContext();
+            var status = await _client.Tasks.GetAsync(CreateStatusRequest(result.Task.FullyQualifiedId), cancellationToken).AnyContext();
             if (status.IsValidResponse)
             {
                 _logger.LogRequest(status);
@@ -387,7 +389,16 @@ public class ElasticReindexer
 
             statusGetFails = 0;
 
-            var response = status.DeserializeRaw<TaskWithReindexResponse>(_serializer);
+            // The reindex sub-response (the per-document failures and the created/updated/noop counters that
+            // completeness is judged on) is only present in the raw body, so this must be readable. Treating an
+            // unreadable body as "no failures" is exactly how a lossy reindex reports success.
+            if (!TryReadReindexStatus(status, out var response, out string? readFailureReason))
+            {
+                outcome = ReindexOutcome.Abandoned;
+                failureReason = readFailureReason;
+                break;
+            }
+
             if (response?.Error is not null)
             {
                 _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.Caused_By?.Reason, String.Join("\r\n", response.Error.Script_Stack ?? new List<string>()));
@@ -478,6 +489,59 @@ public class ElasticReindexer
         string message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
         await progressCallbackAsync(CalculateProgress(total, completed, startProgress, endProgress), message).AnyContext();
         return new ReindexResult { Total = total, Completed = completed, Failures = failures, Outcome = outcome, FailureReason = failureReason };
+    }
+
+    /// <summary>
+    /// Builds the task-status request used to poll a running reindex, opting this single request into keeping
+    /// the raw response body.
+    /// </summary>
+    /// <remarks>
+    /// The reindex sub-response - the per-document <c>failures</c> array and the created/updated/noop counters
+    /// that completeness is judged on - is not modeled by the client's typed <c>GetTasksResponse</c>, so it has
+    /// to be read out of the raw JSON. The transport only retains that JSON when direct streaming is disabled,
+    /// which is off by default, so without asking for it here failure detection silently degrades to "no
+    /// failures found" on any normally-configured client and a lossy reindex reports success. Scoping it to
+    /// this request keeps the buffering cost off every other call.
+    /// </remarks>
+    private static GetTasksRequest CreateStatusRequest(string taskId)
+    {
+        return new GetTasksRequest(taskId)
+        {
+            RequestConfiguration = new RequestConfiguration { DisableDirectStreaming = true }
+        };
+    }
+
+    /// <summary>
+    /// Reads the reindex sub-response out of a task-status response.
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> when the status was readable, with <paramref name="response"/> set to the reindex payload
+    /// (which is legitimately <c>null</c> before Elasticsearch has published one). <c>false</c> when the body
+    /// could not be read at all, meaning the copy's outcome is unknown and must not be reported as complete.
+    /// </returns>
+    private bool TryReadReindexStatus(GetTasksResponse status, out TaskWithReindexResponse? response, out string? failureReason)
+    {
+        response = null;
+        failureReason = null;
+
+        if (status.ApiCallDetails?.ResponseBodyInBytes is null)
+        {
+            _logger.LogError("Task status response for reindex task did not include a body, so document failures could not be read");
+            failureReason = "The reindex task status was returned without a response body, so whether any documents failed to copy could not be determined.";
+            return false;
+        }
+
+        try
+        {
+            response = status.DeserializeRaw<TaskWithReindexResponse>(_serializer);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize the task status response while reindexing");
+            failureReason = $"The reindex task status could not be parsed ({ex.Message}), so whether any documents failed to copy could not be determined.";
+            return false;
+        }
     }
 
     /// <summary>

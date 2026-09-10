@@ -392,7 +392,7 @@ public class Index : IIndex, IHaveLogger
             ReindexRequestsPerSecond = ReindexRequestsPerSecond
         };
 
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
         return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync, cancellationToken);
     }
 

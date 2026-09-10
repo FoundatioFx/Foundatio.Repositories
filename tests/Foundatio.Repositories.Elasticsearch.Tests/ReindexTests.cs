@@ -7,10 +7,12 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.AsyncEx;
+using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
@@ -1799,5 +1801,198 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasCountResponse);
         Assert.True(aliasCountResponse.IsValidResponse);
         Assert.Equal(1, aliasCountResponse.Count);
+    }
+
+    /// <summary>
+    /// Reindex must detect documents that failed to copy on a client configured the way production is, with
+    /// direct streaming left enabled.
+    /// </summary>
+    /// <remarks>
+    /// The per-document failure list lives only in the raw task-status body, which the transport discards
+    /// unless direct streaming is disabled. Every other test configuration disables it (for readable request
+    /// logs), which masked a defect where a reindex that copied nothing reported success and flipped the alias
+    /// onto the empty destination. This test is the guard for that, so it must not disable direct streaming.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WithDirectStreamingEnabled_StillDetectsFailedDocuments()
+    {
+        // Arrange
+        using var configuration = new DirectStreamingElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+
+        // The destination maps `name` as an integer, so the generated alphabetic names cannot be indexed.
+        await _client.Indices.CreateAsync(version2Index.VersionedName, d => d
+            .Mappings(md => md.Properties<Employee>(p => p.IntegerNumber(e => e.Name!))), TestCancellationToken);
+
+        // Act & Assert - the copy failed, so it must not be reported as complete
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        Assert.Contains("failed to copy", exception.Reason);
+
+        // The alias must still serve the complete source rather than the empty destination.
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+    }
+
+    [Fact]
+    public async Task QueuedReindex_MigratesDocumentsAndSwitchesAlias()
+    {
+        // Arrange - the queued path must reindex exactly like the direct one
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(10), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+
+        // Act
+        var handler = new ReindexWorkItemHandler(configuration);
+        await HandleReindexWorkItemAsync(handler, version2Index.CreateReindexWorkItem(1));
+
+        // Assert - alias moved to v2 and every document came across
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(10, countResponse.Count);
+    }
+
+    [Fact]
+    public async Task QueuedReindex_WhenDocumentsFailToCopy_ThrowsSoTheQueueRetries()
+    {
+        // Arrange - v2 rejects the documents, so the copy cannot succeed
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+
+        await _client.Indices.CreateAsync(version2Index.VersionedName, d => d
+            .Mappings(md => md.Properties<Employee>(p => p.IntegerNumber(e => e.Name!))), TestCancellationToken);
+
+        // Act & Assert - the failure must propagate so the queue can retry or dead-letter it
+        var handler = new ReindexWorkItemHandler(configuration);
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => HandleReindexWorkItemAsync(handler, version2Index.CreateReindexWorkItem(1)));
+
+        Assert.Contains("failed to copy", exception.Reason);
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+    }
+
+    [Fact]
+    public async Task QueuedReindex_WhenMigrationAlreadyCompleted_SkipsInsteadOfRecopying()
+    {
+        // Arrange - run the migration first, then replay the same stale work item
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Drop the source index so a re-copy could not silently succeed - it would have to fail loudly.
+        await _client.Indices.DeleteAsync(version1Index.VersionedName, TestCancellationToken);
+
+        // Act - replaying the stale work item must be a no-op, not a failed re-copy
+        var handler = new ReindexWorkItemHandler(configuration);
+        await HandleReindexWorkItemAsync(handler, workItem);
+
+        // Assert
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(5, countResponse.Count);
+    }
+
+    [Fact]
+    public async Task GetWorkItemLockAsync_WhenAliasIsAlreadyLocked_AbandonsWorkItem()
+    {
+        // Arrange - hold the reindex lock the direct path uses
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var workItem = configuration.Employees.CreateReindexWorkItem(1);
+
+        string lockKey = ElasticReindexer.GetLockName(workItem.Alias);
+        await using var externalLock = await configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(1), TestCancellationToken);
+        Assert.NotNull(externalLock);
+
+        var handler = new ReindexWorkItemHandler(configuration);
+
+        // Act - a cancelled token stands in for the acquire timeout elapsing
+        using var cancelledSource = new CancellationTokenSource();
+        await cancelledSource.CancelAsync();
+        var workItemLock = await handler.GetWorkItemLockAsync(workItem, cancelledSource.Token);
+
+        // Assert - no lock means the queue redelivers rather than running two reindexes at once
+        Assert.Null(workItemLock);
+    }
+
+    [Fact]
+    public async Task GetWorkItemLockAsync_WhenAliasIsFree_AcquiresTheSameLockTheDirectPathUses()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var workItem = configuration.Employees.CreateReindexWorkItem(1);
+        var handler = new ReindexWorkItemHandler(configuration);
+
+        // Act
+        await using var workItemLock = await handler.GetWorkItemLockAsync(workItem, TestCancellationToken);
+
+        // Assert - the handler holds the alias lock, so the direct path is blocked out
+        Assert.NotNull(workItemLock);
+        Assert.True(await configuration.LockProvider.IsLockedAsync(ElasticReindexer.GetLockName(workItem.Alias)));
+    }
+
+    [Fact]
+    public async Task GetWorkItemLockAsync_WithUnknownWorkItemType_AbandonsWorkItem()
+    {
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var handler = new ReindexWorkItemHandler(configuration);
+
+        Assert.Null(await handler.GetWorkItemLockAsync(new object(), TestCancellationToken));
+    }
+
+    private async Task HandleReindexWorkItemAsync(ReindexWorkItemHandler handler, ReindexWorkItem workItem)
+    {
+        await using var workItemLock = await handler.GetWorkItemLockAsync(workItem, TestCancellationToken);
+        Assert.NotNull(workItemLock);
+
+        var context = new WorkItemContext(workItem, Guid.NewGuid().ToString("N"), workItemLock, TestCancellationToken,
+            (progress, message) =>
+            {
+                _logger.LogInformation("Queued reindex progress {Progress}%: {Message}", progress, message);
+                return Task.CompletedTask;
+            });
+
+        await handler.HandleItemAsync(context);
     }
 }

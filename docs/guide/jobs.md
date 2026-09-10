@@ -236,6 +236,9 @@ public class ReindexWorkItem
 ```
 
 **Features:**
+- **Same behavior as the direct path**: Construct it with your `IElasticConfiguration` (`new ReindexWorkItemHandler(configuration)`) so a queued reindex uses the same `TimeProvider`, resilience policies, and alias lock the direct `index.ReindexAsync()` path uses. The looser `(client, serializer, lockProvider, loggerFactory)` constructor still works but cannot tell that a work item's migration was already completed, so a stale or duplicated work item is copied again instead of skipped.
+- **Skips already-completed migrations**: Once the lock is held, the destination index's version is re-read. A work item whose migration another process finished while it sat in the queue is completed as a no-op rather than reindexed a second time.
+- **Bounded lock wait**: Waiting for the alias lock gives up after 30 minutes (matching the direct path) and abandons the work item for redelivery, so a queue worker is never parked indefinitely behind another reindex.
 - **Automatic Lock Renewal**: The handler sets `AutoRenewLockOnProgress = true`, which automatically renews the distributed lock whenever progress is reported
 - **Progress Reporting**: Reports progress percentage and status messages during reindex
 - **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format; logs a warning if neither strategy is available

@@ -849,6 +849,10 @@ After both copy passes, the source and destination document counts are compared 
 
 Completeness is therefore established by the per-pass accounting described above — the copy task's own report of what it matched versus what it did, which cannot race with live traffic. Treat the count comparison as a hint for deciding whether to keep the old index, not as proof.
 
+#### Unreadable status is a failure, not a success
+
+The per-document failure list and the created/updated/noop counters that completeness is judged on are not part of the Elasticsearch client's typed task-status model — they have to be read out of the raw JSON body, which the transport only retains when direct streaming is disabled. Reindex therefore asks for the body on that one request, and if it still cannot be read, the pass is reported as incomplete rather than assumed clean. You do not need `DisableDirectStreaming()` on your client for reindex failure detection to work.
+
 #### Finding the documents that were left behind
 
 Failed documents are recorded in a searchable error index (`{destination}-error`), keyed by the source document id:

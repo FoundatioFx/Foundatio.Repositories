@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Caching;
@@ -9,6 +7,7 @@ using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
 
@@ -34,19 +33,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
     protected override NodePool CreateConnectionPool()
     {
-        string? connectionString = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL");
-        bool fiddlerIsRunning = String.Equals(Environment.GetEnvironmentVariable("USE_FIDDLER_PROXY"), "true", StringComparison.OrdinalIgnoreCase);
-
-        if (!String.IsNullOrEmpty(connectionString))
-        {
-            var servers = connectionString.Split(',')
-                .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url))
-                .ToList();
-            return new StaticNodePool(servers);
-        }
-
-        var host = fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me";
-        return new SingleNodePool(new Uri($"http://{host}:9200"));
+        return ElasticTestNodePool.Create();
     }
 
     protected override void ConfigureSettings(ElasticsearchClientSettings settings)
