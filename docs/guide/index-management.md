@@ -490,22 +490,23 @@ flowchart TD
     Create --> Reindex["Reindex v1 → v2 (first pass)"]
     Reindex --> Swap["Swap aliases:\nremove v1 partition, add v2 partition"]
     Swap --> Catchup["Second-pass catch-up"]
-    Catchup --> Check{"DiscardIndexesOnReindex\nAND no failures\nAND new count ≥ old count?"}
+    Catchup --> Check{"DiscardIndexesOnReindex\nAND counts verified?"}
     Check -->|Yes| Delete["Delete audit-v1-YYYY.MM"]
     Check -->|No| Keep["Keep old partition\n(inspect / retry)"]
     Delete --> Loop
     Keep --> Loop
 ```
 
+Any pass that does not complete throws `ReindexIncompleteException` before reaching the `Check` node, leaving the old partition in place — see [Error Handling During Reindex](#error-handling-during-reindex).
+
 #### When the old partition is deleted
 
-The old index for a period is deleted at the very end of *that period's* reindex (~98–99% progress), and **only** when all of the following hold:
+The old index for a period is deleted at the very end of *that period's* reindex (~98–99% progress), and **only** when both of the following hold:
 
 - `DiscardIndexesOnReindex` is `true` (the default).
-- Neither the first nor the second reindex pass reported any failures.
-- The new partition's document count is **greater than or equal to** the old partition's count (a safety check against data loss).
+- The new partition's document count is **greater than or equal to** the old partition's count, and both counts could be read.
 
-If any condition fails, the old partition is **retained** so you can inspect or retry it, and the alias already points at the new partition. Because deletion happens per-partition immediately after that partition's data is verified, the originals are never all held simultaneously and then dropped in one batch.
+If either condition fails, the old partition is **retained** so you can inspect or retry it, and the alias already points at the new partition. A copy that failed outright never gets this far — it throws. Because deletion happens per-partition immediately after that partition's data is verified, the originals are never all held simultaneously and then dropped in one batch.
 
 #### What actually triggers a reindex
 
@@ -758,7 +759,7 @@ public EmployeeIndex(IElasticConfiguration configuration)
 }
 ```
 
-Even with `DiscardIndexesOnReindex = true`, the old index is only deleted when the reindex reported **no failures** and the new index's document count is **greater than or equal to** the old index's count. If either check fails, the old index is kept so you can inspect or retry. For time-series indexes this evaluation happens independently per dated partition — see [When the old partition is deleted](#when-the-old-partition-is-deleted).
+Even with `DiscardIndexesOnReindex = true`, the old index is only deleted when the new index's document count is **greater than or equal to** the old index's count and both counts could be read. If that check fails, the old index is kept so you can inspect or retry. A reindex that failed outright never reaches this point — it throws `ReindexIncompleteException` and always keeps the old index. For time-series indexes this evaluation happens independently per dated partition — see [When the old partition is deleted](#when-the-old-partition-is-deleted).
 
 ### Reindex Progress Monitoring
 
@@ -800,19 +801,75 @@ A low `ReindexRequestsPerSecond` makes Elasticsearch pause longer between intern
 
 ### Error Handling During Reindex
 
-Failed documents are stored in an error index (`employees-v2-error`):
+#### An incomplete reindex throws
+
+`ReindexAsync` throws `ReindexIncompleteException` rather than returning, whenever the destination cannot be trusted to be a complete replica of the source:
+
+| Situation | Why it throws |
+|---|---|
+| Documents failed to copy | The destination is missing those documents |
+| The copy task finished but did not account for every document it matched | The destination may be missing documents |
+| The copy task reported an error (bad script, invalid request) | The copy did not run to completion |
+| Elasticsearch never returned a copy task | Nothing was copied |
+| Waiting was abandoned (task stalled, or its status could not be read) | Completion could not be confirmed |
+| The aliases could not be switched | Traffic is still served by the old index |
+
+The old index is always left in place when this throws, so the reindex can be retried. A retry resumes when the index has a timestamp field or ObjectId-format ids; otherwise it re-copies from the beginning. A retry cannot help when the cause is deterministic, such as documents the destination's mapping rejects.
 
 ```csharp
-// Query failed documents
-var errorIndex = "employees-v2-error";
-var failures = await _client.SearchAsync<object>(s => s.Index(errorIndex));
+try
+{
+    await index.ReindexAsync();
+}
+catch (ReindexIncompleteException ex)
+{
+    // ex.OldIndex is still intact; ex.NewIndex may be short.
+    _logger.LogError(ex, "Reindex of {OldIndex} incomplete: {Reason}", ex.OldIndex, ex.Reason);
+    throw;
+}
+```
+
+`ElasticConfiguration.ReindexAsync` attempts every outdated index, then throws an `AggregateException` if any of them failed — so one failing index does not block the others, but a partially failed migration is never reported as a success. It also clears its configure-indexes cache marker either way, so the next `ConfigureIndexesAsync` re-runs rather than skipping.
+
+::: warning Queued reindexes retry automatically
+`ReindexWorkItemHandler` lets the exception propagate, so a queued reindex is abandoned and retried by the worker per your queue's retry policy, eventually dead-lettering. For a deterministic failure such as a mapping conflict, every retry fails the same way — fix the mapping rather than waiting it out.
+:::
+
+::: warning Cancellation throws too
+Cancelling via the `CancellationToken` throws `OperationCanceledException`. See [Cancelling a reindex](#cancelling-a-reindex).
+:::
+
+#### Document counts are compared, but they are only a safety net
+
+After both copy passes, the source and destination document counts are compared — on every reindex, not only when `DiscardIndexesOnReindex` is set. A short destination is **logged as a warning and keeps the old index**; it is deliberately not an error, because by that point the aliases have already been switched:
+
+- Documents hard-deleted through the alias after the cutover are gone from the destination but still counted in the frozen source, so a complete reindex can legitimately end up short. Throwing here would ask you to retry a reindex that would resurrect those deleted documents.
+- Reindex scripts can drop documents on purpose (`ctx.op = 'noop'` or `'delete'`).
+- In the other direction, documents written to the destination after the cutover can offset documents that genuinely failed to copy, masking a real shortfall.
+
+Completeness is therefore established by the per-pass accounting described above — the copy task's own report of what it matched versus what it did, which cannot race with live traffic. Treat the count comparison as a hint for deciding whether to keep the old index, not as proof.
+
+#### Finding the documents that were left behind
+
+Failed documents are recorded in a searchable error index (`{destination}-error`), keyed by the source document id:
+
+```csharp
+string errorIndex = "employees-v2-error";
+var failures = await _client.SearchAsync<ReindexFailure>(s => s
+    .Indices(errorIndex)
+    .Query(q => q.Term(t => t.Field("source_index").Value("employees-v1"))));
 
 foreach (var failure in failures.Documents)
 {
-    // Handle failed document
-    _logger.LogError("Failed to reindex: {Document}", failure);
+    // failure.Id and failure.SourceIndex identify the document to replay.
+    // failure.Cause explains why Elasticsearch rejected it.
+    // failure.Source carries the original document body (stored, not indexed).
+    _logger.LogError("Failed to reindex {Id} from {SourceIndex}: {Reason}",
+        failure.Id, failure.SourceIndex, failure.Cause?.Reason);
 }
 ```
+
+The diagnostic fields (`id`, `source_index`, `status`, `cause.type`, `cause.reason`, `created_utc`) are explicitly mapped and queryable. The copied document body (`source`) is stored but not indexed, because its shape is arbitrary and indexing it would risk mapping conflicts in the very index you rely on for recovery — it is still returned in `_source`.
 
 ## Mapping Lifecycle
 

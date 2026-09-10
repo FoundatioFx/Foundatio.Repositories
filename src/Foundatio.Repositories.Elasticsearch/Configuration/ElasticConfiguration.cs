@@ -264,6 +264,7 @@ public class ElasticConfiguration : IElasticConfiguration
         if (outdatedIndexes.Count == 0)
             return;
 
+        List<Exception>? failures = null;
         foreach (var outdatedIndex in outdatedIndexes)
         {
             try
@@ -283,11 +284,20 @@ public class ElasticConfiguration : IElasticConfiguration
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to begin reindex for {IndexName} after retries", outdatedIndex.Name);
+                // Every outdated index still gets an attempt, because one index failing does not mean the
+                // others cannot migrate. But the failures are collected and rethrown below: logging and
+                // returning normally is what let an incomplete migration look like a successful startup.
+                _logger.LogError(ex, "Failed to reindex {IndexName} after retries", outdatedIndex.Name);
+                (failures ??= []).Add(ex);
             }
         }
 
+        // The marker is what makes ConfigureIndexesAsync skip, so it must not be left behind after a partial
+        // failure - leaving it would suppress the very call that re-enqueues the reindex.
         await TryRemoveCacheMarkerAsync().AnyContext();
+
+        if (failures is { Count: > 0 })
+            throw new AggregateException($"{failures.Count} of {outdatedIndexes.Count} index(es) failed to reindex.", failures);
     }
 
     private string GetConfigureIndexesCacheKey()

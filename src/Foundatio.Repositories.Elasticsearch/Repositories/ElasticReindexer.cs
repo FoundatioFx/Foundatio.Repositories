@@ -46,9 +46,10 @@ public class ElasticReindexer
     }
 
     /// <summary>
-    /// Returns the name of the index that captures documents which failed to copy.
+    /// Returns the name of the index that captures documents which failed to copy, so callers can find and
+    /// replay them. See <see cref="ReindexFailure"/> for the shape of the captured records.
     /// </summary>
-    internal static string GetFailureIndexName(string index)
+    public static string GetFailureIndexName(string index)
     {
         ArgumentException.ThrowIfNullOrEmpty(index);
 
@@ -123,45 +124,26 @@ public class ElasticReindexer
         var startTime = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(-1);
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
         var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc, cancellationToken).AnyContext();
-
-        if (!firstPassResult.Succeeded)
-            return;
+        EnsureCopyCompleted(workItem, firstPassResult);
 
         await progressCallbackAsync(91, $"Total: {firstPassResult.Total:N0} Completed: {firstPassResult.Completed:N0}").AnyContext();
 
-        // TODO: Check to make sure the docs have been added to the new index before changing alias
+        // The pre-cutover guarantee is EnsureCopyCompleted above: the first pass reported it finished and
+        // accounted for every document it matched. Comparing index document counts here instead would fail
+        // constantly, because documents written to the source while the first pass ran are copied by the
+        // catch-up pass, which by design runs after the cutover.
         if (workItem.OldIndex != workItem.NewIndex)
-        {
-            if (!await SwitchAliasesAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext())
-                return;
-        }
+            await SwitchAliasesAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
-        var refreshResponse = await _client.Indices.RefreshAsync(Indices.All, cancellationToken).AnyContext();
-        _logger.LogRequest(refreshResponse);
-        if (!refreshResponse.IsValidResponse)
-            _logger.LogWarning("Failed to refresh indices before second reindex pass for {OldIndex} -> {NewIndex}: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
-
-        ReindexResult? secondPassResult = null;
         if (!String.IsNullOrEmpty(workItem.TimestampField))
         {
-            secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime, cancellationToken).AnyContext();
-            if (!secondPassResult.Succeeded)
-                return;
-
-            await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
+            await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, cancellationToken).AnyContext();
         }
         else
         {
+            // With no timestamp field the catch-up pass has to slice the source by id, which only works for
+            // ObjectId-format ids because their prefix encodes creation time.
             var sampleResult = await GetSampleDocumentIdAsync(workItem.OldIndex, cancellationToken).AnyContext();
-
-            async Task RunObjectIdSecondPassAsync()
-            {
-                secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime, cancellationToken).AnyContext();
-                if (!secondPassResult.Succeeded)
-                    return;
-
-                await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
-            }
 
             switch (sampleResult.Status)
             {
@@ -169,9 +151,9 @@ public class ElasticReindexer
                     _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
                     break;
 
-                case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out var unused):
+                case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out var objectId):
                     _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
-                    await RunObjectIdSecondPassAsync().AnyContext();
+                    await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, cancellationToken).AnyContext();
                     break;
 
                 case SampleIdStatus.Found:
@@ -184,56 +166,140 @@ public class ElasticReindexer
                     _logger.LogWarning(sampleResult.Exception,
                         "Reindex {OldIndex} -> {NewIndex}: Failed to sample document ID ({Error}). Attempting ObjectId-based second pass anyway.",
                         workItem.OldIndex, workItem.NewIndex, sampleResult.Error);
-                    await RunObjectIdSecondPassAsync().AnyContext();
+                    await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, cancellationToken).AnyContext();
                     break;
             }
-
-            if (secondPassResult is { Succeeded: false })
-                return;
         }
 
-        long totalFailures = firstPassResult.Failures;
-        if (secondPassResult != null)
-            totalFailures += secondPassResult.Failures;
+        // Verify the destination isn't short of the source on every reindex, not only when the old index
+        // happens to be scheduled for deletion - the shortfall gate used to live inside the delete branch, so
+        // a DeleteOld = false reindex was never checked at all.
+        bool countsVerified = await VerifyDocumentCountsAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
-        bool hasFailures = totalFailures > 0;
-        if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex)
-        {
-            refreshResponse = await _client.Indices.RefreshAsync(Indices.All, cancellationToken).AnyContext();
-            _logger.LogRequest(refreshResponse);
-            if (!refreshResponse.IsValidResponse)
-                _logger.LogWarning("Failed to refresh indices before doc count comparison for {OldIndex} -> {NewIndex}: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
-
-            var newDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex), cancellationToken).AnyContext();
-            _logger.LogRequest(newDocCountResponse);
-            if (!newDocCountResponse.IsValidResponse)
-                _logger.LogWarning("Failed to get new index doc count for {NewIndex}: {Error}", workItem.NewIndex, newDocCountResponse.ElasticsearchServerError);
-
-            var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex), cancellationToken).AnyContext();
-            _logger.LogRequest(oldDocCountResponse);
-            if (!oldDocCountResponse.IsValidResponse)
-                _logger.LogWarning("Failed to get old index doc count for {OldIndex}: {Error}", workItem.OldIndex, oldDocCountResponse.ElasticsearchServerError);
-
-            await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
-            if (newDocCountResponse.IsValidResponse && oldDocCountResponse.IsValidResponse && newDocCountResponse.Count >= oldDocCountResponse.Count)
-            {
-                var deleteIndexResponse = await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex), cancellationToken).AnyContext();
-                _logger.LogRequest(deleteIndexResponse);
-                if (!deleteIndexResponse.IsValidResponse)
-                    _logger.LogWarning("Failed to delete old index {OldIndex}: {Error}", workItem.OldIndex, deleteIndexResponse.ElasticsearchServerError);
-
-                if (deleteIndexResponse.IsValidResponse)
-                    await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
-                else
-                    await progressCallbackAsync(99, $"Failed to delete old index {workItem.OldIndex}: {deleteIndexResponse.ElasticsearchServerError}").AnyContext();
-            }
-        }
+        if (countsVerified && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex)
+            await DeleteOldIndexAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
         await progressCallbackAsync(100, "Reindex complete").AnyContext();
     }
 
+    /// <summary>
+    /// Copies documents written to the source while the first pass was running. Throws if this pass does not
+    /// complete, so a reindex that skipped the catch-up is never reported as successful.
+    /// </summary>
+    private async Task RunCatchUpPassAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, DateTime startTime, CancellationToken cancellationToken)
+    {
+        var result = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime, cancellationToken).AnyContext();
+        EnsureCopyCompleted(workItem, result);
+
+        await progressCallbackAsync(97, $"Total: {result.Total:N0} Completed: {result.Completed:N0}").AnyContext();
+    }
+
+    /// <summary>
+    /// Compares source and destination document counts after the copy and reports whether the destination
+    /// looks complete, which is the precondition for deleting the source.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is a coarse safety net, not proof of completeness, and deliberately never throws. By the time it
+    /// runs the aliases have already been switched, so writes - including hard deletes - land on the
+    /// destination while the source is frozen. A legitimately complete reindex can therefore end up with fewer
+    /// documents than its source, and treating that as a failure would ask callers to retry a reindex that
+    /// would resurrect the deleted documents. In the other direction, documents written to the destination
+    /// after the cutover can offset documents that genuinely failed to copy, hiding a real shortfall.
+    /// </para>
+    /// <para>
+    /// Completeness is established instead by the per-pass accounting in
+    /// <see cref="InternalReindexAsync"/>, which compares the copy task's own report of what it matched
+    /// against what it did and so cannot race with live traffic.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// <c>false</c> when the destination is short or a count could not be read, in which case the source is
+    /// kept for inspection.
+    /// </returns>
+    private async Task<bool> VerifyDocumentCountsAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    {
+        if (workItem.OldIndex == workItem.NewIndex)
+            return true;
+
+        var refreshResponse = await _client.Indices.RefreshAsync(Indices.Index(workItem.OldIndex).And(workItem.NewIndex), d => d.IgnoreUnavailable(), cancellationToken).AnyContext();
+        _logger.LogRequest(refreshResponse);
+        if (!refreshResponse.IsValidResponse)
+            _logger.LogWarning("Failed to refresh indices before doc count comparison for {OldIndex} -> {NewIndex}: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
+
+        var newDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex), cancellationToken).AnyContext();
+        _logger.LogRequest(newDocCountResponse);
+        if (!newDocCountResponse.IsValidResponse)
+            _logger.LogWarning("Failed to get new index doc count for {NewIndex}: {Error}", workItem.NewIndex, newDocCountResponse.ElasticsearchServerError);
+
+        var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex), cancellationToken).AnyContext();
+        _logger.LogRequest(oldDocCountResponse);
+        if (!oldDocCountResponse.IsValidResponse)
+            _logger.LogWarning("Failed to get old index doc count for {OldIndex}: {Error}", workItem.OldIndex, oldDocCountResponse.ElasticsearchServerError);
+
+        await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
+
+        if (!newDocCountResponse.IsValidResponse || !oldDocCountResponse.IsValidResponse)
+        {
+            _logger.LogWarning("Could not verify the reindex of {OldIndex} -> {NewIndex} was complete because a document count could not be read. Treating the reindex as unverified and keeping {OldIndex}.",
+                workItem.OldIndex, workItem.NewIndex, workItem.OldIndex);
+            return false;
+        }
+
+        if (newDocCountResponse.Count >= oldDocCountResponse.Count)
+            return true;
+
+        long missing = oldDocCountResponse.Count - newDocCountResponse.Count;
+
+        // A script can legitimately drop documents (`ctx.op = "noop"`/`"delete"`), and so can a hard delete
+        // through the already-switched alias, so this is reported rather than treated as a failure. Either way
+        // the source is kept, so nothing is lost if the shortfall was real.
+        _logger.LogWarning("Reindex of {OldIndex} -> {NewIndex} left the destination {MissingCount:N0} document(s) short ({OldCount:N0} -> {NewCount:N0}). This can be legitimate - a reindex script can drop documents, and documents deleted through the alias after the cutover are gone from the destination but still counted in the source - so it is not treated as a failure, but {OldIndex} will not be deleted.",
+            workItem.OldIndex, workItem.NewIndex, missing, oldDocCountResponse.Count, newDocCountResponse.Count, workItem.OldIndex);
+
+        return false;
+    }
+
+    private async Task DeleteOldIndexAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    {
+        var deleteIndexResponse = await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex), cancellationToken).AnyContext();
+        _logger.LogRequest(deleteIndexResponse);
+
+        if (deleteIndexResponse.IsValidResponse)
+        {
+            await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
+            return;
+        }
+
+        _logger.LogWarning("Failed to delete old index {OldIndex}: {Error}", workItem.OldIndex, deleteIndexResponse.ElasticsearchServerError);
+        await progressCallbackAsync(99, $"Failed to delete old index {workItem.OldIndex}: {deleteIndexResponse.ElasticsearchServerError}").AnyContext();
+    }
+
+    /// <summary>
+    /// Throws when a copy pass did not copy every document, so an incomplete reindex can never be mistaken
+    /// for a successful one by a caller that ignores logs.
+    /// </summary>
+    private void EnsureCopyCompleted(ReindexWorkItem workItem, ReindexResult result)
+    {
+        if (result.Outcome is ReindexOutcome.Completed)
+            return;
+
+        string reason = result.FailureReason ?? $"the copy stopped with outcome {result.Outcome}";
+        _logger.LogError("Reindex of {OldIndex} -> {NewIndex} did not complete ({Outcome}): {Reason}. Total: {Total:N0} Completed: {Completed:N0} Failures: {Failures:N0}",
+            workItem.OldIndex, workItem.NewIndex, result.Outcome, reason, result.Total, result.Completed, result.Failures);
+
+        throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex, reason);
+    }
+
     private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int startProgress, int endProgress, DateTime? startTime, CancellationToken cancellationToken)
     {
+        // Refresh before reading. Elasticsearch only makes writes visible to search once they are
+        // refreshed (every second by default, and not at all for an index with no active searches). Both the
+        // copy's source query and the resume watermark's read of the destination are searches, so without
+        // this the copy can silently skip documents that were already written and the watermark can resume
+        // from a stale position. This runs for every pass, not just the catch-up pass.
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+
         var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime, cancellationToken).AnyContext();
 
         var result = await _resiliencePolicy.ExecuteAsync(async ct =>
@@ -265,17 +331,24 @@ public class ElasticReindexer
 
         if (result.Task is null)
         {
+            string reason = result.ElasticsearchServerError?.Error?.Reason ?? "Unknown";
             _logger.LogError("Reindex failed to start - no task returned. Response valid: {IsValid}, Reason: {Reason}",
-                result.IsValidResponse, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown");
+                result.IsValidResponse, reason);
             _logger.LogErrorRequest(result, "Reindex failed");
-            return new ReindexResult { Total = 0, Completed = 0 };
+
+            return new ReindexResult
+            {
+                Outcome = ReindexOutcome.NotStarted,
+                FailureReason = $"Elasticsearch did not return a reindex task, so no documents were copied ({reason})."
+            };
         }
 
         _logger.LogInformation("Reindex Task Id: {ReindexTaskId}", result.Task.FullyQualifiedId);
         _logger.LogRequest(result);
         long totalDocs = result.Total ?? 0;
 
-        bool taskSuccess = false;
+        var outcome = ReindexOutcome.Abandoned;
+        string? failureReason = null;
         TaskReindexResult? lastReindexResponse = null;
         int statusGetFails = 0;
         long lastExamined = 0;
@@ -302,6 +375,7 @@ public class ElasticReindexer
                 {
                     _logger.LogError("Failed to get the status {FailureCount} times in a row for reindex task {ReindexTaskId} reindexing {OldIndex} -> {NewIndex}",
                         statusGetFails, result.Task.FullyQualifiedId, workItem.OldIndex, workItem.NewIndex);
+                    failureReason = $"Could not read the status of reindex task {result.Task.FullyQualifiedId} {statusGetFails} times in a row, so the copy could not be confirmed complete.";
                     break;
                 }
 
@@ -314,9 +388,11 @@ public class ElasticReindexer
             statusGetFails = 0;
 
             var response = status.DeserializeRaw<TaskWithReindexResponse>(_serializer);
-            if (response?.Error != null)
+            if (response?.Error is not null)
             {
                 _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.Caused_By?.Reason, String.Join("\r\n", response.Error.Script_Stack ?? new List<string>()));
+                outcome = ReindexOutcome.Failed;
+                failureReason = $"The reindex task failed: {response.Error.Type}: {response.Error.Reason}";
                 break;
             }
 
@@ -332,9 +408,9 @@ public class ElasticReindexer
             string lastMessage = $"[{workItem.NewIndex}] Total: {taskStatus.Total:N0} Completed: {taskStatus.Converged:N0} VersionConflicts: {taskStatus.VersionConflicts:N0}";
             await progressCallbackAsync(CalculateProgress(taskStatus.Total, taskStatus.Converged, startProgress, endProgress), lastMessage).AnyContext();
 
-            if (status.Completed && response?.Error == null)
+            if (status.Completed && response?.Error is null)
             {
-                taskSuccess = true;
+                outcome = ReindexOutcome.Completed;
                 break;
             }
 
@@ -344,6 +420,7 @@ public class ElasticReindexer
             if (sw.Elapsed > noProgressTimeout)
             {
                 _logger.LogError("Timed out waiting for reindex {OldIndex} -> {NewIndex}. NoProgressTimeout: {NoProgressTimeout}", workItem.OldIndex, workItem.NewIndex, noProgressTimeout);
+                failureReason = $"The reindex task examined no new documents for {noProgressTimeout}, so it was treated as stalled and abandoned.";
                 break;
             }
 
@@ -355,7 +432,7 @@ public class ElasticReindexer
         } while (true);
         sw.Stop();
 
-        if (!taskSuccess)
+        if (outcome is not ReindexOutcome.Completed)
         {
             _logger.LogError("Reindex abandoned for {OldIndex} -> {NewIndex}. ReindexTaskId: {ReindexTaskId}, StatusFails: {StatusFails}, LastExamined: {LastExamined}, TotalDocs: {TotalDocs}, Elapsed: {Elapsed}",
                 workItem.OldIndex, workItem.NewIndex, result.Task.FullyQualifiedId, statusGetFails, lastExamined, totalDocs, sw.Elapsed);
@@ -364,7 +441,7 @@ public class ElasticReindexer
         }
 
         long failures = 0;
-        if (lastReindexResponse?.Failures != null && lastReindexResponse.Failures.Count > 0)
+        if (lastReindexResponse?.Failures is { Count: > 0 })
         {
             _logger.LogError("Error while reindexing result");
 
@@ -376,15 +453,51 @@ public class ElasticReindexer
                     failures++;
                 }
             }
-            taskSuccess = false;
+            // Documents that could not be copied mean the destination is short, whatever the task reported
+            // about its own completion.
+            var firstFailure = lastReindexResponse.Failures.First();
+            outcome = ReindexOutcome.Failed;
+            failureReason = $"{lastReindexResponse.Failures.Count:N0} document(s) failed to copy from {workItem.OldIndex} to {workItem.NewIndex}. First failure: {firstFailure.Cause?.Reason ?? "unknown"}";
         }
 
         long total = lastReindexResponse?.Total ?? 0;
         long versionConflicts = lastReindexResponse?.VersionConflicts ?? 0;
         long completed = (lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Noops ?? 0);
+
+        // The copy must account for every document it matched. This is the one completeness check that cannot
+        // race with live traffic, because it compares the task's own report of what it matched against its own
+        // report of what it did - unlike comparing index document counts, which the alias cutover makes
+        // unreliable (see VerifyDocumentCountsAsync).
+        if (outcome is ReindexOutcome.Completed && completed + versionConflicts < total)
+        {
+            long unaccounted = total - (completed + versionConflicts);
+            outcome = ReindexOutcome.Failed;
+            failureReason = $"the copy task reported it finished but only accounted for {completed + versionConflicts:N0} of the {total:N0} document(s) it matched, leaving {unaccounted:N0} unaccounted for";
+        }
+
         string message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
         await progressCallbackAsync(CalculateProgress(total, completed, startProgress, endProgress), message).AnyContext();
-        return new ReindexResult { Total = total, Completed = completed, Failures = failures, Succeeded = taskSuccess };
+        return new ReindexResult { Total = total, Completed = completed, Failures = failures, Outcome = outcome, FailureReason = failureReason };
+    }
+
+    /// <summary>
+    /// Makes already-written documents visible to search before a copy pass reads them. Failure is logged and
+    /// tolerated: a refresh that did not happen means the pass may copy less than it could have, which the
+    /// completeness verification at the end of the reindex catches.
+    /// </summary>
+    private async Task RefreshForCopyAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
+    {
+        var indices = workItem.OldIndex == workItem.NewIndex
+            ? Indices.Index(workItem.OldIndex)
+            : Indices.Index(workItem.OldIndex).And(workItem.NewIndex);
+
+        // The destination does not exist yet on the first pass of some reindexes, and a refresh of a missing
+        // index is a 404 rather than a no-op.
+        var refreshResponse = await _client.Indices.RefreshAsync(indices, d => d.IgnoreUnavailable(), cancellationToken).AnyContext();
+        _logger.LogRequest(refreshResponse);
+
+        if (!refreshResponse.IsValidResponse)
+            _logger.LogWarning("Failed to refresh {OldIndex} and {NewIndex} before copying, so the copy may read stale data: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
     }
 
     private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
@@ -402,7 +515,29 @@ public class ElasticReindexer
             return false;
         }
 
-        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Mappings(md => md.Dynamic(DynamicMapping.False)), cancellationToken).AnyContext();
+        // `dynamic: false` used to leave this index unsearchable, so the one artifact that records which
+        // documents failed to copy could not be queried to find them. The diagnostic fields are mapped
+        // explicitly instead, and the copied document body is stored but not indexed - it has an arbitrary,
+        // per-repository shape, so indexing it risks mapping conflicts and field-count explosions in the very
+        // index being relied on for recovery. It is still returned in _source when the failure is read.
+        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d
+            .Mappings(md => md
+                .Dynamic(DynamicMapping.Strict)
+                .Properties<object>(p => p
+                    .Keyword("index")
+                    .Keyword("source_index")
+                    .Keyword("id")
+                    .LongNumber("version")
+                    .Keyword("routing")
+                    .IntegerNumber("status")
+                    .Boolean("found")
+                    .Date("created_utc")
+                    .Object("cause", o => o
+                        .Properties(cp => cp
+                            .Keyword("type")
+                            .Text("reason")
+                            .Text("stack_trace", t => t.Index(false))))
+                    .Object("source", o => o.Enabled(false)))), cancellationToken).AnyContext();
         if (!createResponse.IsValidResponse)
         {
             _logger.LogErrorRequest(createResponse, "Unable to create error index");
@@ -432,24 +567,30 @@ public class ElasticReindexer
         }
 
         _logger.LogRequest(gr);
-        var errorDocument = new
+        var errorDocument = new ReindexFailure
         {
-            failure.Index,
-            failure.Id,
-            gr.Version,
-            gr.Routing,
-            gr.Source,
-            Cause = new
+            Index = failure.Index,
+            SourceIndex = workItem.OldIndex,
+            Id = failure.Id,
+            Version = gr.Version,
+            Routing = gr.Routing,
+            Source = gr.Source,
+            Status = failure.Status,
+            Found = gr.Found,
+            CreatedUtc = _timeProvider.GetUtcNow().UtcDateTime,
+            Cause = new ReindexFailureCause
             {
                 Type = failure.Cause?.Type,
                 Reason = failure.Cause?.Reason,
                 StackTrace = failure.Cause?.StackTrace
-            },
-            failure.Status,
-            gr.Found,
+            }
         };
+
         string errorIndex = GetFailureIndexName(workItem.NewIndex);
-        var indexResponse = await _client.IndexAsync(errorDocument, i => i.Index(errorIndex), cancellationToken);
+
+        // Keyed by source document id so a retried reindex overwrites the previous record for the same
+        // document instead of accumulating a duplicate per attempt.
+        var indexResponse = await _client.IndexAsync(errorDocument, i => i.Index(errorIndex).Id(failure.Id), cancellationToken).AnyContext();
         if (indexResponse.IsValidResponse)
             _logger.LogRequest(indexResponse);
         else
@@ -532,8 +673,10 @@ public class ElasticReindexer
     /// Moves every alias on the old index across to the new one in a single atomic update, which is the
     /// point at which the new index starts serving traffic.
     /// </summary>
-    /// <returns><c>false</c> when the alias update failed and the caller must not continue.</returns>
-    private async Task<bool> SwitchAliasesAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    /// <exception cref="ReindexIncompleteException">
+    /// The alias update failed, so traffic is still being served by the old index.
+    /// </exception>
+    private async Task SwitchAliasesAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
     {
         var aliases = await GetIndexAliasesAsync(workItem.OldIndex, cancellationToken).AnyContext();
 
@@ -543,7 +686,7 @@ public class ElasticReindexer
             aliases.TryAdd(workItem.Alias, new AliasDefinition());
 
         if (aliases.Count is 0)
-            return true;
+            return;
 
         var aliasActions = new List<IndexUpdateAliasesAction>();
         foreach (var (alias, definition) in aliases)
@@ -556,13 +699,13 @@ public class ElasticReindexer
         if (!bulkResponse.IsValidResponse)
         {
             _logger.LogErrorRequest(bulkResponse, "Error updating aliases during reindex");
-            return false;
+
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"the documents were copied but the aliases ({String.Join(", ", aliases.Keys)}) could not be switched to the new index, so traffic is still being served by {workItem.OldIndex} ({bulkResponse.ElasticsearchServerError})");
         }
 
         _logger.LogRequest(bulkResponse);
         await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases.Keys)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
-
-        return true;
     }
 
     /// <summary>
@@ -766,7 +909,29 @@ public class ElasticReindexer
         public long Total { get; init; }
         public long Completed { get; init; }
         public long Failures { get; init; }
-        public bool Succeeded { get; init; }
+        public ReindexOutcome Outcome { get; init; }
+
+        /// <summary>Why the copy did not complete, for the exception the caller receives.</summary>
+        public string? FailureReason { get; init; }
+    }
+
+    /// <summary>
+    /// Why a copy pass stopped. Replaces a single "succeeded" flag, which conflated "never started",
+    /// "gave up waiting" and "copied some documents but not all" into one indistinguishable false.
+    /// </summary>
+    private enum ReindexOutcome
+    {
+        /// <summary>Elasticsearch reported the copy task finished and no document failed to copy.</summary>
+        Completed,
+
+        /// <summary>The copy task was never created, so nothing was copied.</summary>
+        NotStarted,
+
+        /// <summary>Waiting was given up on: the task stalled, or its status could not be read.</summary>
+        Abandoned,
+
+        /// <summary>The copy ran but documents failed to copy, or the task itself reported an error.</summary>
+        Failed
     }
 
     private record TaskWithReindexResponse

@@ -143,13 +143,16 @@ Single-doc read/write routing targets the **unversioned dated alias**, so the ph
 
 ### Version Upgrade Process
 
-The upgrade itself is always these 5 steps, whether triggered directly or via the queue (see "What triggers it" below for which to use):
+The upgrade itself is always these 6 steps, whether triggered directly or via the queue (see "What triggers it" below for which to use):
 
 1. New index created (`employees-v2`) with new mapping
 2. Elasticsearch reindex API copies data from v1 to v2
 3. Reindex scripts transform data during migration
 4. Alias atomically switched from v1 to v2
-5. Old index deleted (if `DiscardIndexesOnReindex = true`, no failures, and new count >= old count)
+5. Source and destination document counts compared — **always**, not only when deleting
+6. Old index deleted (if `DiscardIndexesOnReindex = true` and the counts checked out)
+
+**Any step that leaves the destination incomplete throws `ReindexIncompleteException`** rather than returning normally (see "Reindex failure is never silent" below). The old index is always kept when it throws, so the operation can be retried and will resume.
 
 **Prefer `configuration.ReindexAsync()` / `index.ReindexAsync()` to run this directly** — see "What triggers it" below; `ConfigureIndexesAsync()`'s default only enqueues a work item and throws if no queue is configured.
 
@@ -165,7 +168,7 @@ Per partition (`ReindexAsync`, under a distributed lock keyed on the alias):
 2. Reindex v1 → v2 (first pass).
 3. Swap aliases: remove `audit-v1-2024.01`, add `audit-v2-2024.01` (reads now hit v2).
 4. Second-pass catch-up for docs written during the first pass.
-5. Delete `audit-v1-2024.01` — only if `DiscardIndexesOnReindex` (default true), no failures, and new count >= old count.
+5. Delete `audit-v1-2024.01` — only if `DiscardIndexesOnReindex` (default true) and the count comparison passed. A pass that didn't complete throws before this.
 
 Partitions past `MaxIndexAge` are skipped (left for maintenance). The umbrella alias spans both migrated (v2) and not-yet-migrated (v1) partitions during the upgrade, so reads/writes keep working. Ordering: `GetIndexesAsync` → `.OrderBy(i => i.DateUtc)`; per-partition delete: `ElasticReindexer.ReindexAsync`.
 
@@ -387,6 +390,18 @@ Reindexing is throttled via `ReindexBatchSize` (documents per internal ES bulk b
 Task-status polling during reindex (`ElasticReindexer.InternalReindexAsync`) also backs off exponentially on failure — 1 second, doubling up to a 30 second cap, with +/-25% jitter (`ElasticReindexer.GetStatusRetryDelay`) — instead of retrying immediately, up to `MAX_STATUS_FAILS` (10) consecutive failures before giving up. The jitter prevents multiple reindex operations that fail from the same cluster-wide condition (e.g. indexing pressure) from retrying in lockstep.
 
 A reindex reporting no progress for too long is treated as stalled and abandoned (`ElasticReindexer.GetNoProgressTimeout`). This defaults to 10 minutes, but scales up when `ReindexRequestsPerSecond` is set low enough that Elasticsearch's own inter-batch pause (`ReindexBatchSize ?? 1000` ÷ `ReindexRequestsPerSecond`, ×3 safety margin) would otherwise exceed 10 minutes - so a healthy, intentionally throttled reindex isn't mistaken for a stalled one and cancelled. The scaled timeout is computed in `double` (seconds) space and clamped to `TimeSpan.MaxValue` before constructing the result - an extreme `ReindexBatchSize`/`ReindexRequestsPerSecond` combination (e.g. a huge batch size with a near-zero rate) would otherwise overflow `TimeSpan`'s ~29,247 year range and throw `OverflowException` mid-reindex, abandoning an already-started, untracked server-side task.
+
+### Reindex failure is never silent
+
+`ReindexAsync` throws `ReindexIncompleteException` (a `RepositoryException`, carrying `OldIndex`/`NewIndex`/`Reason`) whenever the destination cannot be trusted as a complete replica: documents failed to copy, the copy task reported an error, the task finished but did not account for every document it matched (`created + updated + noops + version_conflicts < total`), Elasticsearch never returned a task, waiting was abandoned (stall or unreadable status), or the aliases could not be switched. Internally each copy pass returns a `ReindexOutcome` (`Completed`/`NotStarted`/`Abandoned`/`Failed`) plus a reason string rather than a single `Succeeded` bool — that bool conflated "never started", "gave up waiting" and "copied some documents but not all" into one indistinguishable `false` that the caller turned into a silent `return`. The old index is always left in place when this throws, so a retry resumes (when the index has a timestamp field or ObjectId ids; otherwise it re-copies from the start, and a deterministic cause like a mapping conflict fails identically every time).
+
+`ElasticConfiguration.ReindexAsync` attempts every outdated index, collects failures, and throws an `AggregateException` at the end — one failing index doesn't block the others, but a partially failed migration is never reported as success. It clears its configure-indexes cache marker either way: the marker is what makes `ConfigureIndexesAsync` *skip*, so leaving it behind after a failure would suppress the very call that re-enqueues the reindex. `DailyIndex.ReindexAsync` by contrast aborts on the first failing partition, so newer partitions stay on the old version until the failure is fixed — the umbrella alias keeps serving both versions meanwhile.
+
+**Document counts are compared on every reindex** (`VerifyDocumentCountsAsync`), not only when `DiscardIndexesOnReindex` is set — the check used to live inside the delete branch, so a `DeleteOld = false` reindex was never checked at all. It **never throws**: it warns and returns `false`, which keeps the old index. It deliberately isn't authoritative, because the aliases are already switched by the time it runs — documents hard-deleted through the alias shrink the destination while the frozen source still counts them (throwing there would force a retry that resurrects the deleted documents), scripts can drop documents via `ctx.op`, and post-cutover writes can offset genuinely-failed copies and mask a real shortfall. The race-free completeness check is the per-pass accounting above.
+
+**Sources are refreshed before every copy pass** (`RefreshForCopyAsync`, scoped to the two indexes with `ignore_unavailable`). Elasticsearch only makes writes searchable on refresh, and both the copy's source query and the resume watermark's read of the destination are searches — without this a pass can skip documents that were already written. A failed refresh is logged, not fatal.
+
+**The `-error` failure index is searchable.** It used to be created with `dynamic: false`, which left the one artifact recording *which* documents were lost unqueryable. It now has an explicit `dynamic: strict` mapping matching the `ReindexFailure`/`ReindexFailureCause` records: `id`, `source_index` (where to replay from — note `index` is the *destination* Elasticsearch reported the failed write against), `status`, `cause.type`, `cause.reason`, `created_utc`. The copied document body (`source`) is `enabled: false` — stored and returned in `_source` for replay, but not indexed, since its shape is arbitrary and indexing it risks mapping conflicts in the index you rely on for recovery. Records are keyed by source document id, so a retried reindex overwrites rather than accumulating duplicates. Compute the name with the public `ElasticReindexer.GetFailureIndexName(index)`.
 
 ## Concurrency Safety
 

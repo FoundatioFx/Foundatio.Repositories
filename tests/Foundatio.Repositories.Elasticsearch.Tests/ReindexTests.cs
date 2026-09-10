@@ -56,9 +56,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
 
-        // ES does not support reindexing into the same index -- verify data is preserved after the failed reindex attempt
+        // ES does not support reindexing into the same index. This must surface as an explicit failure rather
+        // than a silent no-op, and must leave the data intact.
         var newIndex = new EmployeeIndexWithYearsEmployed(_configuration);
-        await newIndex.ReindexAsync(cancellationToken: TestCancellationToken);
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => newIndex.ReindexAsync(cancellationToken: TestCancellationToken));
+        Assert.Contains("cannot write into an index its reading from", exception.Reason);
 
         countResponse = await _client.CountAsync<Employee>(d => d.Indices(index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
@@ -71,23 +74,23 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     /// <summary>
-    /// A reindex that loses documents completes as an ordinary, non-exceptional call.
+    /// A reindex that loses documents must throw, and must not promote the alias to the short destination.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The destination is given a mapping that rejects half the source documents (<c>name</c> mapped as an
-    /// integer, so alphabetic names cannot be indexed). <c>_reindex</c> drops those documents and reports
-    /// them as failures, but <see cref="ElasticReindexer.ReindexAsync"/> returns normally, so a caller
-    /// (startup migration, queued handler, operator script) cannot distinguish this from success.
+    /// integer, so alphabetic names cannot be indexed). <c>_reindex</c> drops those documents and reports them
+    /// as failures. Before R3 this returned normally, so a caller - a startup migration, a queued handler, an
+    /// operator script - could not distinguish it from success.
     /// </para>
     /// <para>
     /// Asserts identities rather than a total, since a count cannot distinguish "all documents arrived" from
-    /// "the wrong documents arrived". The alias is not promoted here because the first pass reported
-    /// not-succeeded, so this pins the missing failure signal, not alias promotion.
+    /// "the wrong documents arrived", and asserts the alias still points at the source so reads are not
+    /// silently served from an incomplete index.
     /// </para>
     /// </remarks>
-    [Fact(Skip = "RED until throw-on-failure lands: a lossy reindex must not return normally.")]
-    public async Task ReindexAsync_WhenDocumentsFailToCopy_MustNotReportSuccess()
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentsFailToCopy_ThrowsAndLeavesAliasOnSource()
     {
         // Arrange
         const int totalEmployees = 20;
@@ -121,11 +124,18 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await version2Index.ConfigureAsync();
 
-        // Act: this must not silently succeed while losing documents.
-        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        // Act
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        // Assert: the exception names both indexes and says why, so an operator can act on it.
+        Assert.Equal(version1Index.VersionedName, exception.OldIndex);
+        Assert.Equal(version2Index.VersionedName, exception.NewIndex);
+        Assert.Contains("failed to copy", exception.Reason);
+
         await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
 
-        // Assert
+        // The alias must still serve the complete source, not the short destination.
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
@@ -134,8 +144,10 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var aliasTargets = aliasResponse.Values;
 #endif
         Assert.NotNull(aliasTargets);
-        bool aliasPromoted = aliasTargets.ContainsKey(version2Index.VersionedName);
+        Assert.DoesNotContain(version2Index.VersionedName, aliasTargets.Keys);
+        Assert.Contains(version1Index.VersionedName, aliasTargets.Keys);
 
+        // Read what actually arrived, so the assertions below are about identities rather than a count.
         var arrived = new HashSet<string>();
         var searchResponse = await _client.SearchAsync<Employee>(d => d
             .Indices(version2Index.VersionedName)
@@ -148,12 +160,143 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 arrived.Add(hit.Id);
         }
 
-        var missing = employees.Where(e => !arrived.Contains(e.Id)).ToList();
+        // The destination really is short - the exception is not a false alarm.
+        Assert.Contains(employees, e => !arrived.Contains(e.Id));
 
-        Assert.True(missing.Count is 0,
-            $"{missing.Count} of {totalEmployees} documents were lost during reindex, and ReindexAsync " +
-            $"reported no error. Alias '{version2Index.Name}' promoted to the incomplete destination: {aliasPromoted}. " +
-            $"First missing: {String.Join(", ", missing.Take(5).Select(e => e.Name))}");
+        // R7: the documents left behind are searchable in the failure index, so they can be found and replayed.
+        string failureIndex = ElasticReindexer.GetFailureIndexName(version2Index.VersionedName);
+        await _client.Indices.RefreshAsync((Indices)failureIndex, TestCancellationToken);
+        var failureResponse = await _client.SearchAsync<ReindexFailure>(d => d
+            .Indices(failureIndex)
+            .Size(totalEmployees * 2)
+            .Query(q => q.Term(tq => tq.Field("source_index").Value(version1Index.VersionedName))), TestCancellationToken);
+
+        Assert.True(failureResponse.IsValidResponse);
+        Assert.NotEmpty(failureResponse.Documents);
+        Assert.All(failureResponse.Documents, failure =>
+        {
+            Assert.NotNull(failure.Id);
+            Assert.DoesNotContain(failure.Id!, arrived);
+            Assert.NotNull(failure.Cause?.Type);
+        });
+    }
+
+    /// <summary>
+    /// A reindex whose script drops documents leaves the destination legitimately short, so it must complete
+    /// normally and keep the source rather than reporting data loss.
+    /// </summary>
+    /// <remarks>
+    /// This covers the count comparison running on a reindex with <c>DiscardIndexesOnReindex = false</c>. The
+    /// comparison used to live inside the delete branch, so this path was never checked at all; it now runs
+    /// but must only warn, since <c>ctx.op = 'noop'</c> is a documented, intentional way to drop documents.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenScriptDropsDocuments_CompletesAndKeepsSourceIndex()
+    {
+        // Arrange
+        const int totalEmployees = 10;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        // Drops every employee with an even age, so the destination is legitimately short of the source.
+        var version2Index = new VersionedEmployeeIndexWithDocumentDroppingScript(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = new List<Employee>(totalEmployees);
+        for (int i = 0; i < totalEmployees; i++)
+            employees.Add(EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString(), age: i));
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act: a deliberately lossy script is not a failure.
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // Assert: the destination is short, but the source was kept so nothing is unrecoverable.
+        var newCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(newCount.IsValidResponse);
+        Assert.Equal(totalEmployees / 2, newCount.Count);
+
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+
+        // The alias still moved, because the copy itself completed.
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+#if ELASTICSEARCH9
+        var aliasTargets = aliasResponse.Aliases;
+#else
+        var aliasTargets = aliasResponse.Values;
+#endif
+        Assert.NotNull(aliasTargets);
+        Assert.Contains(version2Index.VersionedName, aliasTargets.Keys);
+    }
+
+    /// <summary>
+    /// A document hard-deleted through the alias after the cutover leaves the destination short of the frozen
+    /// source, and that must not be reported as data loss.
+    /// </summary>
+    /// <remarks>
+    /// Regression guard: comparing live index document counts cannot establish completeness once the alias has
+    /// moved, because deletes land on the destination while the source still counts them. Throwing here would
+    /// tell callers to retry a reindex that would resurrect the deleted document.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentDeletedAfterCutover_DoesNotReportDataLoss()
+    {
+        // Arrange
+        const int totalEmployees = 5;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = EmployeeGenerator.GenerateEmployees(totalEmployees);
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Delete through the alias, which now points at the destination. The source is untouched, so a naive
+        // count comparison would see the destination as one document short.
+        IEmployeeRepository version2Repository = new EmployeeRepository(_configuration);
+        await version2Repository.RemoveAsync(employees.First(), o => o.ImmediateConsistency());
+
+        // A second reindex of the same versions is a no-op, but re-running the verification must still not
+        // report loss, and must not resurrect the deleted document.
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // Assert
+        var newCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(newCount.IsValidResponse);
+        Assert.Equal(totalEmployees - 1, newCount.Count);
+
+        var oldCount = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), TestCancellationToken);
+        Assert.True(oldCount.IsValidResponse);
+        Assert.Equal(totalEmployees, oldCount.Count);
+
+        // The deleted document must stay deleted.
+        Assert.Null(await version2Repository.GetByIdAsync(employees.First().Id));
     }
 
     [Fact]
@@ -257,7 +400,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
-        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        // The destination's mapping rejects the document, so the reindex must fail loudly rather than
+        // promoting the alias to an empty index.
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+        Assert.Contains("failed to copy", exception.Reason);
+
         await version2Index.Configuration.Client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
@@ -538,7 +686,11 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version22Scope = new(() => version22Index.DeleteAsync());
         await version22Index.ConfigureAsync();
-        await version22Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // The reindex script does not compile, so the copy must fail loudly and leave the alias on v1.
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version22Index.ReindexAsync(cancellationToken: TestCancellationToken));
+        Assert.Contains("script_exception", exception.Reason);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);

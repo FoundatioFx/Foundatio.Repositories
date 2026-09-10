@@ -395,6 +395,24 @@ public sealed class VersionedEmployeeIndexWithNestedFieldRename : VersionedIndex
     }
 }
 
+public sealed class VersionedEmployeeIndexWithDocumentDroppingScript : VersionedIndex<Employee>
+{
+    public VersionedEmployeeIndexWithDocumentDroppingScript(IElasticConfiguration configuration, int version)
+        : base(configuration, "employees", version)
+    {
+        AddReindexScript(version, """
+            if (ctx._source.age % 2 == 0) {
+                ctx.op = 'noop';
+            }
+            """);
+    }
+
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+    {
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+}
+
 public sealed class VersionedEmployeeIndexWithFieldRemove : VersionedIndex<Employee>
 {
     public VersionedEmployeeIndexWithFieldRemove(IElasticConfiguration configuration, int version)
