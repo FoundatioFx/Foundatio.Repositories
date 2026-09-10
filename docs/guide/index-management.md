@@ -443,6 +443,39 @@ Unlike a single `VersionedIndex<T>`, a `DailyIndex` / `MonthlyIndex` is **not** 
 
 Partitions already past `MaxIndexAge` are **skipped** (left for [retention/maintenance](#retention-policy-for-time-series-indexes) to clean up rather than reindexed).
 
+#### Cancelling a reindex
+
+`ReindexAsync` accepts a `CancellationToken`, so a long-running migration can be stopped when the host shuts down:
+
+```csharp
+await configuration.ReindexAsync(cancellationToken: stoppingToken);
+
+// Or for a single index:
+await auditIndex.ReindexAsync(cancellationToken: stoppingToken);
+```
+
+Cancellation is a throwing concept: the copy loop checks the token on every poll and raises `OperationCanceledException`, so a cancelled reindex **never** promotes a partially-copied index into the alias. The old index is left in place and untouched, which makes the operation safe to re-run: the next reindex resumes rather than starting over.
+
+::: warning Cancellation stops the client, not the server
+The copy runs server-side as an Elasticsearch `_reindex` task started with `wait_for_completion=false`. Cancelling the token abandons the client's *wait* and attempts to cancel the server task, but documents may continue to be written to the new index for a short period afterwards. Do not assume the destination is frozen the instant the token fires.
+:::
+
+#### Alias metadata survives the cutover
+
+The alias swap carries each alias's full definition across to the new index — `filter`, `index_routing`, `search_routing`, `is_write_index`, and `is_hidden` — rather than recreating it from its name alone.
+
+::: warning Filtered aliases
+If you use filtered aliases for tenant isolation, this matters: an alias recreated without its filter would match **every** document in the index, exposing data the alias existed to hide. If the alias list cannot be read, the reindex now throws a `RepositoryException` instead of continuing, because moving the primary alias without knowing what was on it risks exactly that exposure.
+:::
+
+#### Lock contention is not an error
+
+Only one reindex per alias runs at a time. If the lock cannot be acquired within the timeout — typically because another instance is already migrating that index — `ReindexAsync` logs a warning and returns without doing anything. It does not throw, since losing this race is expected in a multi-instance deployment.
+
+#### Version conflicts count as progress
+
+A reindex is abandoned if it reports no progress for too long (see [`ReindexAsync`](#reindexasync)). Progress for that stall check is measured by the number of documents Elasticsearch *examined*, which includes documents skipped as version conflicts — not just those it changed. A reindex replaying over a destination that already holds newer documents does real work while changing nothing, and would otherwise be misread as frozen and cancelled. The percentage reported to your progress callback still reflects only documents actually written.
+
 During the migration the umbrella alias (`audit`) transparently spans both already-migrated (v2) and not-yet-migrated (v1) partitions, so reads and writes keep working the entire time.
 
 ```mermaid

@@ -49,7 +49,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase
 
         _elasticsearchReady = true;
 
-        // Must run before RemoveDataAsync (or anything else) can issue a destructive request. See 1c.
+        // Must run before RemoveDataAsync (or anything else) can issue a destructive request.
         await DisposableClusterGuard.EnsureValidatedAsync(_client);
     }
 

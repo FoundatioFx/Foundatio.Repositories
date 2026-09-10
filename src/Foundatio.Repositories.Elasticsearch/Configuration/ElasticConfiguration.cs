@@ -42,7 +42,7 @@ public class ElasticConfiguration : IElasticConfiguration
     public const string ConfigureIndexesResourceName = "configure-indexes";
     private int _disposed;
 
-    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
+    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null, ILockProvider? lockProvider = null)
     {
         _workItemQueue = workItemQueue;
         TimeProvider = timeProvider ?? TimeProvider.System;
@@ -65,7 +65,7 @@ public class ElasticConfiguration : IElasticConfiguration
         _shouldDisposeMessageBus = messageBus is null;
         messageBus ??= new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         MessageBus = messageBus;
-        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+        _lockProvider = lockProvider ?? new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository?>(CreateCustomFieldDefinitionRepository);
@@ -246,7 +246,7 @@ public class ElasticConfiguration : IElasticConfiguration
         }
     }
 
-    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
+    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         if (indexes is null)
             indexes = Indexes;
@@ -268,12 +268,18 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             try
             {
-                await ResiliencePolicy.ExecuteAsync(async _ =>
+                await ResiliencePolicy.ExecuteAsync(async ct =>
                 {
                     await outdatedIndex.ReindexAsync((progress, message) =>
-                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask)
+                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, ct)
                         .AnyContext();
-                }).AnyContext();
+                }, cancellationToken).AnyContext();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The caller asked to stop. Swallowing this would log cancellation as a failure and then carry
+                // on reindexing the remaining indexes, so it has to propagate.
+                throw;
             }
             catch (Exception ex)
             {

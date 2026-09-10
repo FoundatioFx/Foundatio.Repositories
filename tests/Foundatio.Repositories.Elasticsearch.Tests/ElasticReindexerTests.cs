@@ -195,7 +195,7 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = requestsPerSecond };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = float.NaN };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexBatchSize = 0 };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = -1 };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -238,6 +238,6 @@ public sealed class ElasticReindexerTests
         var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentNullException>(() => reindexer.ReindexAsync(null!));
+        return Assert.ThrowsAsync<ArgumentNullException>(() => reindexer.ReindexAsync(null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 }

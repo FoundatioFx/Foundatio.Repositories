@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -215,11 +216,11 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion != Version)
         {
             indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
-            indexesToDelete.Add(String.Concat(Name, "-v", currentVersion, "-error"));
+            indexesToDelete.Add(ElasticReindexer.GetFailureIndexName(String.Concat(Name, "-v", currentVersion)));
         }
 
         indexesToDelete.Add(VersionedName);
-        indexesToDelete.Add(String.Concat(VersionedName, "-error"));
+        indexesToDelete.Add(ElasticReindexer.GetFailureIndexName(VersionedName));
         await DeleteIndexesAsync(indexesToDelete.ToArray()).AnyContext();
     }
 
@@ -262,22 +263,78 @@ public class VersionedIndex : Index, IVersionedIndex
         return sb.ToString();
     }
 
-    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    {
+        await using var lease = await TryAcquireReindexLeaseAsync().AnyContext();
+        if (lease is null)
+            return;
+
+        var reindexWorkItem = CreateReindexWorkItem(lease.CurrentVersion);
+
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
+        await reindexer.ReindexAsync(reindexWorkItem, CreateReindexProgressCallback(lease.Lock, progressCallbackAsync), cancellationToken).AnyContext();
+    }
+
+    /// <summary>
+    /// Holds the reindex lock together with the index version observed after the lock was taken.
+    /// </summary>
+    protected sealed class ReindexLease : IAsyncDisposable
+    {
+        public ReindexLease(ILock reindexLock, int currentVersion)
+        {
+            Lock = reindexLock;
+            CurrentVersion = currentVersion;
+        }
+
+        public ILock Lock { get; }
+        public int CurrentVersion { get; }
+
+        public ValueTask DisposeAsync() => Lock.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Acquires the reindex lock and re-reads the version under it, returning <c>null</c> when there is
+    /// nothing to do: the index is already current, or another migration holds the lock.
+    /// </summary>
+    /// <remarks>
+    /// The version is deliberately read twice. The first read avoids taking the lock at all in the common
+    /// no-op case; the second is the authoritative one, because another process may have completed the
+    /// migration while this one waited for the lock.
+    /// </remarks>
+    protected async Task<ReindexLease?> TryAcquireReindexLeaseAsync()
     {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
-            return;
+            return null;
 
         string lockKey = ElasticReindexer.GetLockName(Name);
-        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
+        var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
+
+        // AcquireAsync is declared as returning a non-nullable ILock but returns null when it times out,
+        // so this check cannot be dropped: without it a lost lock race is a NullReferenceException.
+        if (reindexLock is null)
+        {
+            _logger.LogWarning("Skipping reindex of {Index}: could not acquire lock {LockKey} within the timeout. Another migration is likely in progress.", Name, lockKey);
+            return null;
+        }
 
         currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
-            return;
+        {
+            await reindexLock.DisposeAsync().AnyContext();
+            return null;
+        }
 
-        var reindexWorkItem = CreateReindexWorkItem(currentVersion);
+        return new ReindexLease(reindexLock, currentVersion);
+    }
 
-        Func<int, string?, Task> wrappedCallback = async (progress, message) =>
+    /// <summary>
+    /// Wraps the caller's progress callback so the reindex lock is renewed on every progress report, which
+    /// is what keeps a migration longer than the lock's TTL from having the lock expire underneath it.
+    /// </summary>
+    protected Func<int, string?, Task> CreateReindexProgressCallback(ILock reindexLock, Func<int, string?, Task>? progressCallbackAsync)
+    {
+        return async (progress, message) =>
         {
             await reindexLock.RenewAsync().AnyContext();
 
@@ -290,9 +347,6 @@ public class VersionedIndex : Index, IVersionedIndex
                 _logger.LogInformation("Reindex Progress {Progress:F1}%: {Message}", progress, message);
             }
         };
-
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
-        await reindexer.ReindexAsync(reindexWorkItem, wrappedCallback).AnyContext();
     }
 
     public override async Task MaintainAsync(bool includeOptionalTasks = true)

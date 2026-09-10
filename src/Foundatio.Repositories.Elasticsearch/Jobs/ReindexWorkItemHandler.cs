@@ -35,6 +35,6 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         var workItem = context.GetData<ReindexWorkItem>();
         ArgumentNullException.ThrowIfNull(workItem);
 
-        return _reindexer.ReindexAsync(workItem, context.ReportProgressAsync);
+        return _reindexer.ReindexAsync(workItem, context.ReportProgressAsync, context.CancellationToken);
     }
 }

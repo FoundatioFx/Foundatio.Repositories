@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Caching;
@@ -68,5 +69,5 @@ public interface IElasticConfiguration : IDisposable
     Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null);
 
     /// <summary>Reindexes outdated versioned indexes to their latest version.</summary>
-    Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null);
+    Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default);
 }

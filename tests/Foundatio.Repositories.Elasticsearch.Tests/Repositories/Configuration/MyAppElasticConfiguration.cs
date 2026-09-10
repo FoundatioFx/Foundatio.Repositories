@@ -4,6 +4,7 @@ using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
+using Foundatio.Lock;
 using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -15,8 +16,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
 public class MyAppElasticConfiguration : ElasticConfiguration
 {
-    public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory)
-        : base(workItemQueue, cacheClient, messageBus, loggerFactory: loggerFactory)
+    public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory, ILockProvider? lockProvider = null)
+        : base(workItemQueue, cacheClient, messageBus, loggerFactory: loggerFactory, lockProvider: lockProvider)
     {
         AddIndex(Identities = new IdentityIndex(this));
         AddIndex(Employees = new EmployeeIndex(this));

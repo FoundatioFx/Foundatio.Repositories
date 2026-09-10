@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,10 +19,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 /// </summary>
 /// <remarks>
 /// Runs entirely against an in-memory transport. It never contacts a real cluster - demonstrating the
-/// guard by pointing it at an unrelated cluster would risk the exact data loss it prevents.
+/// guard by pointing it at an unrelated cluster would risk the exact data loss it prevents. The opt-in
+/// value is passed to <see cref="DisposableClusterGuard.ValidateAsync"/> directly, so these tests never
+/// mutate the process environment and cannot poison a concurrently-initializing integration suite.
 /// </remarks>
 public sealed class DisposableClusterGuardTests
 {
+    private const string MatchingMarker = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"foundatio-repositories-integration-tests"}}""";
+    private const string MissingMarker = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":false}""";
+
     /// <summary>Methods and endpoints that can destroy or overwrite data.</summary>
     private static readonly Regex _destructiveEndpoint = new(
         @"(_delete_by_query|_update_by_query|/_bulk|_forcemerge|_close|_aliases|_reindex|/_settings)",
@@ -34,19 +40,13 @@ public sealed class DisposableClusterGuardTests
     private static Dictionary<string, IEnumerable<string>> ProductHeaders() =>
         new() { ["x-elastic-product"] = ["Elasticsearch"] };
 
+    /// <summary>Builds a client whose canned responses are returned in order, recording every request.</summary>
     private static (ElasticsearchClient Client, ConcurrentQueue<string> Requests) CreateObservedClient(
-        int statusCode, string responseBody, string? optIn = DisposableClusterGuard.OptInValue)
+        params (int StatusCode, string Body)[] responses)
     {
-        Environment.SetEnvironmentVariable(DisposableClusterGuard.OptInVariable, optIn);
-
         var requests = new ConcurrentQueue<string>();
         var pool = new SingleNodePool(new Uri("http://in-memory.invalid:9200"));
-        var settings = new ElasticsearchClientSettings(pool, new InMemoryRequestInvoker(
-                responseBody: System.Text.Encoding.UTF8.GetBytes(responseBody),
-                statusCode: statusCode,
-                exception: null,
-                contentType: "application/json",
-                headers: ProductHeaders()))
+        var settings = new ElasticsearchClientSettings(pool, new SequencedRequestInvoker(responses))
             .DisableDirectStreaming()
             .OnRequestCompleted(details => requests.Enqueue($"{details.HttpMethod} {details.Uri?.AbsolutePath ?? "(no uri)"}"));
 
@@ -68,11 +68,12 @@ public sealed class DisposableClusterGuardTests
     public async Task ValidateAsync_WhenMarkerBelongsToSomethingElse_RefusesAndIssuesNoDestructiveRequest()
     {
         // Arrange: a cluster that is marked, but as someone else's.
-        var (client, requests) = CreateObservedClient(200,
-            """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"someone-elses-production-cluster"}}""");
+        var (client, requests) = CreateObservedClient(
+            (200, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"someone-elses-production-cluster"}}"""));
 
         // Act
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => DisposableClusterGuard.ValidateAsync(client, TestContext.Current.CancellationToken));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.ValidateAsync(client, DisposableClusterGuard.OptInValue, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.Contains("belongs to something else", ex.Message);
@@ -80,26 +81,21 @@ public sealed class DisposableClusterGuardTests
         AssertNoDestructiveRequests(requests);
     }
 
-    [Fact]
-    public async Task ValidateAsync_WhenMarkerAbsentAndClusterHasUserIndexes_RefusesAndIssuesNoDestructiveRequest()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("true")]
+    public async Task ValidateAsync_WhenClusterHasIndexesAndNoOptIn_RefusesAndIssuesNoDestructiveRequest(string? optIn)
     {
         // Arrange: unmarked cluster that already holds data, i.e. possibly a real environment.
         // The marker GET 404s, then the emptiness check returns existing indexes.
-        var requests = new ConcurrentQueue<string>();
-        Environment.SetEnvironmentVariable(DisposableClusterGuard.OptInVariable, DisposableClusterGuard.OptInValue);
-
-        var pool = new SingleNodePool(new Uri("http://in-memory.invalid:9200"));
-        var settings = new ElasticsearchClientSettings(pool, new SequencedRequestInvoker(
-            [
-                (404, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":false}"""),
-                (200, """{"customers":{"aliases":{},"mappings":{},"settings":{}},"orders":{"aliases":{},"mappings":{},"settings":{}}}""")
-            ]))
-            .DisableDirectStreaming()
-            .OnRequestCompleted(details => requests.Enqueue($"{details.HttpMethod} {details.Uri?.AbsolutePath ?? "(no uri)"}"));
-        var client = new ElasticsearchClient(settings);
+        var (client, requests) = CreateObservedClient(
+            (404, MissingMarker),
+            (200, """{"customers":{"aliases":{},"mappings":{},"settings":{}},"orders":{"aliases":{},"mappings":{},"settings":{}}}"""));
 
         // Act
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => DisposableClusterGuard.ValidateAsync(client, TestContext.Current.CancellationToken));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.ValidateAsync(client, optIn, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.Contains("may be a real environment", ex.Message);
@@ -108,13 +104,30 @@ public sealed class DisposableClusterGuardTests
     }
 
     [Fact]
+    public async Task ValidateAsync_WhenClusterHasIndexesAndOperatorOptedIn_AdoptsCluster()
+    {
+        // Arrange: same populated unmarked cluster, but the operator explicitly declared it disposable.
+        var (client, requests) = CreateObservedClient(
+            (404, MissingMarker),
+            (200, """{"customers":{"aliases":{},"mappings":{},"settings":{}}}"""),
+            (201, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","result":"created"}"""));
+
+        // Act
+        await DisposableClusterGuard.ValidateAsync(client, DisposableClusterGuard.OptInValue, TestContext.Current.CancellationToken);
+
+        // Assert: the override is the only thing that permits adopting a populated cluster.
+        AssertNoDestructiveRequests(requests);
+    }
+
+    [Fact]
     public async Task ValidateAsync_WhenMarkerUnreadable_FailsClosedAndIssuesNoDestructiveRequest()
     {
         // Arrange: the marker read fails outright, so the target cannot be verified either way.
-        var (client, requests) = CreateObservedClient(503, """{"error":{"reason":"cluster unavailable"}}""");
+        var (client, requests) = CreateObservedClient((503, """{"error":{"reason":"cluster unavailable"}}"""));
 
         // Act
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => DisposableClusterGuard.ValidateAsync(client, TestContext.Current.CancellationToken));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.ValidateAsync(client, DisposableClusterGuard.OptInValue, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.Contains("could not read the disposable-cluster marker", ex.Message);
@@ -122,38 +135,50 @@ public sealed class DisposableClusterGuardTests
         AssertNoDestructiveRequests(requests);
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("true")]
-    [InlineData("yes")]
-    public async Task ValidateAsync_WithoutExplicitOptIn_RefusesBeforeContactingTheCluster(string? optIn)
-    {
-        // Arrange
-        var (client, requests) = CreateObservedClient(200,
-            """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"foundatio-repositories-integration-tests"}}""",
-            optIn);
-
-        // Act
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => DisposableClusterGuard.ValidateAsync(client, TestContext.Current.CancellationToken));
-
-        // Assert: refused even though the cluster carries a valid marker, and refused without any request.
-        Assert.Contains("not explicitly declared disposable", ex.Message);
-        Assert.Empty(requests);
-    }
-
     [Fact]
-    public async Task ValidateAsync_WhenMarkerMatches_Succeeds()
+    public async Task ValidateAsync_WhenMarkerMatches_SucceedsWithoutOptIn()
     {
-        // Arrange
-        var (client, requests) = CreateObservedClient(200,
-            """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"foundatio-repositories-integration-tests"}}""");
+        // Arrange: an already-marked cluster needs no environment variable.
+        var (client, requests) = CreateObservedClient((200, MatchingMarker));
 
         // Act
-        await DisposableClusterGuard.ValidateAsync(client, TestContext.Current.CancellationToken);
+        await DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken);
 
         // Assert: a single read to confirm the marker, and nothing destructive.
         Assert.Single(requests);
+        AssertNoDestructiveRequests(requests);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenClusterIsEmpty_AdoptsWithoutOptIn()
+    {
+        // Arrange: a fresh cluster (e.g. a CI container). Empty means it cannot be someone's environment,
+        // which is what lets the suite run with no configuration.
+        var (client, requests) = CreateObservedClient(
+            (404, MissingMarker),
+            (200, "{}"),
+            (201, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","result":"created"}"""));
+
+        // Act
+        await DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken);
+
+        // Assert
+        AssertNoDestructiveRequests(requests);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenClusterHasOnlySystemIndexes_AdoptsWithoutOptIn()
+    {
+        // Arrange: dot-prefixed system indexes are Elasticsearch's own bookkeeping, not user data.
+        var (client, requests) = CreateObservedClient(
+            (404, MissingMarker),
+            (200, """{".security-7":{"aliases":{},"mappings":{},"settings":{}},".kibana_1":{"aliases":{},"mappings":{},"settings":{}}}"""),
+            (201, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","result":"created"}"""));
+
+        // Act
+        await DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken);
+
+        // Assert
         AssertNoDestructiveRequests(requests);
     }
 
@@ -167,7 +192,7 @@ public sealed class DisposableClusterGuardTests
         {
             _invokers = responses
                 .Select(r => new InMemoryRequestInvoker(
-                    System.Text.Encoding.UTF8.GetBytes(r.Body),
+                    Encoding.UTF8.GetBytes(r.Body),
                     r.StatusCode,
                     exception: null,
                     contentType: "application/json",

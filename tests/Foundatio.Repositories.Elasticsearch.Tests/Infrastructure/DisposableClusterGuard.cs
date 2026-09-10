@@ -22,9 +22,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 /// <para>
 /// Deliberately insufficient as evidence, because none of these distinguish a disposable cluster from
 /// an unrelated one on the same host: a recognizable hostname, a loopback address, a distinctive port,
-/// or <c>ELASTICSEARCH_URL</c> simply being set. Validation instead requires a positive provisioning
-/// marker stored in the cluster itself, and <b>fails closed</b> when that marker is absent, unreadable,
-/// or does not match.
+/// or <c>ELASTICSEARCH_URL</c> simply being set. Validation instead relies on a provisioning marker
+/// stored in the cluster itself, and <b>fails closed</b> when that marker is unreadable or belongs to
+/// someone else.
+/// </para>
+/// <para>
+/// An unmarked but <em>empty</em> cluster is adopted automatically, because an empty cluster cannot be
+/// someone's populated environment. That is what lets a fresh CI container work with no configuration.
+/// An unmarked cluster that already holds indexes is refused unless the operator explicitly overrides
+/// via <see cref="OptInVariable"/>, since that is the case that actually destroys data.
 /// </para>
 /// </remarks>
 public static class DisposableClusterGuard
@@ -38,7 +44,10 @@ public static class DisposableClusterGuard
     /// <summary>The marker value this suite requires. A different value means a different owner.</summary>
     public const string ExpectedPurpose = "foundatio-repositories-integration-tests";
 
-    /// <summary>Environment variable acknowledging that the target cluster is disposable.</summary>
+    /// <summary>
+    /// Environment variable that overrides the refusal to adopt a cluster which already holds indexes.
+    /// Not required for an empty cluster.
+    /// </summary>
     public const string OptInVariable = "FOUNDATIO_TEST_CLUSTER";
 
     /// <summary>Required value of <see cref="OptInVariable"/>.</summary>
@@ -58,15 +67,15 @@ public static class DisposableClusterGuard
         if (_validation is not null)
             return _validation;
 
-        return EnsureValidatedSlowAsync(client, cancellationToken);
+        return EnsureValidatedSlowAsync(client, Environment.GetEnvironmentVariable(OptInVariable), cancellationToken);
     }
 
-    private static async Task EnsureValidatedSlowAsync(ElasticsearchClient client, CancellationToken cancellationToken)
+    private static async Task EnsureValidatedSlowAsync(ElasticsearchClient client, string? optIn, CancellationToken cancellationToken)
     {
         await _validationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _validation ??= ValidateAsync(client, cancellationToken);
+            _validation ??= ValidateAsync(client, optIn, cancellationToken);
         }
         finally
         {
@@ -81,13 +90,15 @@ public static class DisposableClusterGuard
     /// used. Issues only read requests, plus a single marker write on a cluster it is allowed to provision.
     /// Never issues a destructive request.
     /// </summary>
-    public static async Task ValidateAsync(ElasticsearchClient client, CancellationToken cancellationToken = default)
+    /// <param name="client">Client pointed at the cluster to validate.</param>
+    /// <param name="optIn">
+    /// Value of <see cref="OptInVariable"/>. Passed in rather than read from the environment so this is a
+    /// pure function of its arguments and tests need not mutate process-global state.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the validation reads.</param>
+    public static async Task ValidateAsync(ElasticsearchClient client, string? optIn, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(client);
-
-        string? optIn = Environment.GetEnvironmentVariable(OptInVariable);
-        if (!String.Equals(optIn, OptInValue, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(BuildOptInMessage(optIn));
 
         var marker = await client.GetAsync<DisposableClusterMarker>(new GetRequest(MarkerIndex, MarkerId), cancellationToken).ConfigureAwait(false);
 
@@ -125,15 +136,16 @@ public static class DisposableClusterGuard
                 """);
         }
 
-        await ProvisionAsync(client, cancellationToken).ConfigureAwait(false);
+        await ProvisionAsync(client, optIn, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Writes the marker, but only onto a cluster holding no user indexes. An empty cluster cannot be
-    /// someone's populated environment, which is what makes self-provisioning safe here; adopting a
-    /// populated unmarked cluster is exactly the mistake this guard exists to prevent.
+    /// Writes the marker onto a cluster holding no user indexes. An empty cluster cannot be someone's
+    /// populated environment, which is what makes self-provisioning safe and lets a fresh CI container
+    /// work without configuration. Adopting a <em>populated</em> unmarked cluster is the mistake this
+    /// guard exists to prevent, so it requires an explicit <see cref="OptInVariable"/> override.
     /// </summary>
-    private static async Task ProvisionAsync(ElasticsearchClient client, CancellationToken cancellationToken)
+    private static async Task ProvisionAsync(ElasticsearchClient client, string? optIn, CancellationToken cancellationToken)
     {
         var existing = await client.Indices.GetAsync(Indices.Parse("*"), d => d.IgnoreUnavailable(), cancellationToken).ConfigureAwait(false);
         if (!existing.IsValidResponse)
@@ -153,7 +165,8 @@ public static class DisposableClusterGuard
             ? []
             : existing.Indices.Keys.Select(i => i.ToString()).Where(n => !String.IsNullOrEmpty(n) && !n.StartsWith('.')).ToList();
 
-        if (userIndexes.Count > 0)
+        bool operatorOverrode = String.Equals(optIn, OptInValue, StringComparison.OrdinalIgnoreCase);
+        if (userIndexes.Count > 0 && !operatorOverrode)
         {
             throw new InvalidOperationException(
                 $"""
@@ -161,7 +174,8 @@ public static class DisposableClusterGuard
 
                 First few: {String.Join(", ", userIndexes.Take(10))}
 
-                The suite only self-provisions a cluster that is empty. If this cluster really is disposable, add the marker explicitly:
+                Unmarked clusters are only adopted automatically when empty. If this cluster really is disposable, either
+                set {OptInVariable}={OptInValue} to acknowledge that every index in it may be deleted, or add the marker explicitly:
 
                 {BuildManualProvisioningHelp()}
                 """);
@@ -188,33 +202,10 @@ public static class DisposableClusterGuard
         }
     }
 
-    private static string BuildOptInMessage(string? actual) =>
-        $"""
-        Refusing to run destructive integration tests: the target cluster was not explicitly declared disposable.
-
-        Set {OptInVariable}={OptInValue} to acknowledge that every index in the target cluster may be deleted.
-
-        Current value: {(actual is null ? "(not set)" : $"'{actual}'")}
-
-        Note this variable is necessary but NOT sufficient - the cluster must also carry the provisioning marker
-        '{MarkerIndex}/{MarkerId}'. A loopback address, a familiar hostname, or a distinctive port is never accepted
-        as proof, because an unrelated cluster can be running on the same host.
-        """;
-
     private static string BuildManualProvisioningHelp() =>
         $$"""
         curl -XPUT "$ELASTICSEARCH_URL/{{MarkerIndex}}/_doc/{{MarkerId}}?refresh=true" \
              -H 'Content-Type: application/json' \
              -d '{"purpose":"{{ExpectedPurpose}}"}'
         """;
-}
-
-/// <summary>Provisioning marker identifying a cluster as disposable for this test suite.</summary>
-public sealed record DisposableClusterMarker
-{
-    /// <summary>Owner of the cluster. Must match <see cref="DisposableClusterGuard.ExpectedPurpose"/>.</summary>
-    public string Purpose { get; init; } = null!;
-
-    /// <summary>When the marker was written, for operator diagnostics only.</summary>
-    public string? CreatedUtc { get; init; }
 }

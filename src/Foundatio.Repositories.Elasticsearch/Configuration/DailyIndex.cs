@@ -5,13 +5,13 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
-using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -240,23 +240,17 @@ public class DailyIndex : VersionedIndex
         return DeleteIndexAsync($"{Name}-v*");
     }
 
-    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
-        int currentVersion = await GetCurrentVersionAsync().AnyContext();
-        if (currentVersion < 0 || currentVersion >= Version)
+        await using var lease = await TryAcquireReindexLeaseAsync().AnyContext();
+        if (lease is null)
             return;
 
-        string lockKey = ElasticReindexer.GetLockName(Name);
-        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
-
-        currentVersion = await GetCurrentVersionAsync().AnyContext();
-        if (currentVersion < 0 || currentVersion >= Version)
-            return;
-
-        var indexes = await GetIndexesAsync(currentVersion).AnyContext();
+        var indexes = await GetIndexesAsync(lease.CurrentVersion).AnyContext();
         if (indexes.Count == 0)
             return;
 
+        var progressCallback = CreateReindexProgressCallback(lease.Lock, progressCallbackAsync);
         var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
         foreach (var index in indexes)
         {
@@ -282,16 +276,8 @@ public class DailyIndex : VersionedIndex
             // attempt to create the index. If it exists the index will not be created.
             await CreateIndexAsync(reindexWorkItem.NewIndex, ConfigureIndex).AnyContext();
 
-            await reindexLock.RenewAsync().AnyContext();
-            await reindexer.ReindexAsync(reindexWorkItem, async (progress, message) =>
-            {
-                await reindexLock.RenewAsync().AnyContext();
-
-                if (progressCallbackAsync is not null)
-                    await progressCallbackAsync(progress, message).AnyContext();
-                else
-                    _logger.LogInformation("Reindex Progress {Progress:F1}%: {Message}", progress, message);
-            }).AnyContext();
+            await lease.Lock.RenewAsync().AnyContext();
+            await reindexer.ReindexAsync(reindexWorkItem, progressCallback, cancellationToken).AnyContext();
         }
     }
 

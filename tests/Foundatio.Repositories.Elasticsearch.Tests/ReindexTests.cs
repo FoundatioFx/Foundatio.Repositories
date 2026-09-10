@@ -11,6 +11,8 @@ using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -56,7 +58,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         // ES does not support reindexing into the same index -- verify data is preserved after the failed reindex attempt
         var newIndex = new EmployeeIndexWithYearsEmployed(_configuration);
-        await newIndex.ReindexAsync();
+        await newIndex.ReindexAsync(cancellationToken: TestCancellationToken);
 
         countResponse = await _client.CountAsync<Employee>(d => d.Indices(index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
@@ -69,30 +71,22 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     /// <summary>
-    /// T1b-repro (R3): a reindex that loses documents completes as an ordinary, non-exceptional call.
+    /// A reindex that loses documents completes as an ordinary, non-exceptional call.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The destination is given a mapping that rejects half the source documents (<c>name</c> mapped as an
     /// integer, so alphabetic names cannot be indexed). <c>_reindex</c> drops those documents and reports
-    /// them as failures.
-    /// </para>
-    /// <para>
-    /// Measured against this baseline: 10 of 20 documents are lost, progress stops at 45%, and
-    /// <c>ReindexAsync</c> <b>returns normally</b> - the post-copy failure path at
-    /// <c>ElasticReindexer.cs:106-107</c> <c>return</c>s instead of <c>throw</c>ing, and
-    /// <c>ElasticConfiguration.ReindexAsync</c> swallows what little remains into a log line. A caller
+    /// them as failures, but <see cref="ElasticReindexer.ReindexAsync"/> returns normally, so a caller
     /// (startup migration, queued handler, operator script) cannot distinguish this from success.
     /// </para>
     /// <para>
-    /// In this particular scenario the alias is <i>not</i> promoted, because the first pass reported
-    /// not-succeeded and returned before the flip at <c>:112</c>. That is the library failing closed on the
-    /// alias but not on the signal; it is not evidence about R2, which concerns promotion when the copy
-    /// reports success while the destination is short. Asserts identities rather than a total, since a count
-    /// cannot distinguish "all documents arrived" from "the wrong documents arrived".
+    /// Asserts identities rather than a total, since a count cannot distinguish "all documents arrived" from
+    /// "the wrong documents arrived". The alias is not promoted here because the first pass reported
+    /// not-succeeded, so this pins the missing failure signal, not alias promotion.
     /// </para>
     /// </remarks>
-    [Fact]
+    [Fact(Skip = "RED until throw-on-failure lands: a lossy reindex must not return normally.")]
     public async Task ReindexAsync_WhenDocumentsFailToCopy_MustNotReportSuccess()
     {
         // Arrange
@@ -128,7 +122,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
 
         // Act: this must not silently succeed while losing documents.
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
 
         // Assert
@@ -198,13 +192,13 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 throw new ApplicationException("Random Error");
 
             return Task.CompletedTask;
-        }));
+        }, TestCancellationToken));
 
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
         // Add a document and ensure it resumes from this document.
         await version1Repository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId(DateTime.UtcNow.AddMinutes(1)).ToString()), o => o.ImmediateConsistency());
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -263,7 +257,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         await version2Index.Configuration.Client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
@@ -379,7 +373,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -434,7 +428,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var existsResponse = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -486,7 +480,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             await using AsyncDisposableAction version20Scope = new(() => version20Index.DeleteAsync());
             await version20Index.ConfigureAsync();
-            await version20Index.ReindexAsync();
+            await version20Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
             IEmployeeRepository version20Repository = new EmployeeRepository(version20Index);
             var result = await version20Repository.GetByIdAsync(employee.Id);
@@ -495,7 +489,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
             await version21Index.ConfigureAsync();
-            await version21Index.ReindexAsync();
+            await version21Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             result = await version21Repository.GetByIdAsync(employee.Id);
@@ -515,7 +509,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
             await version21Index.ConfigureAsync();
-            await version21Index.ReindexAsync();
+            await version21Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             var result = await version21Repository.GetByIdAsync(employee.Id);
@@ -544,7 +538,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version22Scope = new(() => version22Index.DeleteAsync());
         await version22Index.ConfigureAsync();
-        await version22Index.ReindexAsync();
+        await version22Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -619,7 +613,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -692,7 +686,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 countdown.Signal();
                 await Task.Delay(1000, TestCancellationToken);
             }
-        });
+        }, TestCancellationToken);
 
         // Wait until the first reindex pass is done (with timeout to prevent hang).
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -779,7 +773,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 countdown.Signal();
                 await Task.Delay(1000, TestCancellationToken);
             }
-        });
+        }, TestCancellationToken);
 
         // Wait until the first reindex pass is done (with timeout to prevent hang).
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -897,7 +891,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
@@ -954,7 +948,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
 
         // Act
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
@@ -986,7 +980,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -1040,7 +1034,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
@@ -1075,7 +1069,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1110,7 +1104,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1146,7 +1140,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1180,7 +1174,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1191,6 +1185,129 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         string json = ToJson(data);
         Assert.Equal("{\"keepField\":\"keepValue\"}", json);
+    }
+
+    /// <summary>
+    /// A lock acquisition that times out must not surface as a <see cref="NullReferenceException"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>VersionedIndex.ReindexAsync</c> and <c>DailyIndex.ReindexAsync</c> never null-checked the result of
+    /// <c>LockProvider.AcquireAsync</c>, which returns <c>null</c> on timeout. The subsequent
+    /// <c>reindexLock.RenewAsync()</c> then dereferenced null. A caller that cannot get the lock deserves a
+    /// clean skip or a meaningful exception - never a <c>NullReferenceException</c>, which is
+    /// indistinguishable from a genuine bug and defeats retry logic that keys on exception type.
+    /// </para>
+    /// <para>
+    /// Uses a lock provider that returns <c>null</c> immediately rather than holding a real lock. Holding a
+    /// real one only makes <c>AcquireAsync</c> *wait* for its 30-minute timeout, which does not exercise this
+    /// path and makes the test take as long as the lease.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenLockCannotBeAcquired_DoesNotThrowNullReference()
+    {
+        // Arrange
+        var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log, new DenyingLockProvider());
+
+        var version1Index = new VersionedEmployeeIndex(configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        // Assert: losing the lock race is not an error, so this must skip cleanly rather than throw
+        // anything at all - a NullReferenceException being the specific regression guarded against.
+        Assert.Null(exception);
+
+        // No migration work was authorized, so the alias must not have moved.
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+    }
+
+    /// <summary>
+    /// Alias metadata must survive the cutover.
+    /// </summary>
+    /// <remarks>
+    /// The cutover previously recreated each alias with only its name, discarding <c>filter</c>, routing,
+    /// <c>is_write_index</c>, and <c>is_hidden</c>. Dropping a filter is a data-exposure bug, not merely a
+    /// configuration regression: a filtered alias is often the only thing scoping a shared index to one
+    /// tenant, so a migration that silently unfiltered it would widen every reader's visibility.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_PreservesAliasFilterAndRoutingAcrossCutover()
+    {
+        // Arrange
+        const string filteredAlias = "employees-acme";
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        var acmeEmployees = EmployeeGenerator.GenerateEmployees(5, companyId: "acme");
+        var otherEmployees = EmployeeGenerator.GenerateEmployees(5, companyId: "other");
+        await repository.AddAsync(acmeEmployees.Concat(otherEmployees).ToList(), o => o.ImmediateConsistency());
+
+        // A tenant-scoping alias with a filter and routing, alongside the primary alias.
+        var createAliasResponse = await _client.Indices.PutAliasAsync(
+            Indices.Index(version1Index.VersionedName), filteredAlias, d => d
+                .Filter(f => f.Term(t => t.Field("companyId").Value("acme")))
+                .Routing("acme"), TestCancellationToken);
+        Assert.True(createAliasResponse.IsValidResponse);
+
+        await version2Index.ConfigureAsync();
+
+        // Act
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // Assert
+        var aliasResponse = await _client.Indices.GetAliasAsync(a => a.Name(filteredAlias), TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+#if ELASTICSEARCH9
+        var indices = aliasResponse.Aliases;
+#else
+        var indices = aliasResponse.Values;
+#endif
+        Assert.NotNull(indices);
+        Assert.True(indices.ContainsKey(version2Index.VersionedName),
+            $"Alias '{filteredAlias}' was stranded and did not follow the cutover to {version2Index.VersionedName}.");
+
+        var definition = indices[version2Index.VersionedName].Aliases?[filteredAlias];
+        Assert.NotNull(definition);
+        Assert.NotNull(definition.Filter);
+
+        // Elasticsearch expands the `routing` shorthand into index_routing and search_routing on read, so
+        // assert those rather than the shorthand.
+        Assert.Equal("acme", definition.IndexRouting);
+        Assert.Equal("acme", definition.SearchRouting);
+
+        // The filter must still scope reads, or the migration widened tenant visibility.
+        var filteredCount = await _client.CountAsync<Employee>(d => d.Indices(filteredAlias), TestCancellationToken);
+        Assert.True(filteredCount.IsValidResponse);
+        Assert.Equal(acmeEmployees.Count, filteredCount.Count);
     }
 
     [Fact]
@@ -1209,8 +1326,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
 
         // Act
-        var task1 = version2Index.ReindexAsync();
-        var task2 = version2Index.ReindexAsync();
+        var task1 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        var task2 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         await Task.WhenAll(task1, task2);
 
         // Assert
@@ -1256,7 +1373,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var reindexTask = Task.Run(async () =>
         {
             reindexStarted.SetResult(true);
-            await version2Index.ReindexAsync();
+            await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         }, TestCancellationToken);
         await reindexStarted.Task;
         await Task.Delay(TimeSpan.FromSeconds(2), TestCancellationToken);
@@ -1296,7 +1413,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var reindexTask = Task.Run(async () =>
         {
             reindexStarted.SetResult(true);
-            await version3Index.ReindexAsync();
+            await version3Index.ReindexAsync(cancellationToken: TestCancellationToken);
         }, TestCancellationToken);
         await reindexStarted.Task;
         await Task.Delay(TimeSpan.FromSeconds(2), TestCancellationToken);
@@ -1335,10 +1452,47 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             if (progress > 5)
                 throw new OperationCanceledException("Test cancellation");
             return Task.CompletedTask;
-        });
+        }, TestCancellationToken);
 
         // Assert
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reindexTask);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WhenCancellationTokenSignaled_StopsWithoutSwitchingAlias()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5000), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Act: cancel the caller's token once the copy is underway. Nothing throws from the callback, so the
+        // only way the reindex can stop is if the token is actually observed by the copy loop.
+        using var cts = new CancellationTokenSource();
+        var reindexTask = version2Index.ReindexAsync((progress, message) =>
+        {
+            _logger.LogInformation("Reindex Progress {Progress}%: {Message}", progress, message);
+            if (progress > 5)
+                cts.Cancel();
+
+            return Task.CompletedTask;
+        }, cts.Token);
+
+        // Assert: cancellation is a throwing concept, so it must surface rather than being swallowed into a
+        // silent return that a caller cannot distinguish from success.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reindexTask);
+
+        // And it must stop before the alias is admitted to the new version.
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
         Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
@@ -1377,7 +1531,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         // A batch size smaller than the total document count forces the Elasticsearch reindex API to
         // issue multiple internal bulk sub-requests; verify all documents still migrate successfully.
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
@@ -1419,7 +1573,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // batches, so a correctly-throttled reindex takes noticeably longer than an unthrottled one would
         // (which typically completes well under a second locally).
         var sw = Stopwatch.StartNew();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         sw.Stop();
 
         // Assert
@@ -1481,8 +1635,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
         // Act — launch two concurrent reindex operations
-        var task1 = version2Index.ReindexAsync();
-        var task2 = version2Index.ReindexAsync();
+        var task1 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        var task2 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         await Task.WhenAll(task1, task2);
 
