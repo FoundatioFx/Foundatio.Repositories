@@ -68,6 +68,100 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(employee.Id, result.Id);
     }
 
+    /// <summary>
+    /// T1b-repro (R3): a reindex that loses documents completes as an ordinary, non-exceptional call.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The destination is given a mapping that rejects half the source documents (<c>name</c> mapped as an
+    /// integer, so alphabetic names cannot be indexed). <c>_reindex</c> drops those documents and reports
+    /// them as failures.
+    /// </para>
+    /// <para>
+    /// Measured against this baseline: 10 of 20 documents are lost, progress stops at 45%, and
+    /// <c>ReindexAsync</c> <b>returns normally</b> - the post-copy failure path at
+    /// <c>ElasticReindexer.cs:106-107</c> <c>return</c>s instead of <c>throw</c>ing, and
+    /// <c>ElasticConfiguration.ReindexAsync</c> swallows what little remains into a log line. A caller
+    /// (startup migration, queued handler, operator script) cannot distinguish this from success.
+    /// </para>
+    /// <para>
+    /// In this particular scenario the alias is <i>not</i> promoted, because the first pass reported
+    /// not-succeeded and returned before the flip at <c>:112</c>. That is the library failing closed on the
+    /// alias but not on the signal; it is not evidence about R2, which concerns promotion when the copy
+    /// reports success while the destination is short. Asserts identities rather than a total, since a count
+    /// cannot distinguish "all documents arrived" from "the wrong documents arrived".
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentsFailToCopy_MustNotReportSuccess()
+    {
+        // Arrange
+        const int totalEmployees = 20;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        // The destination maps `name` as an integer, so alphabetic names cannot be indexed there.
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2, null,
+            m => m.Properties(p => p.IntegerNumber(e => e.Name!)));
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = new List<Employee>(totalEmployees);
+        for (int i = 0; i < totalEmployees; i++)
+        {
+            // Half get numeric names (which the destination accepts), half alphabetic (which it rejects).
+            string name = i % 2 is 0 ? i.ToString() : $"employee-{i:D3}";
+            employees.Add(EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString(), name: name));
+        }
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Act: this must not silently succeed while losing documents.
+        await version2Index.ReindexAsync();
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // Assert
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+#if ELASTICSEARCH9
+        var aliasTargets = aliasResponse.Aliases;
+#else
+        var aliasTargets = aliasResponse.Values;
+#endif
+        Assert.NotNull(aliasTargets);
+        bool aliasPromoted = aliasTargets.ContainsKey(version2Index.VersionedName);
+
+        var arrived = new HashSet<string>();
+        var searchResponse = await _client.SearchAsync<Employee>(d => d
+            .Indices(version2Index.VersionedName)
+            .Size(totalEmployees * 2)
+            .Query(q => q.MatchAll(_ => { })), TestCancellationToken);
+        Assert.True(searchResponse.IsValidResponse);
+        foreach (var hit in searchResponse.Hits)
+        {
+            if (hit.Id is not null)
+                arrived.Add(hit.Id);
+        }
+
+        var missing = employees.Where(e => !arrived.Contains(e.Id)).ToList();
+
+        Assert.True(missing.Count is 0,
+            $"{missing.Count} of {totalEmployees} documents were lost during reindex, and ReindexAsync " +
+            $"reported no error. Alias '{version2Index.Name}' promoted to the incomplete destination: {aliasPromoted}. " +
+            $"First missing: {String.Join(", ", missing.Take(5).Select(e => e.Name))}");
+    }
+
     [Fact]
     public async Task CanResumeReindexAsync()
     {
