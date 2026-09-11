@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,8 +30,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 /// <para>
 /// An unmarked but <em>empty</em> cluster is adopted automatically, because an empty cluster cannot be
 /// someone's populated environment. That is what lets a fresh CI container work with no configuration.
-/// An unmarked cluster that already holds indexes is refused unless the operator explicitly overrides
-/// via <see cref="OptInVariable"/>, since that is the case that actually destroys data.
+/// An unmarked cluster that already holds indexes is refused unless <see cref="OptInVariable"/> is set to
+/// that cluster's own <c>cluster_name</c>, since that is the case that actually destroys data. The opt-in
+/// names the cluster it approves rather than being a blanket flag, because a blanket value stays set in a
+/// shell or CI profile and then authorizes whatever cluster the tests happen to reach next.
 /// </para>
 /// </remarks>
 public static class DisposableClusterGuard
@@ -45,13 +48,11 @@ public static class DisposableClusterGuard
     public const string ExpectedPurpose = "foundatio-repositories-integration-tests";
 
     /// <summary>
-    /// Environment variable that overrides the refusal to adopt a cluster which already holds indexes.
-    /// Not required for an empty cluster.
+    /// Environment variable that overrides the refusal to adopt a cluster which already holds indexes. Its
+    /// value must be the target cluster's own <c>cluster_name</c>, so approving one cluster never silently
+    /// approves a different one. Not required for an empty cluster.
     /// </summary>
     public const string OptInVariable = "FOUNDATIO_TEST_CLUSTER";
-
-    /// <summary>Required value of <see cref="OptInVariable"/>.</summary>
-    public const string OptInValue = "disposable";
 
     private static readonly SemaphoreSlim _validationLock = new(1, 1);
     private static Task? _validation;
@@ -143,7 +144,7 @@ public static class DisposableClusterGuard
     /// Writes the marker onto a cluster holding no user indexes. An empty cluster cannot be someone's
     /// populated environment, which is what makes self-provisioning safe and lets a fresh CI container
     /// work without configuration. Adopting a <em>populated</em> unmarked cluster is the mistake this
-    /// guard exists to prevent, so it requires an explicit <see cref="OptInVariable"/> override.
+    /// guard exists to prevent, so it requires <see cref="OptInVariable"/> to name that specific cluster.
     /// </summary>
     private static async Task ProvisionAsync(ElasticsearchClient client, string? optIn, CancellationToken cancellationToken)
     {
@@ -165,21 +166,8 @@ public static class DisposableClusterGuard
             ? []
             : existing.Indices.Keys.Select(i => i.ToString()).Where(n => !String.IsNullOrEmpty(n) && !n.StartsWith('.')).ToList();
 
-        bool operatorOverrode = String.Equals(optIn, OptInValue, StringComparison.OrdinalIgnoreCase);
-        if (userIndexes.Count > 0 && !operatorOverrode)
-        {
-            throw new InvalidOperationException(
-                $"""
-                Refusing to run destructive integration tests: the target cluster has no disposable marker and already holds {userIndexes.Count} user index(es), so it may be a real environment.
-
-                First few: {String.Join(", ", userIndexes.Take(10))}
-
-                Unmarked clusters are only adopted automatically when empty. If this cluster really is disposable, either
-                set {OptInVariable}={OptInValue} to acknowledge that every index in it may be deleted, or add the marker explicitly:
-
-                {BuildManualProvisioningHelp()}
-                """);
-        }
+        if (userIndexes.Count > 0)
+            await RequireOptInNamingThisClusterAsync(client, optIn, userIndexes, cancellationToken).ConfigureAwait(false);
 
         var marker = new DisposableClusterMarker
         {
@@ -200,6 +188,57 @@ public static class DisposableClusterGuard
                 {BuildManualProvisioningHelp()}
                 """);
         }
+    }
+
+    /// <summary>
+    /// Requires the operator's opt-in to name the cluster it is approving.
+    /// </summary>
+    /// <remarks>
+    /// A blanket value like <c>disposable</c> is not enough: it stays set in a shell or CI profile and then
+    /// authorizes whatever cluster the tests happen to reach next, which is precisely how an unrelated cluster
+    /// gets adopted. Tying the value to <c>cluster_name</c> makes the approval specific to one target. The
+    /// cluster name is read only on this path, so the common cases cost no extra request, and an unreadable
+    /// name fails closed.
+    /// </remarks>
+    private static async Task RequireOptInNamingThisClusterAsync(ElasticsearchClient client, string? optIn, List<string> userIndexes, CancellationToken cancellationToken)
+    {
+        var info = await client.InfoAsync(cancellationToken).ConfigureAwait(false);
+        string? clusterName = info.IsValidResponse ? info.ClusterName : null;
+
+        if (String.IsNullOrEmpty(clusterName))
+        {
+            throw new InvalidOperationException(
+                $"""
+                Refusing to run destructive integration tests: the target cluster has no disposable marker, already holds {userIndexes.Count} user index(es), and its cluster name could not be read, so the opt-in cannot be verified against it.
+
+                Status : {info.ApiCallDetails?.HttpStatusCode.ToString() ?? "(no response)"}
+                Error  : {info.ElasticsearchServerError?.Error?.Reason ?? info.ApiCallDetails?.OriginalException?.Message ?? "unknown"}
+
+                {BuildManualProvisioningHelp()}
+                """);
+        }
+
+        if (String.Equals(optIn, clusterName, StringComparison.Ordinal))
+            return;
+
+        throw new InvalidOperationException(
+            $"""
+            Refusing to run destructive integration tests: the target cluster has no disposable marker and already holds {userIndexes.Count} user index(es), so it may be a real environment.
+
+            Cluster name : {clusterName}
+            First few    : {String.Join(", ", userIndexes.Take(10))}
+            {OptInVariable} : {(String.IsNullOrEmpty(optIn) ? "(not set)" : optIn)}
+
+            Unmarked clusters are only adopted automatically when empty. The opt-in must name the cluster it
+            approves, so that approving one cluster cannot later authorize a different one. If this cluster
+            really is disposable and every index in it may be deleted, set:
+
+            {OptInVariable}={clusterName}
+
+            Or add the marker explicitly:
+
+            {BuildManualProvisioningHelp()}
+            """);
     }
 
     private static string BuildManualProvisioningHelp() =>

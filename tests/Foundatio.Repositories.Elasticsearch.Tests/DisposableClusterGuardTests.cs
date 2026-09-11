@@ -28,6 +28,19 @@ public sealed class DisposableClusterGuardTests
     private const string MatchingMarker = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"foundatio-repositories-integration-tests"}}""";
     private const string MissingMarker = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":false}""";
 
+    /// <summary>Name of the cluster the populated-cluster fixtures below report from <c>GET /</c>.</summary>
+    private const string ClusterName = "some-disposable-cluster";
+
+    /// <summary>A populated cluster's index list, i.e. the case the opt-in gates.</summary>
+    private const string PopulatedIndexes = """{"customers":{"aliases":{},"mappings":{},"settings":{}},"orders":{"aliases":{},"mappings":{},"settings":{}}}""";
+
+    /// <summary>Minimal <c>GET /</c> body, which is where the guard reads the cluster name from.</summary>
+    private const string ClusterInfo = $$"""
+        {"name":"node-1","cluster_name":"{{ClusterName}}","cluster_uuid":"abc123","version":{"number":"9.5.0","build_flavor":"default","build_type":"docker","build_hash":"deadbeef","build_date":"2026-01-01T00:00:00.000Z","build_snapshot":false,"lucene_version":"10.0.0","minimum_wire_compatibility_version":"8.19.0","minimum_index_compatibility_version":"8.0.0"},"tagline":"You Know, for Search"}
+        """;
+
+    private const string MarkerWritten = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","result":"created"}""";
+
     /// <summary>Methods and endpoints that can destroy or overwrite data.</summary>
     private static readonly Regex _destructiveEndpoint = new(
         @"(_delete_by_query|_update_by_query|/_bulk|_forcemerge|_close|_aliases|_reindex|/_settings)",
@@ -73,7 +86,7 @@ public sealed class DisposableClusterGuardTests
 
         // Act
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => DisposableClusterGuard.ValidateAsync(client, DisposableClusterGuard.OptInValue, TestContext.Current.CancellationToken));
+            () => DisposableClusterGuard.ValidateAsync(client, ClusterName, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.Contains("belongs to something else", ex.Message);
@@ -85,13 +98,17 @@ public sealed class DisposableClusterGuardTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("true")]
-    public async Task ValidateAsync_WhenClusterHasIndexesAndNoOptIn_RefusesAndIssuesNoDestructiveRequest(string? optIn)
+    [InlineData("disposable")]
+    [InlineData("a-different-cluster")]
+    public async Task ValidateAsync_WhenClusterHasIndexesAndOptInDoesNotNameIt_RefusesAndIssuesNoDestructiveRequest(string? optIn)
     {
-        // Arrange: unmarked cluster that already holds data, i.e. possibly a real environment.
-        // The marker GET 404s, then the emptiness check returns existing indexes.
+        // Arrange: unmarked cluster that already holds data, i.e. possibly a real environment. The marker GET
+        // 404s, the emptiness check returns existing indexes, then the cluster name is read to check the opt-in.
+        // "disposable" is included because a blanket flag left set in a shell is exactly what must not pass.
         var (client, requests) = CreateObservedClient(
             (404, MissingMarker),
-            (200, """{"customers":{"aliases":{},"mappings":{},"settings":{}},"orders":{"aliases":{},"mappings":{},"settings":{}}}"""));
+            (200, PopulatedIndexes),
+            (200, ClusterInfo));
 
         // Act
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -100,22 +117,43 @@ public sealed class DisposableClusterGuardTests
         // Assert
         Assert.Contains("may be a real environment", ex.Message);
         Assert.Contains("customers", ex.Message);
+        Assert.Contains($"{DisposableClusterGuard.OptInVariable}={ClusterName}", ex.Message);
         AssertNoDestructiveRequests(requests);
     }
 
     [Fact]
-    public async Task ValidateAsync_WhenClusterHasIndexesAndOperatorOptedIn_AdoptsCluster()
+    public async Task ValidateAsync_WhenClusterHasIndexesAndOptInNamesThisCluster_AdoptsCluster()
     {
-        // Arrange: same populated unmarked cluster, but the operator explicitly declared it disposable.
+        // Arrange: same populated unmarked cluster, but the operator named this specific cluster.
         var (client, requests) = CreateObservedClient(
             (404, MissingMarker),
-            (200, """{"customers":{"aliases":{},"mappings":{},"settings":{}}}"""),
-            (201, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","result":"created"}"""));
+            (200, PopulatedIndexes),
+            (200, ClusterInfo),
+            (201, MarkerWritten));
 
         // Act
-        await DisposableClusterGuard.ValidateAsync(client, DisposableClusterGuard.OptInValue, TestContext.Current.CancellationToken);
+        await DisposableClusterGuard.ValidateAsync(client, ClusterName, TestContext.Current.CancellationToken);
 
-        // Assert: the override is the only thing that permits adopting a populated cluster.
+        // Assert: naming the cluster is the only thing that permits adopting a populated one.
+        AssertNoDestructiveRequests(requests);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenClusterHasIndexesAndClusterNameUnreadable_FailsClosed()
+    {
+        // Arrange: the opt-in cannot be checked against a cluster whose name will not read, so refuse rather
+        // than fall back to accepting the value on faith.
+        var (client, requests) = CreateObservedClient(
+            (404, MissingMarker),
+            (200, PopulatedIndexes),
+            (503, """{"error":{"reason":"cluster unavailable"}}"""));
+
+        // Act
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.ValidateAsync(client, ClusterName, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Contains("cluster name could not be read", ex.Message);
         AssertNoDestructiveRequests(requests);
     }
 
@@ -127,7 +165,7 @@ public sealed class DisposableClusterGuardTests
 
         // Act
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => DisposableClusterGuard.ValidateAsync(client, DisposableClusterGuard.OptInValue, TestContext.Current.CancellationToken));
+            () => DisposableClusterGuard.ValidateAsync(client, ClusterName, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.Contains("could not read the disposable-cluster marker", ex.Message);
@@ -157,7 +195,7 @@ public sealed class DisposableClusterGuardTests
         var (client, requests) = CreateObservedClient(
             (404, MissingMarker),
             (200, "{}"),
-            (201, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","result":"created"}"""));
+            (201, MarkerWritten));
 
         // Act
         await DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken);
@@ -173,7 +211,7 @@ public sealed class DisposableClusterGuardTests
         var (client, requests) = CreateObservedClient(
             (404, MissingMarker),
             (200, """{".security-7":{"aliases":{},"mappings":{},"settings":{}},".kibana_1":{"aliases":{},"mappings":{},"settings":{}}}"""),
-            (201, """{"_index":"foundatio-disposable-test-cluster","_id":"marker","result":"created"}"""));
+            (201, MarkerWritten));
 
         // Act
         await DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken);
