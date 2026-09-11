@@ -12,8 +12,8 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// destination that may be missing documents.
 /// <para>
 /// The old index is always left in place when this is thrown, so nothing is lost and the operation can be
-/// retried. A retry resumes from where the previous attempt got to when the index has a timestamp field or
-/// ObjectId-format ids; otherwise it re-copies from the beginning. A retry cannot help when the cause is
+/// retried. A retry recopies the source from the beginning; because reindex writes by document id, that
+/// converges on a complete replica rather than duplicating. A retry cannot help when the cause is
 /// deterministic, such as documents the destination's mapping rejects.
 /// </para>
 /// <para>

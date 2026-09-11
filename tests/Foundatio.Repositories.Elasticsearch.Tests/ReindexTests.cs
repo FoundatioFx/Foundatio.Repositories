@@ -301,6 +301,98 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Null(await version2Repository.GetByIdAsync(employees.First().Id));
     }
 
+    /// <summary>
+    /// A destination that already holds the <em>newest</em> documents must still receive the older ones.
+    /// </summary>
+    /// <remarks>
+    /// This pins down the resume behaviour that caused the original data loss. Progress used to be inferred by
+    /// reading the newest timestamp already in the destination and then copying only documents at or after it.
+    /// Elasticsearch copies in unordered doc order, so a first pass that was interrupted leaves an arbitrary
+    /// subset behind - and if that subset happens to include the newest document, the watermark concludes there
+    /// is nothing older left to copy. The correct fail-safe is to recopy everything: the source is the source of
+    /// truth, and reindex overwrites by document id, so a full recopy is idempotent.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDestinationAlreadyHasTheNewestDocuments_StillCopiesTheOlderOnes()
+    {
+        // Arrange - 50 documents with strictly increasing ids/timestamps in v1
+        const int totalEmployees = 50;
+        const int preSeededCount = 5;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = new List<Employee>(totalEmployees);
+        var baseUtc = DateTime.UtcNow.AddHours(-totalEmployees);
+        for (int i = 0; i < totalEmployees; i++)
+        {
+            var createdUtc = baseUtc.AddHours(i);
+            employees.Add(EmployeeGenerator.Generate(id: ObjectId.GenerateNewId(createdUtc).ToString(), createdUtc: createdUtc));
+        }
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Simulate an interrupted first pass that happened to copy only the newest documents. A timestamp
+        // watermark reading the destination would see the very newest document and copy nothing older.
+        var newest = employees.OrderByDescending(e => e.CreatedUtc).Take(preSeededCount).ToList();
+        var seedResponse = await _client.BulkAsync(b => b
+            .Index(version2Index.VersionedName)
+            .IndexMany(newest, (d, e) => d.Id(e.Id)), TestCancellationToken);
+        _logger.LogRequest(seedResponse);
+        Assert.False(seedResponse.Errors);
+
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, TestCancellationToken);
+        var seededCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.Equal(preSeededCount, seededCount.Count);
+
+        // Act
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Assert - every document made it, not just the ones newer than the pre-seeded watermark
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, TestCancellationToken);
+        var finalCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(finalCount);
+        Assert.True(finalCount.IsValidResponse);
+        Assert.Equal(totalEmployees, finalCount.Count);
+
+        // And specifically the oldest document, which a watermark would have skipped
+        var oldest = employees.OrderBy(e => e.CreatedUtc).First();
+        var oldestResponse = await _client.GetAsync<Employee>(oldest.Id, d => d.Index(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(oldestResponse);
+        Assert.True(oldestResponse.Found);
+    }
+
+    /// <summary>
+    /// A reindex interrupted before the cutover must leave the alias on the old index, and a retry must
+    /// converge on the full document set including documents added in between.
+    /// </summary>
+    /// <remarks>
+    /// The interrupt is taken at progress 90, which is emitted when the first pass finishes copying but before
+    /// the alias is switched. That value is deterministic; an earlier one is not, because a copy this small can
+    /// complete between two status polls, so a test that threw at "some progress below 90" would silently stop
+    /// interrupting anything. Throwing at 91 - as this test used to - is worse still: the cutover decision has
+    /// already been made by then.
+    /// <para>
+    /// The document added before the retry is back-dated rather than future-dated. A future-dated document is
+    /// the one case a destination-timestamp watermark handles correctly, so dating it in the past is what makes
+    /// the retry prove older documents are not skipped. The genuinely partial destination is covered
+    /// deterministically by <see cref="ReindexAsync_WhenDestinationAlreadyHasTheNewestDocuments_StillCopiesTheOlderOnes"/>,
+    /// which pre-seeds only the newest documents instead of relying on interrupt timing.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task CanResumeReindexAsync()
     {
@@ -329,20 +421,25 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
-        // Throw error before second repass.
+        // Interrupt when the first pass has finished copying but before the alias is switched.
         await Assert.ThrowsAsync<ApplicationException>(async () => await version2Index.ReindexAsync((progress, message) =>
         {
-            _logger.LogInformation("Reindex Progress {0}%: {1}", progress, message);
-            if (progress == 91)
+            _logger.LogInformation("Reindex Progress {Progress}%: {Message}", progress, message);
+            if (progress is 90)
                 throw new ApplicationException("Random Error");
 
             return Task.CompletedTask;
         }, TestCancellationToken));
 
+        // The interrupted attempt must not have promoted the incomplete destination.
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
-        // Add a document and ensure it resumes from this document.
-        await version1Repository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId(DateTime.UtcNow.AddMinutes(1)).ToString()), o => o.ImmediateConsistency());
+        // Back-dated on purpose: it sorts *older* than everything already copied, so a resume that trusted the
+        // destination's newest timestamp would skip it.
+        await version1Repository.AddAsync(
+            EmployeeGenerator.Generate(ObjectId.GenerateNewId(DateTime.UtcNow.AddMinutes(-30)).ToString()),
+            o => o.ImmediateConsistency());
+
         await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);

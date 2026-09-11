@@ -296,13 +296,12 @@ public class ElasticReindexer
     private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int startProgress, int endProgress, DateTime? startTime, CancellationToken cancellationToken)
     {
         // Refresh before reading. Elasticsearch only makes writes visible to search once they are
-        // refreshed (every second by default, and not at all for an index with no active searches). Both the
-        // copy's source query and the resume watermark's read of the destination are searches, so without
-        // this the copy can silently skip documents that were already written and the watermark can resume
-        // from a stale position. This runs for every pass, not just the catch-up pass.
+        // refreshed (every second by default, and not at all for an index with no active searches). The copy's
+        // source query is a search, so without this the copy can silently skip documents that were already
+        // written. This runs for every pass, not just the catch-up pass.
         await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
 
-        var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime, cancellationToken).AnyContext();
+        var query = GetResumeQuery(workItem.TimestampField, startTime);
 
         var result = await _resiliencePolicy.ExecuteAsync(async ct =>
         {
@@ -796,21 +795,33 @@ public class ElasticReindexer
         static Routing? ToRouting(string? value) => value is null ? null : new Routing(value);
     }
 
-    private async Task<Query?> GetResumeQueryAsync(string newIndex, string? timestampField, DateTime? startTime, CancellationToken cancellationToken)
+    /// <summary>
+    /// Builds the source query for a copy pass, or <c>null</c> to copy every document.
+    /// </summary>
+    /// <remarks>
+    /// A pass is only ever narrowed by an <em>explicit</em> start time: <see cref="ReindexWorkItem.StartUtc"/>
+    /// from the caller, or the timestamp the copy began at for the catch-up pass. It is deliberately never
+    /// narrowed by inspecting the destination.
+    /// <para>
+    /// Progress used to be inferred by reading the newest timestamp already present in the destination and
+    /// copying only documents at or after it. That is unsound, and it is the cause of the silent data loss this
+    /// class was rewritten to prevent: Elasticsearch reindex copies in unordered doc order, so an interrupted
+    /// pass leaves an arbitrary subset behind. If that subset happened to include the newest document, the
+    /// watermark concluded there was nothing older left to copy and the run "succeeded" against a destination
+    /// missing most of its documents. Sorting the copy is not a workaround either - reindex sort was deprecated
+    /// in 7.6 and was never guaranteed to index in order. Recopying everything is the correct fail-safe: the
+    /// source is the source of truth and reindex writes by document id, so a full recopy converges.
+    /// </para>
+    /// </remarks>
+    private static Query? GetResumeQuery(string? timestampField, DateTime? startTime)
     {
-        var descriptor = new QueryDescriptor<object>();
-        if (startTime.HasValue)
-            return CreateRangeQuery(descriptor, timestampField, startTime);
+        if (!startTime.HasValue)
+            return null;
 
-        var startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD, cancellationToken).AnyContext();
-        if (startingPoint.HasValue)
-            return CreateRangeQuery(descriptor, timestampField, startingPoint);
-
-        // Return null when no query is needed - reindexing all documents
-        return null;
+        return CreateRangeQuery(new QueryDescriptor<object>(), timestampField, startTime);
     }
 
-    private Query? CreateRangeQuery(QueryDescriptor<object> descriptor, string? timestampField, DateTime? startTime)
+    private static Query? CreateRangeQuery(QueryDescriptor<object> descriptor, string? timestampField, DateTime? startTime)
     {
         if (!startTime.HasValue)
             return descriptor;
@@ -821,55 +832,6 @@ public class ElasticReindexer
             return descriptor.Range(dr => dr.Date(drr => drr.Field(timestampField).Gte(start)));
 
         return descriptor.Range(dr => dr.Term(tr => tr.Field(ID_FIELD).Gte(ObjectId.GenerateNewId(start).ToString())));
-    }
-
-    private async Task<DateTime?> GetResumeStartingPointAsync(string newIndex, string timestampField, CancellationToken cancellationToken)
-    {
-        var newestDocumentResponse = await _client.SearchAsync<IDictionary<string, object>>(d => d
-            .Indices(newIndex)
-            .Sort(s => s.Field(timestampField, fs => fs.Order(SortOrder.Desc)))
-            .DocvalueFields(new FieldAndFormat[] { new() { Field = timestampField } })
-            .Source(new SourceConfig(false))
-            .Size(1), cancellationToken
-        ).AnyContext();
-
-        _logger.LogRequest(newestDocumentResponse);
-        if (!newestDocumentResponse.IsValidResponse || !newestDocumentResponse.Documents.Any())
-            return null;
-
-        var doc = newestDocumentResponse.Hits.FirstOrDefault();
-        if (doc == null)
-            return null;
-
-        if (timestampField == ID_FIELD)
-        {
-            if (!ObjectId.TryParse(doc.Id, out var objectId))
-                return null;
-
-            return objectId.CreationTime;
-        }
-
-        var value = doc.Fields?[timestampField];
-        if (value == null)
-            return null;
-
-        if (value is not JsonElement jsonElement)
-            return null;
-
-        var target = jsonElement;
-        if (jsonElement.ValueKind == JsonValueKind.Array)
-        {
-            if (jsonElement.GetArrayLength() == 0)
-                return null;
-            target = jsonElement[0];
-        }
-
-        if (target.TryGetDateTime(out var dateTime))
-            return dateTime;
-        if (target.ValueKind == JsonValueKind.String && DateTime.TryParse(target.GetString(), out dateTime))
-            return dateTime;
-
-        return null;
     }
 
     private enum SampleIdStatus { Found, Empty, Failed }

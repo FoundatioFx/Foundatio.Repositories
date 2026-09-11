@@ -454,7 +454,7 @@ await configuration.ReindexAsync(cancellationToken: stoppingToken);
 await auditIndex.ReindexAsync(cancellationToken: stoppingToken);
 ```
 
-Cancellation is a throwing concept: the copy loop checks the token on every poll and raises `OperationCanceledException`, so a cancelled reindex **never** promotes a partially-copied index into the alias. The old index is left in place and untouched, which makes the operation safe to re-run: the next reindex resumes rather than starting over.
+Cancellation is a throwing concept: the copy loop checks the token on every poll and raises `OperationCanceledException`, so a cancelled reindex **never** promotes a partially-copied index into the alias. The old index is left in place and untouched, which makes the operation safe to re-run: the next reindex recopies the source, which converges because reindex writes by document id.
 
 ::: warning Cancellation stops the client, not the server
 The copy runs server-side as an Elasticsearch `_reindex` task started with `wait_for_completion=false`. Cancelling the token abandons the client's *wait* and attempts to cancel the server task, but documents may continue to be written to the new index for a short period afterwards. Do not assume the destination is frozen the instant the token fires.
@@ -555,7 +555,7 @@ A reindex can be interrupted at any point — a deploy recycles the pod running 
 - **The lock expires; nobody has to release it.** The distributed lock (`reindex:audit`) is held for 20 minutes and renewed on every progress callback. If the process holding it dies, the lock is never explicitly released — it simply expires 20 minutes after the last renewal. A new instance's call to `ReindexAsync()` waits for the lock (up to 30 minutes) and then proceeds.
 - **The Elasticsearch-side copy isn't tied to the calling process.** Each partition's copy runs as an asynchronous Elasticsearch task (`wait_for_completion=false`); the library only polls it for progress. That task lives in the cluster's task manager, so if the .NET process dies while polling, the copy already running in Elasticsearch is unaffected and keeps going independently.
 - **A retried first pass copies only the delta.** On retry, the first pass queries the new partition for the most recent document it already contains and reindexes only source documents at or after that point, rather than recopying the whole period. If the new partition is empty (nothing had landed before the interruption), the retry does a full copy, same as an initial run.
-- **A partition whose alias was already swapped is still found and finished.** Partitions to migrate are discovered by matching physical index names, not by current alias membership. If the process died after the alias swap but before the old partition's delete, the next run still finds that now-orphaned old partition, reruns its (now-cheap) resume copy and alias swap, and deletes it — reaching the same end state as an uninterrupted run.
+- **A partition whose alias was already swapped is still found and finished.** Partitions to migrate are discovered by matching physical index names, not by current alias membership. If the process died after the alias swap but before the old partition's delete, the next run still finds that now-orphaned old partition, recopies it, reruns its alias swap, and deletes it — reaching the same end state as an uninterrupted run.
 - **Two instances never migrate the same index at once.** The alias-keyed lock caps a given index to one active reindex cluster-wide. If a rolling restart briefly leaves two instances both calling `ReindexAsync()` for the same index, one holds the lock while the other waits; once the first finishes, the current version has already advanced, so the second call's version check finds nothing left to do and returns immediately.
 
 #### When do writes flip to the new partition — and is there a gap?
@@ -814,7 +814,7 @@ A low `ReindexRequestsPerSecond` makes Elasticsearch pause longer between intern
 | Waiting was abandoned (task stalled, or its status could not be read) | Completion could not be confirmed |
 | The aliases could not be switched | Traffic is still served by the old index |
 
-The old index is always left in place when this throws, so the reindex can be retried. A retry resumes when the index has a timestamp field or ObjectId-format ids; otherwise it re-copies from the beginning. A retry cannot help when the cause is deterministic, such as documents the destination's mapping rejects.
+The old index is always left in place when this throws, so the reindex can be retried. A retry recopies the source from the beginning; because reindex writes by document id, that converges rather than duplicating. A retry cannot help when the cause is deterministic, such as documents the destination's mapping rejects.
 
 ```csharp
 try
@@ -1401,7 +1401,7 @@ For indexes with millions of documents that take hours to reindex, the lock is a
 
 ### Crash Recovery
 
-If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is resume-safe — it picks up from the last document using timestamp-based or ID-based range queries.
+If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is safe to retry — a retry recopies from the beginning, and because reindex writes by document id, recopying converges rather than duplicating. It deliberately does **not** try to skip ahead based on what is already in the destination: Elasticsearch copies in unordered doc order, so an interrupted pass leaves an arbitrary subset behind, and narrowing the retry by the destination's newest timestamp would permanently skip older documents that were never copied.
 
 ### Second-Pass Catch-Up Strategy
 
