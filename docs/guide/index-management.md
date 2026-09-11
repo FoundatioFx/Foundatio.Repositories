@@ -1369,6 +1369,51 @@ AddReindexScript(2, @"
 ");
 ```
 
+## Breaking Changes
+
+The reindex reliability work introduced the following source- and behavior-breaking changes.
+
+### `ReindexAsync` gained a `CancellationToken` parameter
+
+`IIndex.ReindexAsync` and `IElasticConfiguration.ReindexAsync` both take a trailing
+`CancellationToken cancellationToken = default`. Existing **call sites** compile unchanged because the
+parameter is optional. Any external type that **implements** `IIndex` or `IElasticConfiguration` directly must
+add the parameter to its override.
+
+### An incomplete reindex now throws instead of returning
+
+`ReindexAsync` previously returned normally when a copy failed after the alias cutover. It now throws
+[`ReindexIncompleteException`](#reindex-failure-is-never-silent) whenever the destination cannot be trusted as a
+complete replica, and `ElasticConfiguration.ReindexAsync` attempts every outdated index and then throws an
+`AggregateException` if any of them failed.
+
+**This changes startup behavior.** Code that calls `ConfigureIndexesAsync`/`ReindexAsync` during application
+startup and previously always proceeded will now fail fast on an incomplete migration. That is the intended
+behavior — serving traffic from an index that is missing documents is worse than failing to start — but if you
+need the old behavior for a specific deployment, catch it explicitly rather than suppressing it globally:
+
+```csharp
+try
+{
+    await configuration.ReindexAsync();
+}
+catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is ReindexIncompleteException))
+{
+    // Decide deliberately: alert, retry, or start degraded. Do not ignore silently.
+    logger.LogCritical(ex, "Index migration incomplete; indexes may be missing documents");
+}
+```
+
+Note that losing the reindex lock race is **not** a failure and does not throw — the instance holding the lock
+is performing the same migration, so the loser logs and skips.
+
+### A reindex no longer resumes from a destination watermark
+
+A retried reindex recopies the source from the beginning. It previously narrowed the copy to documents newer
+than the newest document already in the destination, which could permanently skip documents an interrupted pass
+never reached. Recopying converges because reindex writes by document id, but a retry now costs a full copy
+rather than an incremental one. Pass `ReindexWorkItem.StartUtc` if you need to bound a pass explicitly.
+
 ## Next Steps
 
 - [Migrations](/guide/migrations) - Document migrations

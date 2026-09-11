@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -96,6 +97,12 @@ public class ElasticReindexer
 
         if (String.IsNullOrEmpty(workItem.NewIndex))
             throw new ArgumentNullException(nameof(workItem.NewIndex));
+
+        // Validated alongside the indexes because the alias is what the cutover moves. Without it there is
+        // nothing to switch, so a blank alias would copy every document and then silently skip the promotion,
+        // leaving traffic on the old index while reporting a complete reindex.
+        if (String.IsNullOrEmpty(workItem.Alias))
+            throw new ArgumentNullException(nameof(workItem.Alias));
 
         if (workItem.ReindexBatchSize is <= 0)
             throw new ArgumentOutOfRangeException(nameof(workItem.ReindexBatchSize), workItem.ReindexBatchSize, "Must be greater than zero when specified.");
@@ -400,7 +407,7 @@ public class ElasticReindexer
 
             if (response?.Error is not null)
             {
-                _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.Caused_By?.Reason, String.Join("\r\n", response.Error.Script_Stack ?? new List<string>()));
+                _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.CausedBy?.Reason, String.Join("\r\n", response.Error.ScriptStack ?? new List<string>()));
                 outcome = ReindexOutcome.Failed;
                 failureReason = $"The reindex task failed: {response.Error.Type}: {response.Error.Reason}";
                 break;
@@ -420,6 +427,18 @@ public class ElasticReindexer
 
             if (status.Completed && response?.Error is null)
             {
+                // A completed task must have published its counters. Without them the accounting check below
+                // has nothing to compare (total and completed both read 0) and would pass vacuously, reporting
+                // a copy whose outcome was never actually read as a complete reindex. Fail closed instead: the
+                // old index is kept and the caller is told, which is recoverable, whereas promoting an
+                // unverified destination is not.
+                if (lastReindexResponse is null)
+                {
+                    outcome = ReindexOutcome.Abandoned;
+                    failureReason = "the reindex task reported completion but its status carried no reindex response, so the number of documents copied could not be verified";
+                    break;
+                }
+
                 outcome = ReindexOutcome.Completed;
                 break;
             }
@@ -960,35 +979,64 @@ public class ElasticReindexer
         Failed
     }
 
-    private record TaskWithReindexResponse
+    internal record TaskWithReindexResponse
     {
+        [JsonPropertyName("response")]
         public TaskReindexResult? Response { get; init; }
+
+        [JsonPropertyName("error")]
         public TaskReindexError? Error { get; init; }
     }
 
-    private record TaskReindexError
+    internal record TaskReindexError
     {
+        [JsonPropertyName("type")]
         public string? Type { get; init; }
-        public string? Reason { get; init; }
-        public List<string>? Script_Stack { get; init; }
 
-        public TaskCause? Caused_By { get; init; }
+        [JsonPropertyName("reason")]
+        public string? Reason { get; init; }
+
+        [JsonPropertyName("script_stack")]
+        public List<string>? ScriptStack { get; init; }
+
+        [JsonPropertyName("caused_by")]
+        public TaskCause? CausedBy { get; init; }
     }
 
-    private record TaskCause
+    internal record TaskCause
     {
+        [JsonPropertyName("type")]
         public string? Type { get; init; }
+
+        [JsonPropertyName("reason")]
         public string? Reason { get; init; }
     }
 
-    private record TaskReindexResult
+    /// <summary>
+    /// The reindex sub-response of a task status. Every member is mapped explicitly because Elasticsearch
+    /// names these fields in snake_case while the configured serializer only matches case-insensitively -
+    /// which does not bridge an underscore. A silently unbound counter here is not a cosmetic problem: it
+    /// feeds the completeness check, so <c>version_conflicts</c> failing to bind made a healthy reindex look
+    /// like it had left documents unaccounted for.
+    /// </summary>
+    internal record TaskReindexResult
     {
+        [JsonPropertyName("total")]
         public long Total { get; init; }
+
+        [JsonPropertyName("created")]
         public long Created { get; init; }
+
+        [JsonPropertyName("updated")]
         public long Updated { get; init; }
+
+        [JsonPropertyName("noops")]
         public long Noops { get; init; }
+
+        [JsonPropertyName("version_conflicts")]
         public long VersionConflicts { get; init; }
 
+        [JsonPropertyName("failures")]
         public IReadOnlyCollection<BulkIndexByScrollFailure>? Failures { get; init; }
     }
 
@@ -1045,12 +1093,26 @@ public class ElasticReindexer
         }
     }
 
-    private record BulkIndexByScrollFailure
+    /// <summary>
+    /// A per-document copy failure from a reindex task's <c>failures</c> array. Members are mapped explicitly
+    /// for the same reason as <see cref="TaskReindexResult"/>: the configured serializer matches only
+    /// case-insensitively, so anything Elasticsearch names in snake_case must be spelled out.
+    /// </summary>
+    internal record BulkIndexByScrollFailure
     {
+        [JsonPropertyName("cause")]
         public Error? Cause { get; init; }
+
+        [JsonPropertyName("id")]
         public string? Id { get; init; }
+
+        [JsonPropertyName("index")]
         public string? Index { get; init; }
+
+        [JsonPropertyName("status")]
         public int Status { get; init; }
+
+        [JsonPropertyName("type")]
         public string? Type { get; init; }
     }
 }

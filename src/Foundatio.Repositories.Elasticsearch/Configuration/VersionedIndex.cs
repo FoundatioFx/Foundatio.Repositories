@@ -46,6 +46,20 @@ public class VersionedIndex : Index, IVersionedIndex
     /// </summary>
     protected static readonly TimeSpan MaintenanceLockAcquireTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// How long a reindex holds its lock. Renewed on every progress report, so a migration that runs longer
+    /// than this keeps the lock as long as it is making progress, while a crashed run releases it after this
+    /// much silence rather than blocking migrations forever.
+    /// </summary>
+    protected static readonly TimeSpan ReindexLockDuration = TimeSpan.FromMinutes(20);
+
+    /// <summary>
+    /// How long a reindex waits for the lock before skipping. Generous because the holder is doing the same
+    /// work this caller wants done: waiting lets a queued instance pick up where a finishing one left off,
+    /// and the post-acquire version re-check turns an already-completed migration into a clean no-op.
+    /// </summary>
+    protected static readonly TimeSpan ReindexLockAcquireTimeout = TimeSpan.FromMinutes(30);
+
     public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
         : base(configuration, name)
     {
@@ -279,7 +293,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
     public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
-        await using var lease = await TryAcquireReindexLeaseAsync().AnyContext();
+        await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
         if (lease is null)
             return;
 
@@ -315,17 +329,48 @@ public class VersionedIndex : Index, IVersionedIndex
     /// no-op case; the second is the authoritative one, because another process may have completed the
     /// migration while this one waited for the lock.
     /// </remarks>
-    protected async Task<ReindexLease?> TryAcquireReindexLeaseAsync()
+    /// <param name="cancellationToken">
+    /// Cancels the wait for the lock. Without this a cancelled reindex would still block for the full acquire
+    /// timeout before the token was ever observed.
+    /// </param>
+    protected async Task<ReindexLease?> TryAcquireReindexLeaseAsync(CancellationToken cancellationToken = default)
     {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
             return null;
 
         string lockKey = ElasticReindexer.GetLockName(Name);
-        var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
+        ILock? reindexLock;
 
-        // AcquireAsync is declared as returning a non-nullable ILock but returns null when it times out,
-        // so this check cannot be dropped: without it a lost lock race is a NullReferenceException.
+        // There is no acquire overload taking both a timeout and a token, so the timeout is expressed as a
+        // linked token - the same approach ReindexWorkItemHandler uses. Cancellation and timeout then arrive
+        // as the same signal, and the two are distinguished below by inspecting the caller's token.
+        using var acquireTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        acquireTimeoutSource.CancelAfter(ReindexLockAcquireTimeout);
+
+        try
+        {
+            reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, ReindexLockDuration, acquireTimeoutSource.Token).AnyContext();
+        }
+        catch (LockAcquisitionTimeoutException)
+        {
+            // How the real providers report contention. Losing the race is the lock working, not a failure:
+            // the holder is migrating this index, so this caller has nothing to do. Left to propagate it would
+            // surface as a failed migration - and ElasticConfiguration.ReindexAsync now aggregates and throws,
+            // so two instances starting together would fail startup on whichever one lost.
+            _logger.LogInformation("Skipping reindex of {Index}: lock {LockKey} is held, so another migration is in progress.", Name, lockKey);
+            return null;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The acquire timeout elapsed rather than the caller cancelling, which is contention again.
+            _logger.LogInformation("Skipping reindex of {Index}: lock {LockKey} could not be acquired within {AcquireTimeout:g}, so another migration is in progress.", Name, lockKey, ReindexLockAcquireTimeout);
+            return null;
+        }
+
+        // AcquireAsync is declared as returning a non-nullable ILock, but the interface does not forbid null
+        // and an implementation may return it instead of throwing. Both denials must degrade to a clean skip,
+        // never to a NullReferenceException at the first RenewAsync.
         if (reindexLock is null)
         {
             _logger.LogWarning("Skipping reindex of {Index}: could not acquire lock {LockKey} within the timeout. Another migration is likely in progress.", Name, lockKey);

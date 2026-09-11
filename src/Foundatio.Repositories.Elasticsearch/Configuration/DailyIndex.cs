@@ -242,7 +242,7 @@ public class DailyIndex : VersionedIndex
 
     public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
-        await using var lease = await TryAcquireReindexLeaseAsync().AnyContext();
+        await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
         if (lease is null)
             return;
 

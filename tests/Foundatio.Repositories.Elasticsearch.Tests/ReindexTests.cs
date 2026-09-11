@@ -1489,6 +1489,48 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     /// <summary>
+    /// A lock provider that denies by <em>throwing</em> must also result in a clean skip.
+    /// </summary>
+    /// <remarks>
+    /// This is the production path, and the null-returning test above does not cover it. The real providers
+    /// (<c>CacheLockProvider</c>, and therefore the Redis-backed one) throw
+    /// <see cref="LockAcquisitionTimeoutException"/> from the acquire-with-timeout overload rather than
+    /// returning null, so a null check alone leaves contention propagating out of the migration. That matters
+    /// because <c>ElasticConfiguration.ReindexAsync</c> now aggregates failures and throws: without this,
+    /// two instances starting together would turn benign contention - the exact case the lock exists to
+    /// handle - into a failed startup migration on the instance that lost the race.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenLockAcquisitionTimesOut_SkipsWithoutThrowing()
+    {
+        // Arrange
+        var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log, new ThrowingLockProvider());
+
+        var version1Index = new VersionedEmployeeIndex(configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        // Assert
+        Assert.Null(exception);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+    }
+
+    /// <summary>
     /// Alias metadata must survive the cutover.
     /// </summary>
     /// <remarks>

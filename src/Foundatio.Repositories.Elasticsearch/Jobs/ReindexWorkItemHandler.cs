@@ -112,13 +112,25 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     /// Re-reads the destination index's version now that the lock is held, so a work item whose migration
     /// another process finished while this one sat in the queue is skipped rather than copied again.
     /// </summary>
+    /// <remarks>
+    /// The index is located by the work item's alias rather than by matching <c>VersionedName</c> against
+    /// <see cref="ReindexWorkItem.NewIndex"/>. For a time-series index the work item's destination is a single
+    /// dated partition (<c>employees-v2-2026.09.11</c>) while <c>VersionedName</c> is only
+    /// <c>employees-v2</c>, so matching on the destination silently never fired for daily and monthly indexes
+    /// and this skip did not apply to them at all.
+    /// <para>
+    /// The comparison stays conservative in the time-series case: a time-series index reports its *lowest*
+    /// partition version, so this only skips once every partition has been migrated. A false negative merely
+    /// recopies, which converges; a false positive would abandon real work.
+    /// </para>
+    /// </remarks>
     private async Task<bool> IsAlreadyReindexedAsync(ReindexWorkItem workItem)
     {
         if (_configuration is null)
             return false;
 
         var versionedIndex = _configuration.Indexes.OfType<IVersionedIndex>()
-            .FirstOrDefault(i => String.Equals(i.VersionedName, workItem.NewIndex, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(i => String.Equals(i.Name, workItem.Alias, StringComparison.OrdinalIgnoreCase));
         if (versionedIndex is null)
             return false;
 
