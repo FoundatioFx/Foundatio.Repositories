@@ -608,6 +608,102 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     /// <summary>
+    /// Drives a work item through the real queue and <see cref="WorkItemJob"/> so the assertions can be about
+    /// the queue's actual disposition (completed, abandoned, dead-lettered) rather than about whether
+    /// <see cref="ReindexWorkItemHandler.HandleItemAsync"/> happened to throw.
+    /// </summary>
+    /// <remarks>
+    /// The handler-only helper above cannot answer the question that matters for a redelivery: a handler that
+    /// returns normally and a handler that throws both look like "no exception reached my test" once the job
+    /// wraps them. <see cref="WorkItemJob"/> maps a throw to <c>AbandonAsync</c> and a normal return to
+    /// <c>CompleteAsync</c>, and only the queue's own counters distinguish those.
+    /// </remarks>
+    private async Task<QueueDisposition> RunReindexThroughQueueAsync(IElasticConfiguration configuration, ReindexWorkItem workItem)
+    {
+        var handlers = new WorkItemHandlers();
+        handlers.Register<ReindexWorkItem>(new ReindexWorkItemHandler(configuration));
+
+        string workItemId = await _workItemQueue.EnqueueAsync(workItem);
+        Assert.NotNull(workItemId);
+
+        var job = new WorkItemJob(_workItemQueue, _messageBus, handlers, Log);
+        var result = await job.RunAsync(TestCancellationToken);
+
+        var stats = await _workItemQueue.GetQueueStatsAsync();
+        return new QueueDisposition(result, stats.Completed, stats.Abandoned, stats.Deadletter);
+    }
+
+    private sealed record QueueDisposition(JobResult Result, long Completed, long Abandoned, long Deadletter);
+
+    /// <summary>
+    /// A redelivered work item whose destination was already promoted but whose migration never completed must
+    /// not be acknowledged as successful.
+    /// </summary>
+    /// <remarks>
+    /// The alias switch happens before the catch-up pass, so a first attempt that fails after the cutover
+    /// leaves the version already advanced. The skip check reads that version, concludes the migration is
+    /// already done, and completes the queue item - so the queue retry that the docs present as the recovery
+    /// path instead records a known-short migration as complete. An advanced alias alone cannot distinguish
+    /// "another process finished this" from "this promoted the destination and then failed", so it must not be
+    /// treated as completion evidence.
+    /// <para>
+    /// The destination here holds the same <em>number</em> of documents as the source but different content, so
+    /// nothing about counts or progress can rescue the decision.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenDestinationPromotedButMigrationNeverCompleted_IsNotAcknowledgedAsSuccess()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository sourceRepository = new EmployeeRepository(_configuration);
+        var sourceEmployees = EmployeeGenerator.GenerateEmployees(5);
+        await sourceRepository.AddAsync(sourceEmployees, o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        // Simulate a first attempt that promoted the destination and then failed: the alias points at v2 only
+        // (as the real cutover leaves it), but the destination holds equal-count, wrong-content documents
+        // rather than the source's data.
+        await _client.Indices.PutAliasAsync(version2Index.VersionedName, version2Index.Name, cancellationToken: TestCancellationToken);
+        await _client.Indices.DeleteAliasAsync(version1Index.VersionedName, version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        var wrongContent = EmployeeGenerator.GenerateEmployees(5);
+        foreach (var employee in wrongContent)
+        {
+            var indexResponse = await _client.IndexAsync(employee,
+                i => i.Index(version2Index.VersionedName).Id(employee.Id), TestCancellationToken);
+            Assert.True(indexResponse.IsValidResponse);
+        }
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
+
+        // Act
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert - not acknowledged as successful work
+        Assert.Equal(0, disposition.Completed);
+        Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0,
+            $"Expected the item to be abandoned or dead-lettered, but got {disposition.Result.Message}");
+
+        // Assert - and no unsafe replay: both indexes survive for recovery
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    /// <summary>
     /// A destination that already holds the <em>newest</em> documents must still receive the older ones.
     /// </summary>
     /// <remarks>
