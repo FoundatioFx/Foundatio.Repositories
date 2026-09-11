@@ -273,13 +273,27 @@ public class ElasticConfiguration : IElasticConfiguration
         List<Exception>? failures = null;
         foreach (var outdatedIndex in outdatedIndexes)
         {
+            // An incomplete reindex must not be retried. Retrying cannot recover it and actively hides it: the
+            // alias may already point at the destination, so the next attempt reads the version from the alias,
+            // finds it at the target, skips, and returns normally - turning a known-short migration into a
+            // reported success. Capturing it leaves the policy no exception to retry, and it is recorded as a
+            // failure below. Pre-cutover refusals are equally non-retryable: the condition is a property of the
+            // data, so retrying only pays for more full copies before surfacing the same refusal.
+            ReindexIncompleteException? incomplete = null;
             try
             {
                 await ResiliencePolicy.ExecuteAsync(async ct =>
                 {
-                    await outdatedIndex.ReindexAsync((progress, message) =>
-                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, ct)
-                        .AnyContext();
+                    try
+                    {
+                        await outdatedIndex.ReindexAsync((progress, message) =>
+                                progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, ct)
+                            .AnyContext();
+                    }
+                    catch (ReindexIncompleteException ex)
+                    {
+                        incomplete = ex;
+                    }
                 }, cancellationToken).AnyContext();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -295,6 +309,12 @@ public class ElasticConfiguration : IElasticConfiguration
                 // returning normally is what let an incomplete migration look like a successful startup.
                 _logger.LogError(ex, "Failed to reindex {IndexName} after retries", outdatedIndex.Name);
                 (failures ??= []).Add(ex);
+            }
+
+            if (incomplete is not null)
+            {
+                _logger.LogError(incomplete, "Reindex of {IndexName} did not complete", outdatedIndex.Name);
+                (failures ??= []).Add(incomplete);
             }
         }
 

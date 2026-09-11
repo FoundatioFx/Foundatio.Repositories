@@ -816,6 +816,10 @@ A low `ReindexRequestsPerSecond` makes Elasticsearch pause longer between intern
 
 The old index is always left in place when this throws, so the reindex can be retried. A retry recopies the source from the beginning; because reindex writes by document id, that converges rather than duplicating. A retry cannot help when the cause is deterministic, such as documents the destination's mapping rejects.
 
+::: warning A retry cannot recover a failure detected after the cutover
+The alias switch happens before the catch-up pass, so an incompleteness detected after that point (a failed catch-up pass, or a count shortfall) leaves the alias already pointing at the destination. A retry then finds the version already at its target and skips, which would report success for a migration known to be short. For that reason `IElasticConfiguration.ReindexAsync` does **not** retry a `ReindexIncompleteException` — it is recorded as a failure on the first attempt and surfaced in the `AggregateException`. Recovery is manual: the source is retained, so re-copy it into a fresh index version rather than re-running the same migration.
+:::
+
 ```csharp
 try
 {

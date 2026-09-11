@@ -565,6 +565,49 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     /// <summary>
+    /// An incomplete reindex must surface as a failure and must not be retried.
+    /// </summary>
+    /// <remarks>
+    /// The per-index call is wrapped in a resilience policy that retries on exception. Retrying an incomplete
+    /// reindex cannot recover it and actively hides it: the alias may already point at the destination, so the
+    /// next attempt reads the version from the alias, finds it at the target, skips, and returns normally -
+    /// converting a known-short migration into a reported success. That is exactly the silent failure this
+    /// change set exists to remove, so the exception has to escape the policy on the first attempt.
+    /// </remarks>
+    [Fact]
+    public async Task ConfigurationReindexAsync_WhenReindexIsIncomplete_FailsWithoutRetrying()
+    {
+        // Arrange - an outdated index whose reindex always reports incompleteness
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        var version2Index = new IncompleteReindexIdentityIndex(_configuration, 2);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() =>
+            _configuration.ReindexAsync([version2Index], cancellationToken: TestCancellationToken));
+
+        // Assert - reported as a failure, attempted exactly once
+        var aggregate = Assert.IsType<AggregateException>(exception);
+        Assert.IsType<ReindexIncompleteException>(Assert.Single(aggregate.InnerExceptions));
+        Assert.Equal(1, version2Index.ReindexAttempts);
+    }
+
+    private sealed class IncompleteReindexIdentityIndex(IElasticConfiguration configuration, int version)
+        : VersionedIndex<Identity>(configuration, "identity", version)
+    {
+        public int ReindexAttempts { get; private set; }
+
+        public override Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+        {
+            ReindexAttempts++;
+            throw new ReindexIncompleteException(VersionedName, VersionedName, "simulated post-cutover shortfall");
+        }
+    }
+
+    /// <summary>
     /// A destination that already holds the <em>newest</em> documents must still receive the older ones.
     /// </summary>
     /// <remarks>

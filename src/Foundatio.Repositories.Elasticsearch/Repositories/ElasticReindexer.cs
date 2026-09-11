@@ -187,8 +187,19 @@ public class ElasticReindexer
     /// </remarks>
     private async Task<CatchUpPlan> PlanCatchUpAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
     {
+        // Elasticsearch rejects a reindex whose source and destination are the same index, so this never
+        // reaches the guard - the copy fails first. Exempting it keeps the guard from reading a sequence
+        // number it cannot use and from ever masking that validation error with a misleading refusal.
+        if (workItem.OldIndex == workItem.NewIndex)
+            return new CatchUpPlan(CanCatchUp: !String.IsNullOrEmpty(workItem.TimestampField), InPlace: true);
+
         if (!String.IsNullOrEmpty(workItem.TimestampField))
             return new CatchUpPlan(CanCatchUp: true);
+
+        // The sample below is a search, so it only sees refreshed writes. Without this, a source loaded with
+        // refresh disabled looks empty, which would disable both the catch-up pass and the change guard while
+        // the copy - which refreshes first - copied a full index.
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
 
         var sampleResult = await GetSampleDocumentIdAsync(workItem.OldIndex, cancellationToken).AnyContext();
 
@@ -244,7 +255,7 @@ public class ElasticReindexer
     /// </exception>
     private async Task EnsureCatchUpPossibleAsync(ReindexWorkItem workItem, CatchUpPlan plan, CancellationToken cancellationToken)
     {
-        if (plan.CanCatchUp || plan.SourceIsEmpty)
+        if (plan.CanCatchUp || plan.SourceIsEmpty || plan.InPlace)
             return;
 
         if (!plan.SequenceNumberReadable)
@@ -272,7 +283,8 @@ public class ElasticReindexer
         bool CanCatchUp,
         bool SourceIsEmpty = false,
         long? StartingMaxSequenceNumber = null,
-        bool SequenceNumberReadable = false);
+        bool SequenceNumberReadable = false,
+        bool InPlace = false);
 
     /// <summary>
     /// Copies documents written to the source while the first pass was running. Throws if this pass does not
