@@ -250,10 +250,10 @@ All mechanisms in this RCA that were live on `main` have been fixed. Each fix ha
 | M2 | `ApplyDateTracking` (#227) shipped in `v7.18.0`; sources are now also refreshed before every copy pass, since Elasticsearch only makes writes searchable on refresh. |
 | M3 | **The watermark is deleted.** A pass is only ever narrowed by an *explicit* start time (the caller's `StartUtc`, or the copy's own start timestamp for the catch-up pass) — never by inspecting the destination. A retry recopies from the beginning, which converges because reindex writes by document id. |
 | M4 | Count verification now runs on every reindex rather than only inside the delete branch. It is deliberately warn-only and non-authoritative, because it runs post-cutover where hard deletes through the alias and `ctx.op` script drops make it unreliable; the race-free check is the per-pass accounting above. |
-| M5 | The raw task-status body is now requested per-request and **fails closed** when it is missing or unparseable, instead of reporting `Total: 0` with success. Per-document failures are written to a searchable `-error` index (`dynamic: strict`, typed `ReindexFailure`) instead of being unqueryable. `version_conflicts` now feed progress accounting and the stall watchdog. |
+| M5 | The raw task-status body is now requested per-request and **fails closed** when it is missing, unparseable, or reports completion without publishing counters — instead of reporting `Total: 0` with success. Every task-response field is mapped explicitly with `[JsonPropertyName]`, because Elasticsearch names them in snake_case while the serializer only matches case-insensitively; `version_conflicts` silently reading as 0 had made the completeness check fail *healthy* reindexes. Per-document failures are written to a searchable `-error` index (`dynamic: strict`, typed `ReindexFailure`) instead of being unqueryable. `version_conflicts` now feeds progress accounting and the stall watchdog. |
 | M6 | Documented as a repair-time hazard (above). Delete propagation is out of scope for a copy-based migration. |
-| M7 | Fixed in `v7.18.2` (#271). Additionally, alias *maintenance* now takes the same `reindex:{alias}` lock, so periodic maintenance can no longer revert a cutover mid-flight. |
-| Cross-cutting | `CancellationToken` plumbed through; cancellation unwinds before the cutover, so it can never promote a partial index. Alias metadata (filter/routing/`is_write_index`/`is_hidden`) is preserved across the flip. The queued handler path was brought to parity with the direct path. |
+| M7 | Fixed in `v7.18.2` (#271). Additionally, alias *maintenance* now takes the same `reindex:{alias}` lock, so periodic maintenance can no longer revert a cutover mid-flight. Losing the lock race is treated as a skip rather than a failure — the real providers signal contention by throwing, and left unhandled that would have failed startup on whichever instance lost a race the lock exists to arbitrate. |
+| Cross-cutting | `CancellationToken` plumbed through, including lock acquisition; cancellation unwinds before the cutover, so it can never promote a partial index. Alias metadata (filter/routing/`is_write_index`/`is_hidden`) is preserved across the flip. The queued handler path was brought to parity with the direct path, including for time-series partitions. |
 
 ### Known limitation
 
@@ -268,3 +268,12 @@ Three failures of principle, each of which independently would have prevented si
 3. **Absence of an error is not evidence of success.** The only signal was a leftover index — an artifact that looks like untidiness. Success must be positively asserted, which is why the fix throws rather than logs.
 
 The follow-on operational gap is verification: index migrations were deployed without any post-deployment check that the destination matched the source. The `.tasks` records needed to do that check existed the whole time and were never read.
+
+### A note on how the fixes were validated
+
+An adversarial audit of the fixes found four defects in the fixes themselves, two of which would have misfired in production. Both were the same mistake in a new form — **assuming a dependency's behavior instead of asserting it**:
+
+- The completeness check compared `created + updated + noops + version_conflicts` against `total`, but `version_conflicts` never deserialized (Elasticsearch sends `version_conflicts`; the serializer matched only case-insensitively, which does not bridge an underscore). It read as 0, so the check failed *healthy* reindexes — a new false alarm in the code written to eliminate false negatives.
+- The lock-contention guard checked for a `null` return that the real providers never produce; they throw instead. The guard was unreachable in production, and because the fixes also made a failed migration throw, benign contention would have failed startup on whichever instance lost the race.
+
+Both were caught because the audit ran the real dependency rather than the test fake. The fake returned `null` from a signature declared non-nullable, which let the unreachable guard look tested. The lesson generalizes: **a fake that encodes the same assumption as the code under test cannot falsify it.** Contention is now exercised with a provider that throws, and the snake_case binding is asserted against a literal Elasticsearch response body.
