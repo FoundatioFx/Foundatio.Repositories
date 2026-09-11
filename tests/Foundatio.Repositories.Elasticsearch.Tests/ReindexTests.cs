@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -299,6 +300,247 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         // The deleted document must stay deleted.
         Assert.Null(await version2Repository.GetByIdAsync(employees.First().Id));
+    }
+
+    /// <summary>
+    /// A date-free model with custom (non-ObjectId) ids is a supported configuration and must keep working when
+    /// the source is not being written to.
+    /// </summary>
+    /// <remarks>
+    /// This is the characterization test for the safety policy that follows: the refusal must be triggered by
+    /// "concurrent changes cannot be accounted for", <em>not</em> by "this model has no timestamp field" or
+    /// "these ids are not ObjectIds". Not every model has or wants an <c>updated_utc</c>, and ids are frequently
+    /// natural keys. If this test ever fails, the policy has been implemented too broadly.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WithStaticSourceAndCustomIds_CopiesEveryDocument()
+    {
+        // Arrange - a model with no date fields, and ids that are deliberately not ObjectIds
+        const int totalIdentities = 50;
+
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        // Confirms the premise rather than assuming it: this really is the no-timestamp path.
+        Assert.Null(GetTimestampField(version2Index));
+
+        var identities = Enumerable.Range(0, totalIdentities)
+            .Select(i => new Identity { Id = $"natural-key-{i:D3}" })
+            .ToList();
+
+        await IndexIdentitiesAsync(version1Index.VersionedName, identities);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+        await version2Index.ConfigureAsync();
+
+        // Act - the source is static for the whole operation
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Assert - every document arrived and the alias moved
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
+
+        var countResponse = await _client.CountAsync<Identity>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(totalIdentities, countResponse.Count);
+    }
+
+    /// <summary>
+    /// A document written to the source before the cutover must not be silently dropped when the model has no
+    /// timestamp field and non-ObjectId ids.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the false-success case. With no timestamp field the catch-up pass slices the source by id, which
+    /// only works for ObjectId-format ids because their prefix encodes creation time. For any other id format
+    /// the catch-up pass is skipped entirely - and the operation still reports <c>100 / "Reindex complete"</c>
+    /// after having already switched the alias. The document is lost, with only a warning in the log.
+    /// </para>
+    /// <para>
+    /// The safe outcome is either inclusion before promotion or refusal to promote. Which one depends on the
+    /// mode; both are acceptable here, and neither is "promoted and reported complete". The old index must
+    /// survive either way, because it is the only copy of the missing document.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentWrittenBeforeCutoverCannotBeCaughtUp_DoesNotReportSuccess()
+    {
+        // Arrange
+        const int totalIdentities = 20;
+        const string lateId = "written-during-the-copy";
+
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, totalIdentities).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+
+        await version2Index.ConfigureAsync();
+
+        // Act - insert into the source after the first pass finishes but before the cutover. Progress 90 is the
+        // documented end of the first copy pass, which makes this deterministic without racing the copy.
+        bool hookFired = false;
+        bool writeRejected = false;
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(async (progress, _) =>
+        {
+            if (progress is 90 && !hookFired)
+            {
+                hookFired = true;
+
+                // A write barrier on the source is one of the two acceptable safe outcomes (the other being
+                // refusal to promote), so a rejected write means the guarantee held.
+                var insert = await _client.IndexAsync(new Identity { Id = lateId },
+                    d => d.Index(version1Index.VersionedName).Id(lateId).Refresh(Refresh.True), TestCancellationToken);
+                writeRejected = !insert.IsValidResponse;
+            }
+        }, TestCancellationToken));
+
+        Assert.True(hookFired, "The pre-cutover hook never fired, so this test proved nothing.");
+
+        if (writeRejected)
+            return; // The source was frozen before the write landed, so there is nothing to catch up.
+
+        // Assert - the late document must not be silently lost. Either it was copied, or the migration refused
+        // to promote; reporting success while it is missing is the defect.
+        // The old index is the only copy of anything missed, so losing it is checked first.
+        var oldExists = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(oldExists.Exists, "The old index was deleted, destroying the only copy of documents the catch-up pass could not reach.");
+
+        await _client.Indices.RefreshAsync(Indices.Index(version1Index.VersionedName).And(version2Index.VersionedName),
+            d => d.IgnoreUnavailable(), TestCancellationToken);
+
+        bool promoted = await version2Index.GetCurrentVersionAsync() is 2;
+        var destination = await _client.GetAsync<Identity>(lateId, d => d.Index(version2Index.VersionedName), TestCancellationToken);
+        bool copied = destination.Found;
+
+        Assert.True(copied || !promoted,
+            $"The document written before cutover is missing from the destination, yet the migration promoted it and reported success (exception: {exception?.GetType().Name ?? "none"}).");
+    }
+
+    /// <summary>
+    /// The same-count variant: an <em>existing</em> document is modified before the cutover rather than a new
+    /// one inserted, so document counts match and only content differs.
+    /// </summary>
+    /// <remarks>
+    /// Document counts are the check most likely to be reached for first, and this is the case they cannot
+    /// catch: source and destination agree on every id and on the total, while the destination holds a stale
+    /// copy. Verification has to compare identity and content, not cardinality.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentModifiedBeforeCutoverCannotBeCaughtUp_DoesNotReportSuccess()
+    {
+        // Arrange
+        const int totalIdentities = 20;
+        const string modifiedId = "natural-key-007";
+
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, totalIdentities).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+
+        await version2Index.ConfigureAsync();
+
+        // Act - overwrite an existing document pre-cutover, bumping its _version without changing the count.
+        bool hookFired = false;
+        bool writeRejected = false;
+        await Record.ExceptionAsync(() => version2Index.ReindexAsync(async (progress, _) =>
+        {
+            if (progress is 90 && !hookFired)
+            {
+                hookFired = true;
+
+                // A write barrier on the source is one of the two acceptable safe outcomes, so a rejected write
+                // is a pass, not a test failure. Asserting success here would fail against a correct
+                // implementation.
+                var update = await _client.IndexAsync(new Identity { Id = modifiedId },
+                    d => d.Index(version1Index.VersionedName).Id(modifiedId).Refresh(Refresh.True), TestCancellationToken);
+                writeRejected = !update.IsValidResponse;
+            }
+        }, TestCancellationToken));
+
+        Assert.True(hookFired, "The pre-cutover hook never fired, so this test proved nothing.");
+
+        if (writeRejected)
+            return; // The source was frozen before the modification landed, so there is nothing to catch up.
+
+        // Assert - the old index is the only copy of the modification, so losing it is itself a failure. Checked
+        // first because it also determines whether the source is still readable for the content comparison.
+        var oldExists = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(oldExists.Exists, "The old index was deleted even though the destination never received the pre-cutover modification, destroying the only copy of it.");
+
+        await _client.Indices.RefreshAsync(Indices.Index(version1Index.VersionedName).And(version2Index.VersionedName),
+            d => d.IgnoreUnavailable(), TestCancellationToken);
+
+        // Counts match, so they prove nothing on their own - this is the case cardinality checks cannot catch.
+        var sourceCount = await _client.CountAsync<Identity>(d => d.Indices(version1Index.VersionedName), TestCancellationToken);
+        var destinationCount = await _client.CountAsync<Identity>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.Equal(sourceCount.Count, destinationCount.Count);
+
+        // The destination must hold the post-modification document, or the migration must not have promoted.
+        var source = await _client.GetAsync<Identity>(modifiedId, d => d.Index(version1Index.VersionedName), TestCancellationToken);
+        var destination = await _client.GetAsync<Identity>(modifiedId, d => d.Index(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(source.Found);
+
+        bool promoted = await version2Index.GetCurrentVersionAsync() is 2;
+        bool caughtUp = destination.Found && destination.Version >= source.Version;
+
+        Assert.True(caughtUp || !promoted,
+            $"The destination holds a stale copy of {modifiedId} (source _version {source.Version}, destination _version {(destination.Found ? destination.Version : null)}) yet the migration promoted it and reported success.");
+    }
+
+    /// <summary>
+    /// Reads the timestamp field the reindexer would use, so tests assert the configuration under test rather
+    /// than assuming it.
+    /// </summary>
+    private static string? GetTimestampField<T>(VersionedIndex<T> index) where T : class
+    {
+        // Resolved from the runtime type: the method is declared on Index<T> but overridden further down, and
+        // binding against the declaring type invokes it on the wrong target.
+        var method = index.GetType().GetMethod("GetTimeStampField", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (string?)method.Invoke(index, null);
+    }
+
+    /// <summary>Indexes identities directly, since the shared repository is bound to the unversioned index.</summary>
+    private async Task IndexIdentitiesAsync(string index, IReadOnlyCollection<Identity> identities)
+    {
+        var response = await _client.BulkAsync(b => b
+            .Index(index)
+            .Refresh(Refresh.True)
+            .IndexMany(identities, (d, i) => d.Id(i.Id)), TestCancellationToken);
+
+        _logger.LogRequest(response);
+        Assert.True(response.IsValidResponse);
+        Assert.False(response.Errors, "Bulk indexing the test fixture failed.");
     }
 
     /// <summary>
