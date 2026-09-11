@@ -33,6 +33,17 @@ public interface IElasticConfiguration : IDisposable
     /// <summary>Serializer used for document serialization and deserialization.</summary>
     ITextSerializer Serializer { get; }
 
+    /// <summary>
+    /// Distributed lock provider used to serialize index migrations (<c>reindex:{alias}</c>) and time-series
+    /// alias maintenance.
+    /// </summary>
+    /// <remarks>
+    /// This is only as distributed as its backing store. When neither a lock provider nor a cache client is
+    /// supplied, it defaults to a <c>CacheLockProvider</c> over an in-memory cache, which serializes only
+    /// within the current process — two instances would each believe they hold the reindex lock and could both
+    /// copy and flip the same alias. Supply a distributed cache (or lock provider) before running more than one
+    /// instance; the constructor logs a warning when it falls back to the in-process default.
+    /// </remarks>
     ILockProvider LockProvider { get; }
 
     /// <summary>Logger factory for creating loggers within the configuration and its indexes.</summary>

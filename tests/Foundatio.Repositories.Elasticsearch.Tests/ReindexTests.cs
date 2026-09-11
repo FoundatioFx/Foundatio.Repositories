@@ -1981,6 +1981,195 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Null(await handler.GetWorkItemLockAsync(new object(), TestCancellationToken));
     }
 
+    /// <summary>
+    /// Alias maintenance must not run concurrently with a reindex of the same time-series index.
+    /// </summary>
+    /// <remarks>
+    /// <c>UpdateAliasesAsync</c> decides which partition each alias points at from a snapshot of the index
+    /// list. If a reindex flips a partition's alias after that snapshot was read, the stale decisions revert
+    /// the cutover - and because a partition whose version no longer matches its current version has its
+    /// aliases <em>removed</em>, the partition can end up with no alias at all and silently stop being queried.
+    /// Taking the reindex lock is what prevents the interleaving, so maintenance must skip its alias update
+    /// while a reindex holds it.
+    /// </remarks>
+    [Fact]
+    public async Task MaintainAsync_WhileReindexHoldsTheLock_SkipsInsteadOfRevertingTheCutover()
+    {
+        // Arrange
+        var version1Index = new DailyEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(version1Index);
+        var utcNow = DateTime.UtcNow;
+        await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+
+        string datedAlias = version1Index.GetIndex(utcNow);
+        string versionedIndex = version1Index.GetVersionedIndex(utcNow, 1);
+        Assert.Equal(versionedIndex, await GetAliasTargetsAsync(datedAlias));
+
+        // Drop the dated alias so there is maintenance work to do and its effect is observable.
+        var removeResponse = await _client.Indices.DeleteAliasAsync(versionedIndex, datedAlias, TestCancellationToken);
+        Assert.True(removeResponse.IsValidResponse);
+        Assert.Equal(String.Empty, await GetAliasTargetsAsync(datedAlias));
+
+        // Act - hold the reindex lock the way an in-flight reindex would, then maintain
+        string lockName = ElasticReindexer.GetLockName(version1Index.Name);
+        await using (var reindexLock = await _configuration.LockProvider.AcquireAsync(lockName, TimeSpan.FromMinutes(1), TestCancellationToken))
+        {
+            Assert.NotNull(reindexLock);
+            await version1Index.MaintainAsync();
+
+            // Assert - maintenance must not touch aliases while a reindex could be mid-cutover
+            Assert.Equal(String.Empty, await GetAliasTargetsAsync(datedAlias));
+        }
+
+        // Assert - once the lock is free the same call does its work, so this is a skip, not a no-op method
+        await version1Index.MaintainAsync();
+        Assert.Equal(versionedIndex, await GetAliasTargetsAsync(datedAlias));
+    }
+
+    [Fact]
+    public async Task MaintainAsync_WhenLockIsFree_StillMaintainsAliases()
+    {
+        // Arrange - a partition with no current-version alias yet
+        var version1Index = new DailyEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(version1Index);
+        var utcNow = DateTime.UtcNow;
+        await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+
+        // Act
+        await version1Index.MaintainAsync();
+
+        // Assert - the alias still resolves and the document is still reachable through it
+        Assert.Equal(version1Index.GetVersionedIndex(utcNow, 1), await GetAliasTargetsAsync(version1Index.GetIndex(utcNow)));
+
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(1, countResponse.Count);
+    }
+
+    [Fact]
+    public async Task VersionedIndexMaintainAsync_WhileReindexHoldsTheLock_DoesNotReAddTheAliasToTheOldVersion()
+    {
+        // Arrange - v1 holds a document and owns the alias
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup1 = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(version1Index);
+        await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await using AsyncDisposableAction cleanup2 = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+
+        // A cutover removes the alias from v1 before adding it to v2; maintenance seeing that gap must not
+        // "repair" it by pointing the alias back at the version being migrated away from.
+        var removeResponse = await _client.Indices.DeleteAliasAsync(version1Index.VersionedName, version1Index.Name, TestCancellationToken);
+        Assert.True(removeResponse.IsValidResponse);
+        Assert.Equal(String.Empty, await GetAliasTargetsAsync(version1Index.Name));
+
+        // Act
+        string lockName = ElasticReindexer.GetLockName(version1Index.Name);
+        await using (var reindexLock = await _configuration.LockProvider.AcquireAsync(lockName, TimeSpan.FromMinutes(1), TestCancellationToken))
+        {
+            Assert.NotNull(reindexLock);
+            await version1Index.MaintainAsync();
+
+            // Assert - the mid-cutover gap is left alone
+            Assert.Equal(String.Empty, await GetAliasTargetsAsync(version1Index.Name));
+        }
+
+        // Assert - with the lock free the alias is restored, so this is a skip and not a disabled code path
+        await version1Index.MaintainAsync();
+        Assert.Equal(version1Index.VersionedName, await GetAliasTargetsAsync(version1Index.Name));
+    }
+
+    [Fact]
+    public async Task VersionedIndexMaintainAsync_WhenTheCutoverCompletesWhileWaitingForTheLock_LeavesTheNewAlias()
+    {
+        // Arrange - the alias already points at v2, as it would right after a cutover
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup1 = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await using AsyncDisposableAction cleanup2 = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+
+        await _client.Indices.DeleteAliasAsync(version1Index.VersionedName, version1Index.Name, TestCancellationToken);
+        var addResponse = await _client.Indices.PutAliasAsync(version2Index.VersionedName, version2Index.Name, TestCancellationToken);
+        Assert.True(addResponse.IsValidResponse);
+
+        // Act - maintenance must re-check under the lock rather than trusting the check that got it here
+        await version1Index.MaintainAsync();
+
+        // Assert - the alias points at v2 only; adding v1 back would fan the alias across both versions
+        Assert.Equal(version2Index.VersionedName, await GetAliasTargetsAsync(version1Index.Name));
+    }
+
+    [Fact]
+    public async Task MaintainAsync_WhileReindexHoldsTheLock_StillDeletesExpiredPartitions()
+    {
+        // Arrange - create a 10-day-old partition while the retention window still allows it, then shrink the
+        // window so that partition is expired. EnsureIndexAsync refuses to create an already-expired index.
+        var index = new DailyEmployeeIndex(_configuration, 1)
+        {
+            MaxIndexAge = TimeSpan.FromDays(30)
+        };
+        await index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+
+        var utcNow = DateTime.UtcNow;
+        var expiredUtc = utcNow.AddDays(-10);
+        await index.EnsureIndexAsync(expiredUtc);
+
+        string expiredIndex = index.GetVersionedIndex(expiredUtc, 1);
+        Assert.True((await _client.Indices.ExistsAsync(expiredIndex, cancellationToken: TestCancellationToken)).Exists);
+
+        index.MaxIndexAge = TimeSpan.FromDays(2);
+
+        // Act - retention must not be held hostage by a reindex: that is when disk pressure is highest,
+        // because the reindex has both the source and the destination on disk.
+        string lockName = ElasticReindexer.GetLockName(index.Name);
+        await using (var reindexLock = await _configuration.LockProvider.AcquireAsync(lockName, TimeSpan.FromMinutes(1), TestCancellationToken))
+        {
+            Assert.NotNull(reindexLock);
+            await index.MaintainAsync();
+        }
+
+        // Assert
+        var existsResponse = await _client.Indices.ExistsAsync(expiredIndex, cancellationToken: TestCancellationToken);
+        _logger.LogRequest(existsResponse);
+        Assert.False(existsResponse.Exists);
+    }
+
+    private async Task<string> GetAliasTargetsAsync(string alias)
+    {
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        var response = await _client.Indices.GetAliasAsync((Indices)alias, cancellationToken: TestCancellationToken);
+        if (!response.IsValidResponse)
+            return String.Empty;
+
+#if ELASTICSEARCH9
+        var targets = response.Aliases;
+#else
+        var targets = response.Values;
+#endif
+        return targets is null ? String.Empty : String.Join(",", targets.Keys.OrderBy(k => k));
+    }
+
     private async Task HandleReindexWorkItemAsync(ReindexWorkItemHandler handler, ReindexWorkItem workItem)
     {
         await using var workItemLock = await handler.GetWorkItemLockAsync(workItem, TestCancellationToken);

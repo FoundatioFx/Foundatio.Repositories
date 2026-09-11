@@ -35,6 +35,10 @@ public class MaintainIndexesJob : IJob
 - Delete expired indexes (if `DiscardExpiredIndexes` is true)
 - Ensure index consistency
 
+::: warning Maintenance skips aliases for indexes that are being reindexed
+Index maintenance takes the same `reindex:{alias}` lock a reindex holds and skips its alias update for that index when it can't get it. Alias decisions are made from a snapshot of the index list read under the lock, so running concurrently with a reindex could revert its cutover — and because a partition whose version no longer matches its current version has its aliases removed, the partition could end up with no alias and silently stop being queried. Maintenance is periodic and idempotent, so the next run picks up whatever was skipped. Deleting expired indexes still happens.
+:::
+
 **Usage:**
 
 ```csharp

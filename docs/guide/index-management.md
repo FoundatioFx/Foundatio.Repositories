@@ -1384,7 +1384,12 @@ Reindexing is protected by a distributed lock keyed on the index alias to preven
 - **Lock key**: `reindex:{alias}` (e.g., `reindex:employees`)
 - **Lock TTL**: 20 minutes, auto-renewed during long-running operations
 - Both direct (`VersionedIndex.ReindexAsync`) and work-item (`ReindexWorkItemHandler`) paths use the same lock
+- Alias maintenance (`MaintainAsync`, which `MaintainIndexesJob` calls) takes the same lock and **skips** its alias update if it can't get it quickly. `DailyIndex`/`MonthlyIndex` maintenance decides which partition each alias should point at from a snapshot of the index list read under the lock; if a reindex flips a partition's alias after that snapshot, the stale decisions would revert the cutover — and since a partition whose version no longer matches its current version has its aliases *removed*, the partition could end up with no alias at all and silently stop being queried. `VersionedIndex` maintenance re-checks whether the alias exists **under** the lock, because a cutover removes the alias from the old version before adding it to the new one, and repairing that gap would point the alias back at the version being migrated away from. Maintenance is periodic and idempotent, so skipping is safe; the next run picks it up. Deleting expired partitions is not gated on the lock, both because a reindex already skips partitions past their expiration date and because gating it would stall retention exactly when a reindex has the source and destination on disk at once.
 - Only one reindex per logical index can run at a time — subsequent version transitions wait for the current one to complete
+
+::: warning Locks are only as distributed as your cache
+`ElasticConfiguration` defaults to a `CacheLockProvider` over an **in-memory** cache when you pass neither a cache client nor a lock provider. That serializes only within a single process: two instances would each believe they hold `reindex:{alias}` and could both copy and flip the same alias. Pass a distributed cache (e.g. Redis) before running more than one instance — the constructor logs a warning when it falls back to the in-process default.
+:::
 
 ### Why Alias-Only Keys
 

@@ -67,6 +67,12 @@ public class ElasticConfiguration : IElasticConfiguration
         MessageBus = messageBus;
         _lockProvider = lockProvider ?? new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+
+        // Reindex serialization is only as distributed as the cache behind the lock provider. With the
+        // in-memory default, two processes each believe they hold the reindex lock and can both copy and flip
+        // the same alias, so warn rather than let a single-process guarantee pass for a distributed one.
+        if (lockProvider is null && cacheClient is null)
+            _logger.LogWarning("No cache client or lock provider configured, so index locks only serialize within this process. Configure a distributed cache (e.g. Redis) before running more than one instance, or index migrations can overlap.");
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository?>(CreateCustomFieldDefinitionRepository);
         _client = new Lazy<ElasticsearchClient>(CreateElasticClient);

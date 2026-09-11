@@ -251,7 +251,7 @@ public class DailyIndex : VersionedIndex
             return;
 
         var progressCallback = CreateReindexProgressCallback(lease.Lock, progressCallbackAsync);
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
         foreach (var index in indexes)
         {
             if (Configuration.TimeProvider.GetUtcNow().UtcDateTime > GetIndexExpirationDate(index.DateUtc))
@@ -281,15 +281,44 @@ public class DailyIndex : VersionedIndex
         }
     }
 
+    /// <summary>
+    /// Updates the date aliases and, optionally, deletes expired partitions.
+    /// </summary>
+    /// <remarks>
+    /// The alias update takes the same <c>reindex:{alias}</c> lock a reindex holds, because the two rewrite the
+    /// same aliases and cannot safely interleave: which partition each alias should point at is decided from a
+    /// snapshot of the index list, so a reindex that flips a partition's alias after that snapshot was read
+    /// would have its cutover reverted — and because a partition whose version no longer matches its current
+    /// version has its aliases <em>removed</em>, the partition can end up with no alias at all and simply stop
+    /// being queried. The snapshot is therefore read <em>under</em> the lock, since reading it outside would
+    /// reintroduce exactly the staleness the lock prevents. When a reindex holds the lock the alias update is
+    /// skipped rather than waited on: maintenance is periodic and idempotent, so the next run picks it up.
+    /// <para>
+    /// Deleting expired partitions is deliberately <em>not</em> gated on the lock. It is unbounded, so holding
+    /// the un-renewed lock across it would be unsafe, and it cannot collide with a reindex because a reindex
+    /// already skips partitions past their expiration date. Skipping it during a reindex would also stall
+    /// retention at the exact moment a reindex has the source and destination on disk at once.
+    /// </para>
+    /// </remarks>
     public override async Task MaintainAsync(bool includeOptionalTasks = true)
     {
-        var indexes = await GetIndexesAsync().AnyContext();
-        if (indexes.Count == 0)
+        IList<IndexInfo>? indexes = null;
+        await using (var maintenanceLock = await TryAcquireMaintenanceLockAsync().AnyContext())
+        {
+            if (maintenanceLock is not null)
+            {
+                indexes = await GetIndexesAsync().AnyContext();
+                if (indexes.Count > 0)
+                    await UpdateAliasesAsync(indexes).AnyContext();
+            }
+        }
+
+        if (!includeOptionalTasks || !DiscardExpiredIndexes || !MaxIndexAge.HasValue || MaxIndexAge <= TimeSpan.Zero)
             return;
 
-        await UpdateAliasesAsync(indexes).AnyContext();
-
-        if (includeOptionalTasks && DiscardExpiredIndexes && MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero)
+        // Re-read only when the alias update was skipped, so each path makes a single call.
+        indexes ??= await GetIndexesAsync().AnyContext();
+        if (indexes.Count > 0)
             await DeleteOldIndexesAsync(indexes).AnyContext();
     }
 

@@ -32,6 +32,20 @@ public interface IVersionedIndex : IIndex
 
 public class VersionedIndex : Index, IVersionedIndex
 {
+    /// <summary>
+    /// How long alias maintenance holds the reindex lock. Maintenance only rewrites aliases, so this bounds a
+    /// crashed run's blast radius rather than covering a long operation, and it is deliberately not renewed.
+    /// </summary>
+    protected static readonly TimeSpan MaintenanceLockDuration = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// How long alias maintenance waits for the reindex lock before skipping the run. Kept short on purpose: a
+    /// reindex holds this lock for minutes to hours, so waiting longer would never turn a skip into an
+    /// acquisition — it would only stall callers like <c>ConfigureIndexesAsync</c>. The wait exists to ride out
+    /// a competing maintenance run, which only issues a few alias calls.
+    /// </summary>
+    protected static readonly TimeSpan MaintenanceLockAcquireTimeout = TimeSpan.FromSeconds(5);
+
     public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
         : base(configuration, name)
     {
@@ -349,8 +363,45 @@ public class VersionedIndex : Index, IVersionedIndex
         };
     }
 
+    /// <summary>
+    /// Acquires the <c>reindex:{alias}</c> lock for the duration of an alias maintenance run, or returns
+    /// <c>null</c> when a reindex holds it and this run should be skipped.
+    /// </summary>
+    /// <remarks>
+    /// Alias maintenance and a reindex cutover both rewrite the same aliases, so they share a lock. Callers
+    /// must hold it only across reading the current alias state and writing the new one: the lock is not
+    /// renewed, so anything unbounded (like deleting expired indexes) belongs outside it. A run that cannot
+    /// get the lock is skipped rather than queued, because maintenance is periodic and idempotent.
+    /// </remarks>
+    protected async Task<ILock?> TryAcquireMaintenanceLockAsync()
+    {
+        string lockName = ElasticReindexer.GetLockName(Name);
+        var maintenanceLock = await Configuration.LockProvider.TryAcquireAsync(lockName, MaintenanceLockDuration, MaintenanceLockAcquireTimeout).AnyContext();
+        if (maintenanceLock is null)
+            _logger.LogInformation("Skipping alias maintenance of {Index}: could not acquire lock {LockName} within {AcquireTimeout:g}. A reindex is likely in progress.", Name, lockName, MaintenanceLockAcquireTimeout);
+
+        return maintenanceLock;
+    }
+
+    /// <summary>
+    /// Restores the alias when it is missing, which is how an index whose alias was lost gets back into
+    /// queries.
+    /// </summary>
+    /// <remarks>
+    /// The alias is checked twice. The first check keeps the overwhelmingly common case (the alias is
+    /// present) off the lock entirely; the second is the authoritative one, because a reindex cutover may
+    /// have created the alias while this call waited for the lock. Without the second check this would add
+    /// the alias back onto the <em>old</em> version, leaving the alias pointing at two versions at once.
+    /// </remarks>
     public override async Task MaintainAsync(bool includeOptionalTasks = true)
     {
+        if (await AliasExistsAsync(Name).AnyContext())
+            return;
+
+        await using var maintenanceLock = await TryAcquireMaintenanceLockAsync().AnyContext();
+        if (maintenanceLock is null)
+            return;
+
         if (await AliasExistsAsync(Name).AnyContext())
             return;
 
