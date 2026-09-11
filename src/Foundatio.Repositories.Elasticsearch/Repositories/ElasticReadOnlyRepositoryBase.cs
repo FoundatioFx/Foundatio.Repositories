@@ -247,10 +247,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public virtual async Task<bool> ExistsAsync(Id id, ICommandOptions? options = null)
     {
+        options = ConfigureOptions(options?.As<T>());
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
+
         if (String.IsNullOrEmpty(id.Value))
             return false;
-
-        options = ConfigureOptions(options?.As<T>());
 
         if (!HasParent || id.Routing != null)
         {
@@ -390,14 +391,32 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return FindAsAsync<TResult>(query.Configure(), options?.Configure());
     }
 
-    private enum PagingStrategy { Normal, Snapshot, SearchAfterPointInTime }
+    private enum PagingStrategy
+    {
+        Normal,
+        SearchAfterLive,
+        SearchAfterPointInTime,
+        Snapshot
+    }
 
     private static PagingStrategy GetPagingStrategy(ICommandOptions options)
     {
-        if (options.ShouldUseSearchAfterPagingPointInTime())
+        bool useSearchAfter = options.ShouldUseSearchAfterPaging();
+        bool usePointInTime = options.ShouldUseSearchAfterPagingPointInTime();
+        bool useSnapshot = options.ShouldUseSnapshotPaging();
+        if (useSearchAfter && useSnapshot)
+            throw new QueryValidationException("Snapshot paging and search-after paging cannot be used together.");
+
+        if (useSearchAfter && (options.ShouldUseAsyncQuery() || options.HasAsyncQueryId()))
+            throw new QueryValidationException("Async queries and search-after paging cannot be used together.");
+
+        if (usePointInTime)
             return PagingStrategy.SearchAfterPointInTime;
 
-        if (options.ShouldUseSnapshotPaging())
+        if (useSearchAfter)
+            return PagingStrategy.SearchAfterLive;
+
+        if (useSnapshot)
             return PagingStrategy.Snapshot;
 
         return PagingStrategy.Normal;
@@ -406,116 +425,147 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null) where TResult : class, new()
     {
         options = ConfigureOptions(options?.As<T>());
-        var pagingStrategy = GetPagingStrategy(options);
-        // don't use caching with paged modes.
-        bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal;
 
-        await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
-
-        await RefreshForConsistency(query, options).AnyContext();
-
-        string? cacheSuffix = options.HasPageLimit() ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
-
-        FindResults<TResult>? result;
-        if (allowCaching)
+        var pointInTime = options.GetPointInTimeState();
+        var continuation = options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeContinuationKey);
+        try
         {
-            result = await GetCachedQueryResultAsync<FindResults<TResult>>(options!, cacheSuffix: cacheSuffix).AnyContext();
-            if (result != null)
+            await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
+
+            ValidatePointInTimeContinuation(options, continuation);
+            pointInTime = options.GetPointInTimeState();
+            var pagingStrategy = GetPagingStrategy(options);
+
+            // Don't use caching with paged modes.
+            bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal;
+
+            await RefreshForConsistency(query, options).AnyContext();
+
+            string? cacheSuffix = options.HasPageLimit() ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
+
+            FindResults<TResult>? result;
+            if (allowCaching)
             {
-                ((IFindResults<TResult>)result).GetNextPageFunc = async previousResults => await GetNextPageFunc(previousResults, query, options!).AnyContext();
-                return result;
-            }
-        }
-
-        if (options.HasAsyncQueryId())
-        {
-            var queryId = options.GetAsyncQueryId();
-            ArgumentException.ThrowIfNullOrEmpty(queryId);
-
-            var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
-            {
-                if (options.HasAsyncQueryWaitTime())
-                    s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
-            }).AnyContext();
-
-            if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
-                await RemoveQueryAsync(queryId).AnyContext();
-
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
-                throw new AsyncQueryNotFoundException(queryId);
-
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-        }
-        else if (options.HasSnapshotScrollId())
-        {
-            var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()!) { Scroll = options.GetSnapshotLifetime() };
-            var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-        }
-        else
-        {
-            var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
-            switch (pagingStrategy)
-            {
-                case PagingStrategy.Snapshot:
-                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
-                    break;
-                case PagingStrategy.SearchAfterPointInTime:
-                    await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
-                    break;
+                result = await GetCachedQueryResultAsync<FindResults<TResult>>(options, cacheSuffix: cacheSuffix).AnyContext();
+                if (result != null)
+                {
+                    ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options, pointInTime);
+                    return result;
+                }
             }
 
-            if (query.ShouldOnlyHaveIds())
-                searchDescriptor.Source(false);
-
-            if (options.ShouldUseAsyncQuery())
+            if (options.HasAsyncQueryId())
             {
-                SearchRequest searchRequest = searchDescriptor;
-                var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<TResult>();
+                var queryId = options.GetAsyncQueryId();
+                ArgumentException.ThrowIfNullOrEmpty(queryId);
 
-                if (options.HasAsyncQueryWaitTime())
-                    asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
+                var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
+                {
+                    if (options.HasAsyncQueryWaitTime())
+                        s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                }).AnyContext();
 
-                var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
+                if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                    await RemoveQueryAsync(queryId).AnyContext();
+
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+                    throw new AsyncQueryNotFoundException(queryId);
+
+                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+            }
+            else if (options.HasSnapshotScrollId())
+            {
+                var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()!) { Scroll = options.GetSnapshotLifetime() };
+                var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
             else
             {
-                var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                switch (pagingStrategy)
+                {
+                    case PagingStrategy.Snapshot:
+                        searchDescriptor.Scroll(options.GetSnapshotLifetime());
+                        break;
+                    case PagingStrategy.SearchAfterPointInTime:
+                        searchDescriptor.Indices(null);
+                        searchDescriptor.IgnoreUnavailable(null);
+                        await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
+                        pointInTime = options.GetPointInTimeState();
+                        break;
+                }
+
+                if (pagingStrategy is PagingStrategy.SearchAfterLive or PagingStrategy.SearchAfterPointInTime)
+                    searchDescriptor.AllowPartialSearchResults(false);
+
+                if (query.ShouldOnlyHaveIds())
+                    searchDescriptor.Source(false);
+
+                if (options.ShouldUseAsyncQuery())
+                {
+                    SearchRequest searchRequest = searchDescriptor;
+                    var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<TResult>();
+
+                    if (options.HasAsyncQueryWaitTime())
+                        asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
+
+                    var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                }
+                else
+                {
+                    var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    if (pointInTime is not null && !String.IsNullOrEmpty(response.PitId))
+                        pointInTime.Id = response.PitId;
+                    if (response.IsValidResponse && pagingStrategy is PagingStrategy.SearchAfterLive or PagingStrategy.SearchAfterPointInTime &&
+                        (response.TimedOut || response.Shards?.Failed > 0))
+                    {
+                        string failures = String.Join("; ", response.Shards?.Failures?.Select(failure => failure.Reason.Reason) ?? []);
+                        throw new DocumentException($"Incomplete cursor search: timed_out={response.TimedOut}, failed shards={response.Shards?.Failed}. {failures}", response.OriginalException());
+                    }
+                    result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                }
             }
-        }
 
-        await OnAfterQueryAsync(query, options, result).AnyContext();
+            await OnAfterQueryAsync(query, options, result).AnyContext();
 
-        if (pagingStrategy is PagingStrategy.Snapshot && !result.HasMore)
-        {
-            // clear the scroll
-            string? scrollId = result.GetScrollId();
-            if (!String.IsNullOrEmpty(scrollId))
+            if (pagingStrategy is PagingStrategy.Snapshot && !result.HasMore)
             {
-                var response = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
-                _logger.LogRequest(response, options.GetQueryLogLevel());
+                // clear the scroll
+                string? scrollId = result.GetScrollId();
+                if (!String.IsNullOrEmpty(scrollId))
+                {
+                    var response = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                }
             }
-        }
 
-        if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && !result.HasMore && options.IsRepoOwnedPointInTime())
+            if (pointInTime?.IsRepositoryOwned is true &&
+                (!result.HasMore || !ReferenceEquals(pointInTime, options.GetPointInTimeState())))
+            {
+                bool closed = await ClosePointInTimeAsync(pointInTime.Id).AnyContext();
+                if (!closed)
+                    _logger.LogWarning("Failed to close repository-owned point in time after paging completed; it will expire after its keep-alive window");
+                else if (ReferenceEquals(pointInTime, options.GetPointInTimeState()))
+                    options.DisableSearchAfterPaging();
+            }
+
+            if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
+                await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
+
+            ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options, pointInTime);
+
+            return result;
+        }
+        catch
         {
-            bool closed = await ClosePointInTimeAsync(result).AnyContext();
-            if (!closed)
-                _logger.LogWarning("Failed to close repository-owned point in time after paging completed; it will expire after its keep-alive window");
+            await CloseRepositoryOwnedPointInTimeAfterFailureAsync(options, pointInTime).AnyContext();
+            throw;
         }
-
-        if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
-            await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
-
-        ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options);
-
-        return result;
     }
 
     public async Task RemoveQueryAsync(string queryId)
@@ -524,7 +574,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _logger.LogRequest(response);
     }
 
-    private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new()
+    private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options, PointInTimeState? pointInTime) where TResult : class, new()
     {
         ArgumentNullException.ThrowIfNull(previousResults);
 
@@ -548,14 +598,32 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return results;
         }
 
+        ValidatePointInTimeContinuation(options, pointInTime);
+
         if (options.ShouldUseSearchAfterPaging())
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
-        if (options.ShouldUseSearchAfterPagingPointInTime())
-            options.PointInTimeId(previousResults.GetPointInTimeId());
+        options.PageNumber(previousResults.Page + 1);
+        if (pointInTime is null)
+            return await FindAsAsync<TResult>(query, options).AnyContext();
 
-        options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
-        return await FindAsAsync<TResult>(query, options).AnyContext();
+        // Keep the virtual FindAsAsync dispatch while validating the originating session after BeforeQuery.
+        options.Values.Set(SearchAfterQueryExtensions.PointInTimeContinuationKey, pointInTime);
+        try
+        {
+            return await FindAsAsync<TResult>(query, options).AnyContext();
+        }
+        finally
+        {
+            options.Values.Remove(SearchAfterQueryExtensions.PointInTimeContinuationKey);
+        }
+    }
+
+    private static void ValidatePointInTimeContinuation(ICommandOptions options, PointInTimeState? continuation)
+    {
+        if (continuation is not null &&
+            (!options.ShouldUseSearchAfterPagingPointInTime() || !ReferenceEquals(continuation, options.GetPointInTimeState())))
+            throw new QueryValidationException("The point-in-time paging session has been closed or replaced. Start a new search with FindAsync.");
     }
 
     public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
@@ -566,14 +634,17 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
         options = ConfigureOptions(options?.As<T>());
-        if (IsCacheEnabled && (options.ShouldUseCache() || options.ShouldReadCache()) && !options.HasCacheKey())
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(FindOneAsync));
+        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(FindOneAsync));
+
+        bool allowCaching = IsCacheEnabled && !options.ShouldUseSearchAfterPaging();
+        if (allowCaching && (options.ShouldUseCache() || options.ShouldReadCache()) && !options.HasCacheKey())
             throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
 
-        var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
+        var result = allowCaching && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
         if (result != null)
             return result.FirstOrDefault() ?? FindHit<T>.Empty;
-
-        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
         await RefreshForConsistency(query, options).AnyContext();
 
@@ -592,7 +663,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         result = response.Hits.Select(h => h.ToFindHit()).ToList();
 
-        if (IsCacheEnabled && options.ShouldUseCache())
+        if (allowCaching && options.ShouldUseCache())
             await AddDocumentsToCacheAsync(result, options, options.GetConsistency(DefaultConsistency) == Consistency.Eventual).AnyContext();
 
         return result.FirstOrDefault() ?? FindHit<T>.Empty;
@@ -606,16 +677,18 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
+        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
 
+        bool allowCaching = IsCacheEnabled && !options.ShouldUseSearchAfterPaging();
         CountResult? result;
-        if (IsCacheEnabled && options.ShouldReadCache())
+        if (allowCaching && options.ShouldReadCache())
         {
             result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
             if (result != null)
                 return result;
         }
-
-        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
         await RefreshForConsistency(query, options).AnyContext();
 
@@ -661,7 +734,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await OnAfterQueryAsync(query, options, result).AnyContext();
 
-        if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
+        if (allowCaching && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
             await SetCachedQueryResultAsync(options, result, "count").AnyContext();
 
         return result;
@@ -678,7 +751,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             throw new NotSupportedException("ExistsAsync requires the model type to implement IIdentity.");
 
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
 
         await RefreshForConsistency(query, options).AnyContext();
 
@@ -836,7 +911,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             // The repository opened this point-in-time, so it owns its lifecycle and must auto-close it once paging completes.
             // A caller-supplied point-in-time id is owned by the caller and is never auto-closed.
             pointInTimeId = await OpenPointInTimeAsync(query, options).AnyContext();
-            options.RepoOwnedPointInTime();
+            options.RepositoryOwnedPointInTimeId(pointInTimeId);
         }
 
         search.Pit(new PointInTimeReference(pointInTimeId) { KeepAlive = options.GetSnapshotLifetime().ToElasticDuration() });
@@ -881,10 +956,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         query = ConfigureQuery(query.As<T>()).Unwrap();
         string[] indices = ElasticIndex.GetIndexesByQuery(query);
-        // A point-in-time pins the target index set at the moment it was opened, so the request must not also set
-        // Indices(...) or IgnoreUnavailable() - doing so conflicts with the pinned context.
-        bool usePit = options.ShouldUseSearchAfterPagingPointInTime();
-        if (indices?.Length > 0 && !usePit)
+        if (indices?.Length > 0)
             search.Indices(String.Join(",", indices));
         if (HasVersion)
             search.SeqNoPrimaryTerm(HasVersion);
@@ -895,13 +967,40 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             search.Timeout(timeout.ToElasticDuration());
         }
 
-        if (!usePit)
-            search.IgnoreUnavailable();
+        search.IgnoreUnavailable();
         search.TrackTotalHits(new TrackHits(options.ShouldTrackTotalHits()));
 
         await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
         return search;
+    }
+
+    private async Task CloseRepositoryOwnedPointInTimeAfterFailureAsync(ICommandOptions options, PointInTimeState? pointInTime)
+    {
+        if (pointInTime?.IsRepositoryOwned is not true)
+            return;
+
+        try
+        {
+            bool closed = await ClosePointInTimeAsync(pointInTime.Id).AnyContext();
+            if (closed)
+            {
+                if (ReferenceEquals(pointInTime, options.GetPointInTimeState()))
+                    options.DisableSearchAfterPaging();
+            }
+            else
+                _logger.LogWarning("Failed to close repository-owned point in time after a paging failure; it will expire after its keep-alive window");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to close repository-owned point in time after a paging failure; it will expire after its keep-alive window");
+        }
+    }
+
+    private static void ThrowIfPointInTimePagingIsUnsupported(ICommandOptions options, string operation)
+    {
+        if (options.ShouldUseSearchAfterPagingPointInTime())
+            throw new QueryValidationException($"{operation} does not support point-in-time search-after paging. Use FindAsync or FindAsAsync so updated cursor and point-in-time state can be returned.");
     }
 
     protected virtual ICommandOptions<T> ConfigureOptions(ICommandOptions<T>? options)

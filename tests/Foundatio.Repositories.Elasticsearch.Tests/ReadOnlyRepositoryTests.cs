@@ -61,13 +61,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employeeResult1);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(0, _cache.Misses);
+        Assert.Equal(1, _cache.Misses); // BeforeQuery checks soft-deleted IDs even on a cache hit.
 
         var employeeResult2 = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache("test"));
         Assert.NotNull(employeeResult2);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(2, _cache.Hits);
-        Assert.Equal(0, _cache.Misses);
+        Assert.Equal(1, _cache.Misses);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Null(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(3, _cache.Misses);
 
         await _cache.RemoveAsync("Employee:test");
         Assert.Equal(0, _cache.Count);
@@ -95,13 +95,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(4, _cache.Misses);
+        Assert.Equal(5, _cache.Misses);
 
         employeeResult = await _employeeRepository.FindOneAsync(new RepositoryQuery(), new CommandOptions().Cache(true).CacheKey("test"));
         Assert.NotNull(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(2, _cache.Hits);
-        Assert.Equal(4, _cache.Misses);
+        Assert.Equal(6, _cache.Misses);
     }
 
     [Fact]
@@ -694,6 +694,18 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         return nodeStats.Indices!.Search!.ScrollCurrent;
     }
 
+    private async Task<long> GetCurrentSearchContextCountAsync()
+    {
+        var stats = await _client.Nodes.StatsAsync(cancellationToken: TestCancellationToken);
+        Assert.True(stats.IsValidResponse);
+        return stats.Nodes.Values.Sum(n =>
+        {
+            long? count = n.Indices?.Search?.OpenContexts;
+            Assert.NotNull(count);
+            return count.Value;
+        });
+    }
+
     [Fact]
     public async Task GetAllWithAsyncQueryAsync()
     {
@@ -990,6 +1002,30 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FindAsync_WithLiveSearchAfterPagingAndCache_UsesCursorInsteadOfCachedFirstPage()
+    {
+        // Arrange
+        var firstEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
+        var secondEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        const string cacheKey = "live-search-after";
+
+        var firstPage = await _employeeRepository.FindAsync(
+            q => q.SortAscending(e => e.Name),
+            o => o.PageLimit(1).SearchAfterPaging().Cache(cacheKey));
+        string? searchAfterToken = firstPage.GetSearchAfterToken();
+
+        // Act
+        var secondPage = await _employeeRepository.FindAsync(
+            q => q.SortAscending(e => e.Name),
+            o => o.PageLimit(1).SearchAfterToken(searchAfterToken, _serializer).Cache(cacheKey));
+
+        // Assert
+        Assert.Equal(firstEmployee.Id, Assert.Single(firstPage.Documents).Id);
+        Assert.Equal(secondEmployee.Id, Assert.Single(secondPage.Documents).Id);
+        Assert.NotEqual(firstPage.Documents.First().Id, secondPage.Documents.First().Id);
+    }
+
+    [Fact]
     public async Task FindAsync_WithSearchAfterPagingLiveModeAndUnstableSortAcrossMultiplePages_LogsWarningOnce()
     {
         // Arrange
@@ -1182,6 +1218,52 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FindAsync_WithPointInTimePagingAndAfterQueryFailure_ClosesPointInTime()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
+        long baselineContextCount = await GetCurrentSearchContextCountAsync();
+        _employeeRepository.AfterQuery.AddHandler((_, _) => throw new InvalidOperationException("after-query failure"));
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime)));
+
+        // Assert
+        Assert.Equal("after-query failure", exception.Message);
+        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
+    }
+
+    [Fact]
+    public async Task FindAsync_WithPointInTimePagingAndBeforeQueryFailureOnNextPage_ClosesPointInTime()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        long baselineContextCount = await GetCurrentSearchContextCountAsync();
+        int queryCount = 0;
+        _employeeRepository.BeforeQuery.AddHandler((_, _) =>
+        {
+            queryCount++;
+            return queryCount is 2
+                ? Task.FromException(new InvalidOperationException("before-query failure"))
+                : Task.CompletedTask;
+        });
+
+        var results = await _employeeRepository.FindAsync(
+            q => q.SortDescending(d => d.Name),
+            o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+        Assert.True(await GetCurrentSearchContextCountAsync() > baselineContextCount);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => results.NextPageAsync());
+
+        // Assert
+        Assert.Equal("before-query failure", exception.Message);
+        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
+    }
+
+    [Fact]
     public async Task FindAsync_WithPointInTimePaging_SupportsBidirectionalWebCursorNavigation()
     {
         // Arrange
@@ -1279,21 +1361,23 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
 
-        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
-        long baselineScrollCount = await GetCurrentScrollCountAsync();
+        long baselineContextCount = await GetCurrentSearchContextCountAsync();
 
         // Act
         var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
-        while (await results.NextPageAsync())
+        string? finalPitId;
+        do
         {
-        }
+            finalPitId = results.GetPointInTimeId();
+        } while (await results.NextPageAsync());
 
-        // Assert — PIT is closed by the repo without any manual ClosePointInTimeAsync call
+        // Assert
         Assert.False(results.HasMore);
-        string? finalPitId = results.GetPointInTimeId();
-        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
-        if (!String.IsNullOrEmpty(finalPitId))
-            Assert.False(await ((ISupportPointInTime)_employeeRepository).ClosePointInTimeAsync(finalPitId));
+        Assert.False(String.IsNullOrEmpty(finalPitId));
+        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
+        var closedSearch = await _client.SearchAsync<Employee>(s => s.Pit(p => p.Id(finalPitId)).Size(0), TestCancellationToken);
+        Assert.False(closedSearch.IsValidResponse);
+        Assert.Equal(404, closedSearch.ApiCallDetails.HttpStatusCode);
     }
 
     [Fact]
