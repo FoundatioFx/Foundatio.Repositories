@@ -447,6 +447,18 @@ Two non-goals of that check, both asserted by tests. It does **not** fire merely
 
 **This prevents one specific unsafe promotion; it does not make migrations lossless.** The alias is still switched before the catch-up pass, so for models that *can* catch up, writes landing between the switch and the end of that pass remain a live-write race. The `_seq_no` gate is a refusal to promote, not a write barrier.
 
+### Completion records
+
+A finished migration writes a `ReindexCompletion` document to the `foundatio-reindex-completions` index, and that record is the only thing that establishes completion. An advanced alias cannot serve the purpose: the cutover happens *before* the catch-up pass, so "migration finished" and "migration promoted the destination then failed" leave identical cluster state. Reading the advanced version as proof is what made a redelivered work item acknowledge a known-short migration as complete.
+
+Ordering is load-bearing. The record is written after every step that can fail the migration has succeeded, **before** the queue item is acknowledged and **before** the source index is deleted. Source cleanup is deliberately downstream of it, so a delete failure cannot demote a finished migration back to copying. If the record cannot be persisted at all, `ReindexAsync` throws `ReindexIncompleteException` rather than reporting a success that nothing can later vouch for.
+
+Identity is the logical migration — `alias|oldIndex|newIndex` — explicitly not an attempt, delivery, or job id, all of which change on redelivery and would make every retry look like a migration that had never run. The record additionally pins the destination index's UUID (so a record left by an index since deleted and recreated under the same name does not match) and a SHA-256 fingerprint of the reindex script (so an unscripted copy cannot vouch for a scripted one). Writes are idempotent — same id, same content — and an ambiguous write response is resolved by reading the exact record back rather than assuming either outcome.
+
+`ReindexWorkItemHandler` turns this into a three-way decision, replacing the old boolean skip: not promoted → run the copy; promoted with a matching record → acknowledge as already done; promoted with no matching record → throw `ReindexCompletionUnknownException`, which is neither success nor permission to copy again. That last case preserves both indexes and performs no replay, rollback, or deletion, handing the item to the queue's own abandon/retry/dead-letter behavior with the work identity intact.
+
+Two limits worth stating plainly. A completion record attests only that the copy met the contract above — it is **not** proof of strict or lossless consistency. And migrations completed before this release have no record, so a stale work item redelivered for one reports `ReindexCompletionUnknownException`; completion is never fabricated from counts or alias state. Ordinary startup is unaffected and no index is scanned or verified automatically. Guarded by `ReindexTests.QueuedReindex_When{DestinationPromotedButMigrationNeverCompleted,CompletedThenRedeliveredToFreshHandler,DirectMigrationCompletedIt,CompletionRecordNamesAnotherIndexGeneration,CompletionRecordWasWrittenForAnotherTransformation,SourceCleanupFailsAfterCompletion}` plus `ReindexAsync_When{CompletionCannotBeRecorded,CompletionIsWrittenTwice}`.
+
 ### ConfigureIndexesAsync Concurrency
 
 Multiple distributed processes calling `ConfigureIndexesAsync` on startup:

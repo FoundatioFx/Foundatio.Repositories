@@ -98,33 +98,94 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         var workItem = context.GetData<ReindexWorkItem>();
         ArgumentNullException.ThrowIfNull(workItem);
 
-        if (await IsAlreadyReindexedAsync(workItem).AnyContext())
+        var disposition = await GetRedeliveryDispositionAsync(workItem, context.CancellationToken).AnyContext();
+        switch (disposition)
         {
-            Log.LogInformation("Skipping queued reindex of {OldIndex} -> {NewIndex}: the index is already at or past that version", workItem.OldIndex, workItem.NewIndex);
-            await context.ReportProgressAsync(100, "Already reindexed").AnyContext();
-            return;
-        }
+            case RedeliveryDisposition.AlreadyCompleted:
+                Log.LogInformation("Skipping queued reindex of {OldIndex} -> {NewIndex}: this migration is recorded as complete", workItem.OldIndex, workItem.NewIndex);
+                await context.ReportProgressAsync(100, "Already reindexed").AnyContext();
+                return;
 
-        await _reindexer.ReindexAsync(workItem, context.ReportProgressAsync, context.CancellationToken).AnyContext();
+            case RedeliveryDisposition.PromotedButUnconfirmed:
+                // Neither success nor permission to copy again. The alias already points at the destination, so
+                // acknowledging this would record a possibly short index as a finished migration, and copying
+                // again would write into an index that is already serving live traffic. Throwing hands the item
+                // to the queue's own abandon/retry/dead-letter handling with the work identity intact, and both
+                // indexes are left untouched for recovery.
+                Log.LogError("Queued reindex of {OldIndex} -> {NewIndex} found alias {Alias} already promoted with no completion record. Not acknowledging and not recopying; both indexes are left in place.",
+                    workItem.OldIndex, workItem.NewIndex, workItem.Alias);
+                throw new ReindexCompletionUnknownException(workItem.Alias, workItem.OldIndex, workItem.NewIndex,
+                    "the alias already points at the destination but no completion record vouches for this migration");
+
+            case RedeliveryDisposition.SafeToStart:
+            default:
+                await _reindexer.ReindexAsync(workItem, context.ReportProgressAsync, context.CancellationToken).AnyContext();
+                return;
+        }
     }
 
     /// <summary>
-    /// Re-reads the destination index's version now that the lock is held, so a work item whose migration
-    /// another process finished while this one sat in the queue is skipped rather than copied again.
+    /// What a redelivered work item is allowed to do, given what can be observed about the migration.
+    /// </summary>
+    private enum RedeliveryDisposition
+    {
+        /// <summary>The migration has not been promoted, so the copy can run.</summary>
+        SafeToStart,
+
+        /// <summary>A completion record vouches for this migration, so the duplicate can be acknowledged.</summary>
+        AlreadyCompleted,
+
+        /// <summary>
+        /// The destination is promoted but nothing vouches for the migration, so the outcome is unknown.
+        /// </summary>
+        PromotedButUnconfirmed
+    }
+
+    /// <summary>
+    /// Decides what a redelivered work item may do, separating "work may safely start" from "already promoted,
+    /// completion unknown".
     /// </summary>
     /// <remarks>
+    /// The distinction matters because those two states used to be conflated. An advanced alias was read as
+    /// proof the migration had finished, so a first attempt that failed after the cutover - the alias moves
+    /// before the catch-up pass - was acknowledged as a completed migration on redelivery. Completion is
+    /// therefore established only by a matching completion record, never inferred from alias state, document
+    /// counts, or a progress report.
+    /// </remarks>
+    private async Task<RedeliveryDisposition> GetRedeliveryDispositionAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
+    {
+        if (!await IsAlreadyPromotedAsync(workItem).AnyContext())
+            return RedeliveryDisposition.SafeToStart;
+
+        if (await _reindexer.HasCompletionEvidenceAsync(workItem, cancellationToken).AnyContext())
+            return RedeliveryDisposition.AlreadyCompleted;
+
+        return RedeliveryDisposition.PromotedButUnconfirmed;
+    }
+
+    /// <summary>
+    /// Returns whether the alias already points at this migration's target version, which means the cutover has
+    /// happened - but says nothing about whether the migration finished.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This deliberately answers only "has the destination been promoted?". It used to be read as "has this
+    /// already been reindexed?", which conflated a migration another process completed with one that promoted
+    /// the destination and then failed; the alias switch happens before the catch-up pass, so both leave the
+    /// version advanced. Completion is established separately by a completion record.
+    /// </para>
+    /// <para>
     /// The index is located by the work item's alias rather than by matching <c>VersionedName</c> against
     /// <see cref="ReindexWorkItem.NewIndex"/>. For a time-series index the work item's destination is a single
     /// dated partition (<c>employees-v2-2026.09.11</c>) while <c>VersionedName</c> is only
-    /// <c>employees-v2</c>, so matching on the destination silently never fired for daily and monthly indexes
-    /// and this skip did not apply to them at all.
+    /// <c>employees-v2</c>, so matching on the destination silently never fired for daily and monthly indexes.
+    /// </para>
     /// <para>
-    /// The comparison stays conservative in the time-series case: a time-series index reports its *lowest*
-    /// partition version, so this only skips once every partition has been migrated. A false negative merely
-    /// recopies, which converges; a false positive would abandon real work.
+    /// A time-series index reports its <em>lowest</em> partition version, so this only reports promotion once
+    /// every partition has moved.
     /// </para>
     /// </remarks>
-    private async Task<bool> IsAlreadyReindexedAsync(ReindexWorkItem workItem)
+    private async Task<bool> IsAlreadyPromotedAsync(ReindexWorkItem workItem)
     {
         if (_configuration is null)
             return false;

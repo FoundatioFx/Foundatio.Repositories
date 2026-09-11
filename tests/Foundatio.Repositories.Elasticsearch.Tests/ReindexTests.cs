@@ -697,10 +697,345 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(0, disposition.Completed);
         Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0,
             $"Expected the item to be abandoned or dead-lettered, but got {disposition.Result.Message}");
+        Assert.IsType<ReindexCompletionUnknownException>(disposition.Result.Error);
 
         // Assert - and no unsafe replay: both indexes survive for recovery
         Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    /// <summary>
+    /// A successful migration whose acknowledgment was lost must be recognized by a fresh handler.
+    /// </summary>
+    /// <remarks>
+    /// This is the ordinary redelivery case and the reason completion has to be durable rather than in-process:
+    /// the second delivery is served by a new handler instance that shares no memory with the first, so the
+    /// only thing that can vouch for the finished migration is the persisted record.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCompletedThenRedeliveredToFreshHandler_IsAcknowledgedWithoutRecopying()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Drop the source so a re-copy could not silently succeed - it would have to fail loudly.
+        await _client.Indices.DeleteAsync(version1Index.VersionedName, TestCancellationToken);
+
+        // Act - redeliver to a brand new handler, as a restarted worker would
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert
+        Assert.True(disposition.Result.IsSuccess, disposition.Result.Message);
+        Assert.Equal(1, disposition.Completed);
+        Assert.Equal(0, disposition.Abandoned);
+    }
+
+    /// <summary>
+    /// A migration completed directly must be recognized by a queued duplicate through the same mechanism.
+    /// </summary>
+    /// <remarks>
+    /// Both execution paths run the same reindexer, so completion is recorded identically whichever one did the
+    /// work. Without that, a queued item left over from a migration an operator ran directly would be reported
+    /// as an unknown outcome.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenDirectMigrationCompletedIt_IsAcknowledgedAsAlreadyDone()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(4), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        // The direct path does the work.
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Act - the queued duplicate arrives afterwards
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert
+        Assert.True(disposition.Result.IsSuccess, disposition.Result.Message);
+        Assert.Equal(1, disposition.Completed);
+    }
+
+    /// <summary>
+    /// A completion record naming a different destination generation must not vouch for this migration.
+    /// </summary>
+    /// <remarks>
+    /// Index names are reusable: a destination can be deleted and recreated under the same name, at which point
+    /// a record written for the earlier index describes data that no longer exists. Binding the record to the
+    /// destination's uuid is what makes that detectable, since nothing else about the migration changes.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCompletionRecordNamesAnotherIndexGeneration_IsNotAcknowledgedAsSuccess()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Stale the record by recreating the destination: same name, new uuid, and re-promote it.
+        await _client.Indices.DeleteAsync(version2Index.VersionedName, TestCancellationToken);
+        await version2Index.ConfigureAsync();
+        await _client.Indices.PutAliasAsync(version2Index.VersionedName, version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Act
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert - the stale record is treated as no evidence at all
+        Assert.Equal(0, disposition.Completed);
+        Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0,
+            $"Expected the item to be abandoned or dead-lettered, but got {disposition.Result.Message}");
+        Assert.IsType<ReindexCompletionUnknownException>(disposition.Result.Error);
+    }
+
+    /// <summary>
+    /// A completion record written for a different transformation must not vouch for this migration.
+    /// </summary>
+    /// <remarks>
+    /// Two migrations can share an alias, source, and destination while applying different reindex scripts, so
+    /// the record is bound to the script as well. Otherwise a completed unscripted copy would appear to satisfy
+    /// a later scripted one, which would never run.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCompletionRecordWasWrittenForAnotherTransformation_IsNotAcknowledgedAsSuccess()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // Complete an unscripted migration, which records completion for transformation "none".
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Act - the same physical migration, but now carrying a script
+        var scriptedWorkItem = version2Index.CreateReindexWorkItem(1) with { Script = "ctx._source.scripted = true;" };
+        var disposition = await RunReindexThroughQueueAsync(configuration, scriptedWorkItem);
+
+        // Assert - the unscripted record does not vouch for the scripted copy
+        Assert.Equal(0, disposition.Completed);
+        Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0,
+            $"Expected the item to be abandoned or dead-lettered, but got {disposition.Result.Message}");
+        Assert.IsType<ReindexCompletionUnknownException>(disposition.Result.Error);
+    }
+
+    /// <summary>
+    /// A migration that finished but could not record its completion must not report success.
+    /// </summary>
+    /// <remarks>
+    /// Reporting success here would leave a promoted destination with no completion evidence, which every later
+    /// delivery would be forced to treat as an unknown outcome. Failing instead keeps the contradiction from
+    /// being created: the operator learns immediately that the record could not be written.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenCompletionCannotBeRecorded_DoesNotReportSuccess()
+    {
+        // Arrange
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, 5).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+        await version2Index.ConfigureAsync();
+
+        // Block the completion write by taking the record's name as a closed index, so writes to it fail.
+        string completionIndex = ElasticReindexer.GetCompletionIndexName();
+        await _client.Indices.DeleteAsync(completionIndex, TestCancellationToken);
+        await _client.Indices.CreateAsync(completionIndex, TestCancellationToken);
+        await _client.Indices.CloseAsync(completionIndex, TestCancellationToken);
+        await using AsyncDisposableAction cleanup = new(async () =>
+        {
+            await _client.Indices.OpenAsync(completionIndex, TestCancellationToken);
+            await _client.Indices.DeleteAsync(completionIndex, TestCancellationToken);
+        });
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => reindexer.ReindexAsync(workItem, cancellationToken: TestCancellationToken));
+
+        // Assert
+        Assert.Contains("completion could not be recorded", exception.Reason);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    /// <summary>
+    /// A cleanup failure after completion was recorded must not send a finished migration back to copying.
+    /// </summary>
+    /// <remarks>
+    /// Deleting the source is an optimization that runs after the migration is already complete and recorded.
+    /// If a failure there were allowed to invalidate the record, a transient delete error would demote a
+    /// finished migration to an unknown outcome and cost a full recopy.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenSourceCleanupFailsAfterCompletion_StillAcknowledgesTheMigration()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(4), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // DeleteOld with the source already gone: the copy succeeds, then cleanup fails.
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        workItem.DeleteOld = true;
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        await reindexer.ReindexAsync(workItem, cancellationToken: TestCancellationToken);
+
+        // Removing the source now makes the delete in any later attempt fail, standing in for a cleanup error.
+        if ((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists)
+            await _client.Indices.DeleteAsync(version1Index.VersionedName, TestCancellationToken);
+
+        // Act - redelivery must rely on the completion record, not on the source still being there
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert
+        Assert.True(disposition.Result.IsSuccess, disposition.Result.Message);
+        Assert.Equal(1, disposition.Completed);
+    }
+
+    /// <summary>
+    /// An ambiguous completion write is resolved by reading the exact record back, not by assuming an outcome.
+    /// </summary>
+    /// <remarks>
+    /// An index request can time out or drop its response after the write has actually landed. Assuming failure
+    /// would rerun a finished migration; assuming success would claim evidence that may not exist. The only safe
+    /// resolution is to look for the specific record, which is what this verifies: a record written once is
+    /// recognized as valid evidence on a subsequent read, and the write is idempotent so a retry of an
+    /// ambiguous attempt overwrites rather than duplicating.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenCompletionIsWrittenTwice_RemainsSingleValidRecord()
+    {
+        // Arrange
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, 4).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+        await version2Index.ConfigureAsync();
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await reindexer.ReindexAsync(workItem, cancellationToken: TestCancellationToken);
+
+        string completionIndex = ElasticReindexer.GetCompletionIndexName();
+        string completionId = ElasticReindexer.GetCompletionId(workItem);
+
+        // Act - replay the same write, standing in for a retry after an ambiguous response
+        var replayResponse = await _client.GetAsync<ReindexCompletion>(completionId, d => d.Index(completionIndex), TestCancellationToken);
+        Assert.True(replayResponse.Found);
+        var reindexResponse = await _client.IndexAsync(replayResponse.Source!,
+            i => i.Index(completionIndex).Id(completionId).Refresh(Refresh.True), TestCancellationToken);
+        Assert.True(reindexResponse.IsValidResponse);
+
+        // Assert - still exactly one record, and it still describes this exact migration generation
+        var countResponse = await _client.CountAsync<ReindexCompletion>(d => d
+            .Indices(completionIndex)
+            .Query(q => q.Ids(idq => idq.Values(completionId))), TestCancellationToken);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(1, countResponse.Count);
+
+        var settingsResponse = await _client.Indices.GetSettingsAsync((Indices)version2Index.VersionedName, TestCancellationToken);
+        Assert.True(settingsResponse.IsValidResponse);
+        string? currentUuid = settingsResponse.Settings.Values.Select(s => s.Settings?.Index?.Uuid).FirstOrDefault(u => !String.IsNullOrEmpty(u));
+
+        var storedResponse = await _client.GetAsync<ReindexCompletion>(completionId, d => d.Index(completionIndex), TestCancellationToken);
+        Assert.True(storedResponse.Found);
+        Assert.Equal(currentUuid, storedResponse.Source!.DestinationUuid);
+        Assert.Equal(version2Index.VersionedName, storedResponse.Source.DestinationIndex);
+        Assert.Equal("none", storedResponse.Source.Transformation);
     }
 
     /// <summary>

@@ -839,6 +839,30 @@ catch (ReindexIncompleteException ex)
 `ReindexWorkItemHandler` lets the exception propagate, so a queued reindex is abandoned and retried by the worker per your queue's retry policy, eventually dead-lettering. For a deterministic failure such as a mapping conflict, every retry fails the same way — fix the mapping rather than waiting it out.
 :::
 
+#### Completion is recorded durably, and never inferred
+
+A finished migration writes a `ReindexCompletion` record to the `foundatio-reindex-completions` index before the queue item is acknowledged and before the source index is deleted. That record is the only thing that establishes a migration completed.
+
+This exists because an advanced alias proves nothing. The alias switch happens before the catch-up pass, so a promoted destination is equally consistent with "the migration finished" and "the migration promoted the destination and then failed" — the same cluster state either way. A redelivered work item previously read the advanced version as proof of completion and acknowledged the item, which recorded a known-short migration as complete.
+
+A redelivered work item is therefore resolved three ways:
+
+| Observed state | Disposition |
+| --- | --- |
+| Alias not yet promoted | The copy runs normally |
+| Promoted, with a matching completion record | Acknowledged as already done, nothing is recopied |
+| Promoted, with no matching record | `ReindexCompletionUnknownException` — not acknowledged, and not recopied |
+
+The record is keyed by the logical migration (alias plus source and destination index names), not by an attempt or delivery id, so the same migration is recognized across redelivery, process restart, and direct-versus-queued execution. It is additionally bound to the destination index's UUID and to a fingerprint of the reindex script, so a record left by an earlier index of the same name, or by a different transformation, does not satisfy the check.
+
+::: warning What a completion record does not attest
+It records that the reindex met the contract this library implements: the copy task reported it matched and wrote everything it set out to, the catch-up pass completed or was proven unnecessary, and the aliases moved. It is **not** proof of strict or lossless consistency — see [Remaining limitations](#remaining-limitations).
+:::
+
+::: warning Migrations completed before this release have no record
+Completion is never fabricated from alias state or document counts, so an already-migrated index whose migration predates this release reports `ReindexCompletionUnknownException` if a stale work item for it is ever redelivered. Ordinary startup is unaffected: nothing verifies existing indexes, and no scan is performed. If you hit this, confirm the destination is sound and discard the stale work item.
+:::
+
 ::: warning Cancellation throws too
 Cancelling via the `CancellationToken` throws `OperationCanceledException`. See [Cancelling a reindex](#cancelling-a-reindex).
 :::
@@ -1430,6 +1454,27 @@ If you hit this, the options in order of preference are: add `IHaveDates` to the
 or stop writes to the index for the duration of the migration. The old index is always retained, so the refusal
 is recoverable — retry once writes have stopped.
 
+### An incomplete reindex is no longer retried, and completion is now recorded
+
+Two related changes affect how failures and retries behave:
+
+`IElasticConfiguration.ReindexAsync` no longer retries a `ReindexIncompleteException`. It previously ran inside a
+resilience policy that retried on any exception, which silently converted a post-cutover failure into a reported
+success: the alias was already moved, so the retry found the version at its target, skipped, and returned
+normally. The failure is now recorded on the first attempt and surfaced in the `AggregateException`. A
+post-cutover failure is not recoverable by retry — migrate to a fresh index version instead.
+
+A completed migration now writes a record to the `foundatio-reindex-completions` index, and a redelivered queued
+work item is only acknowledged when a matching record exists. See
+[Completion is recorded durably](#completion-is-recorded-durably-and-never-inferred). Two consequences:
+
+- The cluster gains one small single-shard index holding one document per physical migration. It is not derived
+  from your index names, so it is never matched by the `{name}-v*` patterns used to enumerate or delete index
+  versions, and it outlives cleanup of the source it describes.
+- A migration that completed before this release has no record. That only matters if a stale work item for it is
+  redelivered, which then reports `ReindexCompletionUnknownException` rather than acknowledging it. Startup is
+  unaffected and nothing is scanned or verified automatically.
+
 ### Remaining limitations (not fixed by the above)
 
 Be precise about what this does and does not guarantee. **The specific unsafe promotion described above is now
@@ -1442,6 +1487,9 @@ prevented. Migrations are not lossless in general.**
   prevent a write — only decline to promote a copy that missed one.
 - Post-cutover document-count comparison remains a coarse warning, not proof. See
   [Concurrency Safety](#concurrency-safety).
+- A completion record attests that the copy met the contract above — not that no write was lost. It makes a
+  finished migration distinguishable from one that promoted and then failed; it does not narrow the live-write
+  race for models that can catch up.
 
 A migration protocol that quiesces writes and verifies content before promotion is a separate, larger change.
 

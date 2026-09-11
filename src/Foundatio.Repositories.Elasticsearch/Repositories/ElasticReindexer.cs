@@ -59,6 +59,46 @@ public class ElasticReindexer
         return String.Concat(index, "-error");
     }
 
+    /// <summary>
+    /// Returns the name of the index holding <see cref="ReindexCompletion"/> records.
+    /// </summary>
+    /// <remarks>
+    /// A single shared index rather than one per alias: it holds one small document per physical migration, so
+    /// keeping it in one place keeps both the shard count and the lookup constant. It is deliberately not
+    /// derived from the migrated index's name, so it is never swept up by the <c>{name}-v*</c> patterns used to
+    /// enumerate and delete index versions, and it outlives cleanup of the source it describes.
+    /// </remarks>
+    public static string GetCompletionIndexName() => "foundatio-reindex-completions";
+
+    /// <summary>
+    /// Returns the stable id identifying a physical migration, so the same migration is recognizable across
+    /// redelivery, process restart, and direct-versus-queued execution.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by the logical migration - alias plus source and destination index names - and explicitly not by
+    /// an attempt id, delivery id, or job id, all of which change on redelivery and would make every retry
+    /// look like a migration that had never run.
+    /// </remarks>
+    public static string GetCompletionId(ReindexWorkItem workItem)
+    {
+        ArgumentNullException.ThrowIfNull(workItem);
+
+        return String.Concat(workItem.Alias, "|", workItem.OldIndex, "|", workItem.NewIndex);
+    }
+
+    /// <summary>
+    /// Returns a fingerprint of the transformation the copy applies, so a completion record written for a
+    /// different script cannot vouch for this migration.
+    /// </summary>
+    internal static string GetTransformationFingerprint(ReindexWorkItem workItem)
+    {
+        if (String.IsNullOrEmpty(workItem.Script))
+            return "none";
+
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(workItem.Script));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, ILogger? logger = null) : this(client, serializer, TimeProvider.System, logger)
     {
     }
@@ -160,6 +200,15 @@ public class ElasticReindexer
         // a DeleteOld = false reindex was never checked at all.
         bool countsVerified = await VerifyDocumentCountsAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
+        // Recorded here because every step that can fail the migration has now succeeded, and deliberately
+        // before the queue item is acknowledged and before the source is deleted. Writing it any earlier would
+        // make it evidence of a migration still in progress; writing it after cleanup would leave a finished
+        // migration indistinguishable from one that failed after the cutover.
+        if (workItem.OldIndex != workItem.NewIndex)
+            await RecordCompletionAsync(workItem, cancellationToken).AnyContext();
+
+        // Cleanup is deliberately after the completion record and is not allowed to undo it: deleting the
+        // source is an optimization, and a failure there must not send a finished migration back to copying.
         if (countsVerified && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex)
             await DeleteOldIndexAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
@@ -1000,9 +1049,193 @@ public class ElasticReindexer
         return max;
     }
 
-    private sealed record SampleIdResult(SampleIdStatus Status, string? Id = null, string? Error = null, Exception? Exception = null);
+    /// <summary>
+    /// Reads the destination index's UUID, which identifies one physical generation of that index name.
+    /// </summary>
+    private async Task<string?> TryGetIndexUuidAsync(string index, CancellationToken cancellationToken)
+    {
+        var response = await _client.Indices.GetSettingsAsync((Indices)index, cancellationToken).AnyContext();
+        _logger.LogRequest(response);
 
-    private async Task<SampleIdResult> GetSampleDocumentIdAsync(string index, CancellationToken cancellationToken)
+        if (!response.IsValidResponse)
+        {
+            _logger.LogWarning("Could not read the index uuid for {Index}: {Error}", index, response.GetErrorMessage("Get settings failed"));
+            return null;
+        }
+
+        foreach (var state in response.Settings.Values)
+        {
+            string? uuid = state.Settings?.Index?.Uuid;
+            if (!String.IsNullOrEmpty(uuid))
+                return uuid;
+        }
+
+        _logger.LogWarning("The index uuid was missing from the settings for {Index}", index);
+        return null;
+    }
+
+    /// <summary>
+    /// Creates the completion-record index if it does not exist.
+    /// </summary>
+    /// <remarks>
+    /// Mapped strictly so a shape change surfaces as a rejected write rather than as a record that silently
+    /// fails to match later. Every field is a keyword because the record is only ever fetched by id.
+    /// </remarks>
+    private async Task<bool> EnsureCompletionIndexAsync(CancellationToken cancellationToken)
+    {
+        string index = GetCompletionIndexName();
+        var existsResponse = await _client.Indices.ExistsAsync(index, cancellationToken).AnyContext();
+        _logger.LogRequest(existsResponse);
+
+        if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.Exists)
+            return true;
+
+        if (!existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.ApiCallDetails.HttpStatusCode is not 404)
+        {
+            _logger.LogErrorRequest(existsResponse, "Error checking if the reindex completion index exists");
+            return false;
+        }
+
+        var createResponse = await _client.Indices.CreateAsync(index, d => d
+            .Settings(s => s.NumberOfShards(1))
+            .Mappings(md => md
+                .Dynamic(DynamicMapping.Strict)
+                .Properties<object>(p => p
+                    .Keyword("alias")
+                    .Keyword("source_index")
+                    .Keyword("destination_index")
+                    .Keyword("destination_uuid")
+                    .Keyword("transformation")
+                    .Date("completed_utc"))), cancellationToken).AnyContext();
+
+        // A concurrent reindex may have created it between the check and the create.
+        if (createResponse.IsValidResponse || createResponse.ElasticsearchServerError?.Error?.Type is "resource_already_exists_exception")
+        {
+            _logger.LogRequest(createResponse);
+            return true;
+        }
+
+        _logger.LogErrorRequest(createResponse, "Unable to create the reindex completion index");
+        return false;
+    }
+
+    /// <summary>
+    /// Records that this migration finished, and refuses to continue if that record cannot be persisted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called only after the copy's own accounting confirmed completion, and before the queue item is
+    /// acknowledged or the source is deleted. If the record cannot be written the migration is <em>not</em>
+    /// reported as successful: without it, a redelivery has no way to distinguish this destination from one
+    /// promoted by a failed attempt, and would be forced to treat a finished migration as an unknown outcome.
+    /// </para>
+    /// <para>
+    /// The write is idempotent - same id, same content - so a retry after an ambiguous response overwrites
+    /// rather than duplicating. An ambiguous response is resolved by reading the record back and checking it
+    /// matches, rather than assuming either outcome.
+    /// </para>
+    /// </remarks>
+    private async Task RecordCompletionAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
+    {
+        if (!await EnsureCompletionIndexAsync(cancellationToken).AnyContext())
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                "the copy finished but its completion could not be recorded, because the completion index could not be created");
+
+        string? destinationUuid = await TryGetIndexUuidAsync(workItem.NewIndex, cancellationToken).AnyContext();
+        if (String.IsNullOrEmpty(destinationUuid))
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"the copy finished but its completion could not be recorded, because the uuid of {workItem.NewIndex} could not be read");
+
+        var completion = new ReindexCompletion
+        {
+            Alias = workItem.Alias,
+            SourceIndex = workItem.OldIndex,
+            DestinationIndex = workItem.NewIndex,
+            DestinationUuid = destinationUuid,
+            Transformation = GetTransformationFingerprint(workItem),
+            CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime
+        };
+
+        string id = GetCompletionId(workItem);
+        var indexResponse = await _client.IndexAsync(completion, i => i
+            .Index(GetCompletionIndexName())
+            .Id(id)
+            .Refresh(Refresh.True), cancellationToken).AnyContext();
+
+        if (indexResponse.IsValidResponse)
+        {
+            _logger.LogRequest(indexResponse);
+            return;
+        }
+
+        // The write may still have landed, so this is resolved by reading the exact record back rather than by
+        // assuming it failed and rerunning the migration.
+        _logger.LogWarning("The completion record write for {OldIndex} -> {NewIndex} returned an ambiguous response, verifying: {Error}",
+            workItem.OldIndex, workItem.NewIndex, indexResponse.GetErrorMessage("Index failed"));
+
+        if (await TryReadCompletionAsync(workItem, destinationUuid, cancellationToken).AnyContext())
+            return;
+
+        throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+            "the copy finished but its completion could not be recorded, so a later attempt could not tell this destination apart from one promoted by a failed attempt");
+    }
+
+    /// <summary>
+    /// Returns whether a completion record exists that vouches for exactly this migration.
+    /// </summary>
+    /// <remarks>
+    /// A record only counts when it matches this migration's identity, the destination's current uuid, and the
+    /// transformation. A mismatch on any of those means the record describes a different generation or a
+    /// different copy, and is treated as no evidence at all.
+    /// </remarks>
+    private async Task<bool> TryReadCompletionAsync(ReindexWorkItem workItem, string destinationUuid, CancellationToken cancellationToken)
+    {
+        var response = await _client.GetAsync<ReindexCompletion>(GetCompletionId(workItem),
+            d => d.Index(GetCompletionIndexName()), cancellationToken).AnyContext();
+
+        if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode is not 404)
+        {
+            _logger.LogWarning("Could not read the completion record for {OldIndex} -> {NewIndex}: {Error}",
+                workItem.OldIndex, workItem.NewIndex, response.GetErrorMessage("Get failed"));
+            return false;
+        }
+
+        if (!response.Found || response.Source is null)
+            return false;
+
+        var completion = response.Source;
+        if (!String.Equals(completion.DestinationUuid, destinationUuid, StringComparison.Ordinal))
+        {
+            _logger.LogWarning("The completion record for {NewIndex} names uuid {RecordedUuid}, but the index now has uuid {CurrentUuid}, so it describes an index generation that no longer exists.",
+                workItem.NewIndex, completion.DestinationUuid, destinationUuid);
+            return false;
+        }
+
+        string transformation = GetTransformationFingerprint(workItem);
+        if (!String.Equals(completion.Transformation, transformation, StringComparison.Ordinal))
+        {
+            _logger.LogWarning("The completion record for {NewIndex} was written for a different transformation, so it does not vouch for this reindex.", workItem.NewIndex);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns whether this migration has trustworthy evidence of completion.
+    /// </summary>
+    internal async Task<bool> HasCompletionEvidenceAsync(ReindexWorkItem workItem, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workItem);
+
+        string? destinationUuid = await TryGetIndexUuidAsync(workItem.NewIndex, cancellationToken).AnyContext();
+        if (String.IsNullOrEmpty(destinationUuid))
+            return false;
+
+        return await TryReadCompletionAsync(workItem, destinationUuid, cancellationToken).AnyContext();
+    }
+
+    private sealed record SampleIdResult(SampleIdStatus Status, string? Id = null, string? Error = null, Exception? Exception = null); private async Task<SampleIdResult> GetSampleDocumentIdAsync(string index, CancellationToken cancellationToken)
     {
         var response = await _client.SearchAsync<IDictionary<string, object>>(d => d
             .Indices(index)
