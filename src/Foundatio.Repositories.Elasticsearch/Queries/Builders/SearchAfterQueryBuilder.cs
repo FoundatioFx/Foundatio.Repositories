@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Extensions;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -207,7 +208,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             "_score"
         };
 
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
             // Get sorts from context data (set by SortQueryBuilder or ExpressionQueryBuilder)
             List<SortOptions>? sortFields = null;
@@ -222,7 +223,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 sortFields ??= new List<SortOptions>();
 
                 var resolver = ctx.GetMappingResolver();
-                string idField = resolver.GetResolvedField(Id) ?? "_id";
+                string idField = await resolver.GetResolvedFieldAsync(Id).AnyContext() ?? "_id";
 
                 // Live search_after paging with an unstable sort key (e.g. _doc, _score) is only safe
                 // within a Point-In-Time: index refreshes and segment merges can invalidate the cursor,
@@ -248,7 +249,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                     if (sort?.Field?.Field is { } sortField)
                     {
-                        fieldName = resolver.GetSortFieldName(sortField);
+                        fieldName = await resolver.GetSortFieldNameAsync(sortField).AnyContext();
                         if (fieldName is null)
                             continue;
 
@@ -296,8 +297,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 ctx.Search.Sort(sortFields);
             }
-
-            return Task.CompletedTask;
         }
     }
 }

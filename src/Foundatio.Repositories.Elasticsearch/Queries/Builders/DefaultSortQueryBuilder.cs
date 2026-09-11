@@ -1,6 +1,6 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Extensions;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Models;
@@ -11,7 +11,7 @@ public class DefaultSortQueryBuilder : IElasticQueryBuilder
 {
     private const string Id = nameof(IIdentity.Id);
 
-    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+    public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
     {
         // Get existing sorts from context data (set by SortQueryBuilder or ExpressionQueryBuilder)
         List<SortOptions>? sortFields = null;
@@ -23,16 +23,22 @@ public class DefaultSortQueryBuilder : IElasticQueryBuilder
         sortFields ??= new List<SortOptions>();
 
         var resolver = ctx.GetMappingResolver();
-        string idField = resolver.GetResolvedField(Id) ?? "_id";
+        string idField = await resolver.GetResolvedFieldAsync(Id).AnyContext() ?? "_id";
 
         // ensure id field is always present as a sort (default or tiebreaker)
-        bool hasIdField = sortFields.Any(s =>
+        bool hasIdField = false;
+        foreach (var sort in sortFields)
         {
-            if (s?.Field?.Field == null)
-                return false;
-            string fieldName = resolver.GetSortFieldName(s.Field.Field);
-            return fieldName?.Equals(idField) == true;
-        });
+            if (sort?.Field?.Field is not { } field)
+                continue;
+
+            string fieldName = await resolver.GetSortFieldNameAsync(field).AnyContext();
+            if (fieldName?.Equals(idField) == true)
+            {
+                hasIdField = true;
+                break;
+            }
+        }
 
         if (!hasIdField)
         {
@@ -40,7 +46,5 @@ public class DefaultSortQueryBuilder : IElasticQueryBuilder
         }
 
         ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
-
-        return Task.CompletedTask;
     }
 }

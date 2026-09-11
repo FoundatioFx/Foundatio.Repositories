@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Extensions;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Exceptionless.DateTimeExtensions;
@@ -99,17 +100,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 {
     public class DateRangeQueryBuilder : IElasticQueryBuilder
     {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
             var dateRanges = ctx.Source.GetDateRanges();
             if (dateRanges.Count <= 0)
-                return Task.CompletedTask;
+                return;
 
             var resolver = ctx.GetMappingResolver();
 
             foreach (var dateRange in dateRanges.Where(dr => dr.UseDateRange))
             {
-                var rangeQuery = new DateRangeQuery { Field = resolver.ResolveFieldName(dateRange.Field) };
+                var rangeQuery = new DateRangeQuery { Field = await resolver.ResolveFieldNameAsync(dateRange.Field).AnyContext() };
                 if (dateRange.UseStartDate)
                     rangeQuery.Gte = dateRange.GetStartDate();
                 if (dateRange.UseEndDate)
@@ -119,8 +120,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                 ctx.Filter &= rangeQuery;
             }
-
-            return Task.CompletedTask;
         }
     }
 }
