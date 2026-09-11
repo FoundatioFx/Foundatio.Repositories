@@ -132,53 +132,28 @@ public class ElasticReindexer
         _logger.LogInformation("Received reindex work item for {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
         var startTime = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(-1);
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
+
+        // Determined before the copy so an unsupported configuration is refused cheaply rather than after an
+        // expensive copy. This is a per-shard stats read, not a scan.
+        var catchUpPlan = await PlanCatchUpAsync(workItem, cancellationToken).AnyContext();
+
         var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc, cancellationToken).AnyContext();
         EnsureCopyCompleted(workItem, firstPassResult);
 
         await progressCallbackAsync(91, $"Total: {firstPassResult.Total:N0} Completed: {firstPassResult.Completed:N0}").AnyContext();
 
-        // The pre-cutover guarantee is EnsureCopyCompleted above: the first pass reported it finished and
-        // accounted for every document it matched. Comparing index document counts here instead would fail
-        // constantly, because documents written to the source while the first pass ran are copied by the
-        // catch-up pass, which by design runs after the cutover.
+        // Enforced BEFORE any alias changes. When the catch-up pass cannot run, the only way to keep the
+        // promise the cutover implies is to not make it: if the source changed during the copy, those changes
+        // cannot be found again, so promoting the destination would silently serve an incomplete index. This
+        // deliberately runs pre-Switch - turning the old post-cutover warning into a post-cutover exception
+        // would report the failure without preventing it, since the alias has already moved.
+        await EnsureCatchUpPossibleAsync(workItem, catchUpPlan, cancellationToken).AnyContext();
+
         if (workItem.OldIndex != workItem.NewIndex)
             await SwitchAliasesAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
-        if (!String.IsNullOrEmpty(workItem.TimestampField))
-        {
+        if (catchUpPlan.CanCatchUp)
             await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, cancellationToken).AnyContext();
-        }
-        else
-        {
-            // With no timestamp field the catch-up pass has to slice the source by id, which only works for
-            // ObjectId-format ids because their prefix encodes creation time.
-            var sampleResult = await GetSampleDocumentIdAsync(workItem.OldIndex, cancellationToken).AnyContext();
-
-            switch (sampleResult.Status)
-            {
-                case SampleIdStatus.Empty:
-                    _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
-                    break;
-
-                case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out var objectId):
-                    _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
-                    await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, cancellationToken).AnyContext();
-                    break;
-
-                case SampleIdStatus.Found:
-                    _logger.LogWarning(
-                        "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds (sample: {SampleId}). Cannot perform second-pass catch-up. Documents written during reindex may be lost. Consider adding IHaveDates to your model or using ObjectId-format IDs.",
-                        workItem.OldIndex, workItem.NewIndex, sampleResult.Id);
-                    break;
-
-                case SampleIdStatus.Failed:
-                    _logger.LogWarning(sampleResult.Exception,
-                        "Reindex {OldIndex} -> {NewIndex}: Failed to sample document ID ({Error}). Attempting ObjectId-based second pass anyway.",
-                        workItem.OldIndex, workItem.NewIndex, sampleResult.Error);
-                    await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, cancellationToken).AnyContext();
-                    break;
-            }
-        }
 
         // Verify the destination isn't short of the source on every reindex, not only when the old index
         // happens to be scheduled for deletion - the shortfall gate used to live inside the delete branch, so
@@ -190,6 +165,114 @@ public class ElasticReindexer
 
         await progressCallbackAsync(100, "Reindex complete").AnyContext();
     }
+
+    /// <summary>
+    /// Decides, before the copy starts, whether this reindex can catch up documents written to the source while
+    /// the copy runs — and records the source's sequence number so a later change can be detected.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The catch-up pass narrows the source by time. With a <see cref="ReindexWorkItem.TimestampField"/> it
+    /// queries that field directly; without one it slices by document id, which only works for ObjectId-format
+    /// ids because their prefix encodes creation time. Any other id format leaves no way to find documents
+    /// written during the copy.
+    /// </para>
+    /// <para>
+    /// A sampled id is explicitly <em>not</em> treated as proof: ids are not required to be homogeneous, so one
+    /// ObjectId does not establish that catch-up will find everything. It is used only in the negative
+    /// direction — to recognize a source that definitely cannot be sliced by id — which is why a failed or
+    /// empty sample leaves catch-up enabled rather than refusing. Deliberately no full scan: inferring id
+    /// formats across a 500 GB index would cost more than the migration.
+    /// </para>
+    /// </remarks>
+    private async Task<CatchUpPlan> PlanCatchUpAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
+    {
+        if (!String.IsNullOrEmpty(workItem.TimestampField))
+            return new CatchUpPlan(CanCatchUp: true);
+
+        var sampleResult = await GetSampleDocumentIdAsync(workItem.OldIndex, cancellationToken).AnyContext();
+
+        switch (sampleResult.Status)
+        {
+            case SampleIdStatus.Empty:
+                _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
+                return new CatchUpPlan(CanCatchUp: false, SourceIsEmpty: true);
+
+            case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out _):
+                _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
+                return new CatchUpPlan(CanCatchUp: true);
+
+            case SampleIdStatus.Found:
+                // The one case that genuinely cannot catch up. Record the source's sequence number so the
+                // enforcement below can tell a static source (safe) from one being written to (not safe).
+                long? maxSeqNo = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
+                _logger.LogInformation(
+                    "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds (sample: {SampleId}), so documents written during the copy cannot be caught up. The copy will only be promoted if the source does not change while it runs.",
+                    workItem.OldIndex, workItem.NewIndex, sampleResult.Id);
+                return new CatchUpPlan(CanCatchUp: false, StartingMaxSequenceNumber: maxSeqNo, SequenceNumberReadable: maxSeqNo.HasValue);
+
+            default:
+                _logger.LogWarning(sampleResult.Exception,
+                    "Reindex {OldIndex} -> {NewIndex}: Failed to sample document ID ({Error}). Attempting ObjectId-based second pass anyway.",
+                    workItem.OldIndex, workItem.NewIndex, sampleResult.Error);
+                return new CatchUpPlan(CanCatchUp: true);
+        }
+    }
+
+    /// <summary>
+    /// Refuses to promote a destination when the source changed during a copy that has no way to catch up.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called before the aliases are switched, so refusing leaves the alias on the source and the source intact.
+    /// The condition is that this migration cannot perform its required catch-up <em>and</em> the source
+    /// actually changed — not merely that the documents use custom ids. A static source needs no catch-up, so
+    /// that case is unaffected.
+    /// </para>
+    /// <para>
+    /// Change is detected by the source's maximum sequence number, which advances on inserts, updates, and
+    /// deletes alike. Document counts cannot do this: an update leaves the count unchanged, and an insert can
+    /// offset a delete.
+    /// </para>
+    /// <para>
+    /// Fails closed when the sequence number could not be read, because "no evidence of change" is not evidence
+    /// of no change — the mistake this whole class of bug is made of.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ReindexIncompleteException">
+    /// The source changed during the copy and those changes cannot be found again.
+    /// </exception>
+    private async Task EnsureCatchUpPossibleAsync(ReindexWorkItem workItem, CatchUpPlan plan, CancellationToken cancellationToken)
+    {
+        if (plan.CanCatchUp || plan.SourceIsEmpty)
+            return;
+
+        if (!plan.SequenceNumberReadable)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"{workItem.OldIndex} has no timestamp field and its document ids are not ObjectIds, so documents written during the copy cannot be caught up - and whether any were written could not be determined because the source's sequence numbers could not be read. Refusing to promote {workItem.NewIndex}. Add IHaveDates to the model, use ObjectId-format ids, or stop writes to {workItem.OldIndex} for the duration of the migration.");
+
+        long? currentMaxSeqNo = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
+        if (currentMaxSeqNo is null)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"{workItem.OldIndex} has no timestamp field and its document ids are not ObjectIds, so documents written during the copy cannot be caught up - and whether any were written could not be confirmed because the source's sequence numbers could not be re-read. Refusing to promote {workItem.NewIndex}.");
+
+        if (currentMaxSeqNo > plan.StartingMaxSequenceNumber)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"{workItem.OldIndex} was written to during the copy (sequence number advanced from {plan.StartingMaxSequenceNumber:N0} to {currentMaxSeqNo:N0}), and because it has no timestamp field and its document ids are not ObjectIds those changes cannot be caught up. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias. Add IHaveDates to the model, use ObjectId-format ids, or stop writes for the duration of the migration.");
+
+        _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source was not written to during the copy (sequence number {SequenceNumber:N0}), so no catch-up is required.",
+            workItem.OldIndex, workItem.NewIndex, currentMaxSeqNo);
+    }
+
+    /// <summary>
+    /// Whether a reindex can catch up writes that land during the copy, plus the evidence needed to tell
+    /// whether any did.
+    /// </summary>
+    private sealed record CatchUpPlan(
+        bool CanCatchUp,
+        bool SourceIsEmpty = false,
+        long? StartingMaxSequenceNumber = null,
+        bool SequenceNumberReadable = false);
 
     /// <summary>
     /// Copies documents written to the source while the first pass was running. Throws if this pass does not
@@ -854,6 +937,56 @@ public class ElasticReindexer
     }
 
     private enum SampleIdStatus { Found, Empty, Failed }
+
+    /// <summary>
+    /// Reads the source's highest assigned sequence number, which is the cheapest date-independent way to tell
+    /// whether the source changed during a copy.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Elasticsearch assigns a monotonically increasing <c>_seq_no</c> to every write on a shard, so comparing
+    /// the maximum across shards before and after a copy detects inserts, same-count updates, and deletes alike
+    /// — none of which document counts reliably reveal. This is a per-shard stats read, not a scan, so it costs
+    /// the same regardless of index size.
+    /// </para>
+    /// <para>
+    /// Taken from shard-level stats rather than a <c>max</c> aggregation on <c>_seq_no</c>, because the
+    /// aggregation only sees live documents: a delete leaves the searchable maximum unchanged while the shard's
+    /// <c>max_seq_no</c> advances. Verified against a live cluster - after deleting a document the aggregation
+    /// still reported 4 while the shard reported 5.
+    /// </para>
+    /// </remarks>
+    /// <returns>The highest sequence number across the index's primary shards, or <c>null</c> if it could not be read.</returns>
+    private async Task<long?> TryGetMaxSequenceNumberAsync(string index, CancellationToken cancellationToken)
+    {
+        var response = await _client.Indices.StatsAsync((Indices)index, d => d.Level(Level.Shards), cancellationToken).AnyContext();
+        _logger.LogRequest(response);
+
+        if (!response.IsValidResponse)
+        {
+            _logger.LogWarning("Could not read sequence numbers for {Index}: {Error}", index, response.GetErrorMessage("Stats failed"));
+            return null;
+        }
+
+        long? max = null;
+        foreach (var shards in response.Indices?.Values.SelectMany(i => i.Shards?.Values ?? []) ?? [])
+        {
+            foreach (var shard in shards)
+            {
+                if (shard.Routing?.Primary is not true || shard.SeqNo is null)
+                    continue;
+
+                long shardMax = shard.SeqNo.MaxSeqNo;
+                if (max is null || shardMax > max)
+                    max = shardMax;
+            }
+        }
+
+        if (max is null)
+            _logger.LogWarning("Sequence numbers were missing from the shard stats for {Index}", index);
+
+        return max;
+    }
 
     private sealed record SampleIdResult(SampleIdStatus Status, string? Id = null, string? Error = null, Exception? Exception = null);
 

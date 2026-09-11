@@ -441,7 +441,11 @@ After the first reindex pass completes, a second pass catches documents written 
 
 1. **TimestampField available** (e.g., `IHaveDates` models): timestamp-based range query (preferred)
 2. **No TimestampField, ObjectId-format IDs**: ObjectId-based range queries
-3. **No TimestampField, non-ObjectId IDs**: Cannot perform second pass (logs a Warning)
+3. **No TimestampField, non-ObjectId IDs**: no second pass is possible, so the copy is promoted **only if the source did not change while it ran**. The source's highest `_seq_no` is recorded before the copy and re-read before the alias switch; if it advanced (inserts, updates, *and* deletes all advance it, unlike document counts) the reindex throws `ReindexIncompleteException` and refuses to promote, leaving the alias on the old index and retaining it. Unreadable sequence numbers also refuse — absence of evidence of change is not evidence of no change.
+
+Two non-goals of that check, both asserted by tests. It does **not** fire merely because a model is date-free or uses custom ids (`ReindexAsync_WithStaticSourceAndCustomIds_CopiesEveryDocument` pins that a static custom-id copy still succeeds), and a `TimestampField`/sampled ObjectId is **not** treated as proof of consistency — the sample is only used in the negative direction, since ids need not be homogeneous. Enforcement is deliberately pre-`SwitchAliasesAsync`: converting the old post-cutover warning into a post-cutover throw would report the loss without preventing it. Guarded by `ReindexTests.ReindexAsync_WhenDocument{Written,Modified}BeforeCutoverCannotBeCaughtUp_DoesNotReportSuccess` and `QueuedReindex_WhenCatchUpImpossibleAndSourceChanged_FailsWithoutPromoting`.
+
+**This prevents one specific unsafe promotion; it does not make migrations lossless.** The alias is still switched before the catch-up pass, so for models that *can* catch up, writes landing between the switch and the end of that pass remain a live-write race. The `_seq_no` gate is a refusal to promote, not a write barrier.
 
 ### ConfigureIndexesAsync Concurrency
 

@@ -400,8 +400,10 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // documented end of the first copy pass, which makes this deterministic without racing the copy.
         bool hookFired = false;
         bool writeRejected = false;
+        var progressReports = new List<int>();
         var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(async (progress, _) =>
         {
+            progressReports.Add(progress);
             if (progress is 90 && !hookFired)
             {
                 hookFired = true;
@@ -434,6 +436,15 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         Assert.True(copied || !promoted,
             $"The document written before cutover is missing from the destination, yet the migration promoted it and reported success (exception: {exception?.GetType().Name ?? "none"}).");
+
+        // When the outcome is refusal, it must be a refusal in full: reported as a failure, the alias left on
+        // the source, and no claim of completion.
+        if (!copied)
+        {
+            Assert.IsType<ReindexIncompleteException>(exception);
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            Assert.DoesNotContain(100, progressReports);
+        }
     }
 
     /// <summary>
@@ -472,8 +483,10 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act - overwrite an existing document pre-cutover, bumping its _version without changing the count.
         bool hookFired = false;
         bool writeRejected = false;
-        await Record.ExceptionAsync(() => version2Index.ReindexAsync(async (progress, _) =>
+        var progressReports = new List<int>();
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(async (progress, _) =>
         {
+            progressReports.Add(progress);
             if (progress is 90 && !hookFired)
             {
                 hookFired = true;
@@ -515,6 +528,14 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         Assert.True(caughtUp || !promoted,
             $"The destination holds a stale copy of {modifiedId} (source _version {source.Version}, destination _version {(destination.Found ? destination.Version : null)}) yet the migration promoted it and reported success.");
+
+        // When the outcome is refusal, it must be a refusal in full.
+        if (!caughtUp)
+        {
+            Assert.IsType<ReindexIncompleteException>(exception);
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            Assert.DoesNotContain(100, progressReports);
+        }
     }
 
     /// <summary>
@@ -2280,6 +2301,54 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
     }
 
+    /// <summary>
+    /// The refusal must reach the queued path too — neither acknowledged as success nor retried forever.
+    /// </summary>
+    /// <remarks>
+    /// A configuration that cannot catch up is not a transient fault, so the distinction that matters here is
+    /// that the handler surfaces it as a failure (rather than reporting 100% and acking the item) while leaving
+    /// the alias and source untouched. Retry policy is the queue's concern; what the library must not do is
+    /// report success.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCatchUpImpossibleAndSourceChanged_FailsWithoutPromoting()
+    {
+        // Arrange - a date-free model with natural-key ids, so catch-up is impossible
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, 10).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+        await version2Index.ConfigureAsync();
+
+        // Act - write to the source pre-cutover through the queued handler
+        var handler = new ReindexWorkItemHandler(_configuration);
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        var exception = await Record.ExceptionAsync(() => HandleReindexWorkItemAsync(handler, workItem, async progress =>
+        {
+            if (progress is 90)
+                await IndexIdentitiesAsync(version1Index.VersionedName, [new Identity { Id = "written-during-the-copy" }]);
+        }));
+
+        // Assert - surfaced as a failure, not an acknowledged success, and nothing was promoted or deleted
+        var incomplete = Assert.IsType<ReindexIncompleteException>(exception);
+        Assert.Contains("cannot be caught up", incomplete.Reason);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+        var oldExists = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(oldExists.Exists);
+    }
+
     [Fact]
     public async Task QueuedReindex_WhenMigrationAlreadyCompleted_SkipsInsteadOfRecopying()
     {
@@ -2551,16 +2620,19 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         return targets is null ? String.Empty : String.Join(",", targets.Keys.OrderBy(k => k));
     }
 
-    private async Task HandleReindexWorkItemAsync(ReindexWorkItemHandler handler, ReindexWorkItem workItem)
+    // onProgressAsync lets a test mutate the source at a known phase boundary (progress 90 is the end of the
+    // first copy pass), which is how the queued path is exercised against a mid-migration write.
+    private async Task HandleReindexWorkItemAsync(ReindexWorkItemHandler handler, ReindexWorkItem workItem, Func<int, Task>? onProgressAsync = null)
     {
         await using var workItemLock = await handler.GetWorkItemLockAsync(workItem, TestCancellationToken);
         Assert.NotNull(workItemLock);
 
         var context = new WorkItemContext(workItem, Guid.NewGuid().ToString("N"), workItemLock, TestCancellationToken,
-            (progress, message) =>
+            async (progress, message) =>
             {
                 _logger.LogInformation("Queued reindex progress {Progress}%: {Message}", progress, message);
-                return Task.CompletedTask;
+                if (onProgressAsync is not null)
+                    await onProgressAsync(progress);
             });
 
         await handler.HandleItemAsync(context);

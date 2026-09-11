@@ -569,7 +569,7 @@ Writes for a period target the **unversioned dated alias** (e.g. `audit-2024.01`
 **Is there a gap?**
 
 - **No aliasing gap.** The remove-old and add-new actions are submitted together in one `UpdateAliases` request, which Elasticsearch applies **atomically**. The alias is never pointing at zero indexes (or at both), so reads and writes always resolve to exactly one partition — there is no window where a write fails to route or a read sees nothing.
-- **No lost-write gap for append-only data.** Documents written to the old partition during the first pass are picked up by the second-pass catch-up, which runs *after* the swap and copies every document with a timestamp (or ObjectId creation time) at or after a start time captured ~1 second before the reindex began. After the swap the old partition receives no new writes, and `Conflicts=proceed` keeps the catch-up from failing on documents already copied. This is why a `TimestampField` or ObjectId-format IDs are recommended (see [Second-Pass Catch-Up Strategy](#second-pass-catch-up-strategy)) — they let the catch-up find late writes precisely.
+- **No lost-write gap for append-only data.** Documents written to the old partition during the first pass are picked up by the second-pass catch-up, which runs *after* the swap and copies every document with a timestamp (or ObjectId creation time) at or after a start time captured ~1 second before the reindex began. After the swap the old partition receives no new writes, and `Conflicts=proceed` keeps the catch-up from failing on documents already copied. This is why a `TimestampField` or ObjectId-format IDs are recommended (see [Second-Pass Catch-Up Strategy](#second-pass-catch-up-strategy)) — they let the catch-up find late writes precisely. Without either, the reindex refuses to promote a copy whose source changed while it ran, rather than promoting one that is silently short.
 
 Only the currently-reindexing period has this brief hand-off; periods not yet reached still write to v1, and periods already migrated write to v2 — all through the same unchanging dated-alias names.
 
@@ -1414,6 +1414,33 @@ than the newest document already in the destination, which could permanently ski
 never reached. Recopying converges because reindex writes by document id, but a retry now costs a full copy
 rather than an incremental one. Pass `ReindexWorkItem.StartUtc` if you need to bound a pass explicitly.
 
+### A copy that cannot catch up is refused if its source changed
+
+When a model has no timestamp field **and** its document ids are not ObjectIds, no second pass is possible. Such
+a reindex now throws `ReindexIncompleteException` instead of promoting a destination that is silently short — but
+only when the source actually changed during the copy, detected via the source's highest `_seq_no`. A source that
+is not being written to still copies and promotes normally, so **custom ids and date-free models remain
+supported**; the trigger is the missed catch-up, not the id format.
+
+If you hit this, the options in order of preference are: add `IHaveDates` to the model, use ObjectId-format ids,
+or stop writes to the index for the duration of the migration. The old index is always retained, so the refusal
+is recoverable — retry once writes have stopped.
+
+### Remaining limitations (not fixed by the above)
+
+Be precise about what this does and does not guarantee. **The specific unsafe promotion described above is now
+prevented. Migrations are not lossless in general.**
+
+- The alias is still switched **before** the catch-up pass runs. For models that *can* catch up (timestamp field
+  or ObjectId ids), writes landing between the switch and the end of the catch-up pass are still a live-write
+  race. A `TimestampField` makes catch-up possible; it does not make the migration verified.
+- The `_seq_no` check covers the copy window. It is a refusal-to-promote gate, not a write barrier, so it cannot
+  prevent a write — only decline to promote a copy that missed one.
+- Post-cutover document-count comparison remains a coarse warning, not proof. See
+  [Concurrency Safety](#concurrency-safety).
+
+A migration protocol that quiesces writes and verifies content before promotion is a separate, larger change.
+
 ## Next Steps
 
 - [Migrations](/guide/migrations) - Document migrations
@@ -1454,8 +1481,10 @@ Reindexing performs a second pass after the first completes to catch documents w
 
 1. **TimestampField available** (e.g., `IHaveDates` models): Uses a timestamp-based range query starting from the reindex start time. This is the preferred approach.
 2. **No TimestampField, ObjectId-format IDs**: Falls back to ObjectId-based range queries on the document `id` field (ObjectIds encode a timestamp). Logged at Information level.
-3. **No TimestampField, non-ObjectId IDs**: Cannot perform a second pass. Logs a Warning — documents written during reindex may be lost. Consider adding `IHaveDates` to your model or using ObjectId-format IDs.
+3. **No TimestampField, non-ObjectId IDs**: A second pass is impossible, so the copy is only promoted if the source did **not** change while it ran. Before copying, the reindex records the source's highest `_seq_no`; before switching any alias it re-reads it. If the source was written to (insert, update, or delete — all advance `_seq_no`, unlike document counts), the reindex throws `ReindexIncompleteException` and **refuses to promote**: the alias stays on the old index and the old index is retained. A static source copies normally. If the sequence number cannot be read, the reindex refuses rather than assuming nothing changed.
 4. **Empty source index**: Skips the second pass entirely (nothing to catch up).
+
+Two things this check deliberately does not do. It does not refuse merely because a model has no date fields or uses custom IDs — those are supported, and a copy of a source that is not being written to is safe. And a `TimestampField` or ObjectId IDs are **not** proof of full consistency: they make catch-up possible, but the catch-up pass still runs after the alias switch, so writes landing in that window are the subject of the remaining limitations below.
 
 ### Unique Index Names
 
