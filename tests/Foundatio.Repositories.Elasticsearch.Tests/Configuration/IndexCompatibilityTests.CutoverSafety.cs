@@ -273,82 +273,204 @@ public partial class IndexCompatibilityTests
         Assert.DoesNotContain("PUT /employees/_settings", invoker.Requests);
     }
 
-    [Theory]
-    [InlineData("create", false)]
-    [InlineData("before-copy", false)]
-    [InlineData("before-copy", true)]
-    [InlineData("terminal-error", false)]
-    [InlineData("cancel-confirmed", false)]
-    [InlineData("cancel-uncertain", false)]
-    public async Task UpgradeAsync_WithPreCutoverFailure_OnlyCleansUpAfterPositiveEvidence(string failure, bool deleteFails)
+    private sealed record PreCutoverFailureFixture(SequenceRequestInvoker Invoker, ElasticIndexCompatibilityUpgrader Upgrader,
+        Index<object> Index, IndexCompatibilityInfo Compatibility, ThrottlingLockProvider Locks);
+
+    private static PreCutoverFailureFixture CreatePreCutoverFailureFixture(List<StubResponse> responses)
     {
-        const string active = """{"completed":false,"task":{"node":"node","id":1,"action":"indices:data/write/reindex","status":{},"running_time_in_nanos":1,"cancellable":true,"headers":{}}}""";
-        var responses = CreateSafetySetupResponses();
-        bool canReset = failure is "before-copy" or "terminal-error" or "cancel-confirmed";
-        if (failure is "create")
-        {
-            responses.RemoveRange(6, responses.Count - 6);
-            responses.Add(new(500, "", new TimeoutException("Creation response lost"), "PUT /_create_from/employees/reindexed-v9-employees"));
-        }
-        else if (failure is not "before-copy")
-        {
-            responses.Add(new(200, """{"task":"node:1"}""", Request: "POST /_reindex"));
-            if (failure is "terminal-error")
-            {
-                responses.Add(new(200, """{"completed":true,"task":{"node":"node","id":1,"status":{}},"error":{"type":"search_phase_execution_exception","reason":"copy failed"}}""", Request: "GET /_tasks/node:1"));
-            }
-            else
-            {
-                responses.Add(new(200, active, Request: "GET /_tasks/node:1"));
-                responses.Add(new(200, """{"nodes":{}}""", Request: "POST /_tasks/node:1/_cancel"));
-                responses.Add(new(canReset ? 404 : 200, canReset ? """{"error":{"type":"resource_not_found_exception"},"status":404}""" : active, Request: "GET /_tasks/node:1"));
-            }
-        }
-        responses.AddRange(SafetyInspectionResponses());
-        if (canReset)
-        {
-            responses.AddRange(SafetyInspectionResponses());
-            responses.Add(new(deleteFails ? 500 : 200, deleteFails ? """{"error":{"type":"master_not_discovered_exception","reason":"delete outcome unknown"},"status":500}""" : """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
-            if (!deleteFails)
-            {
-                responses.Add(new(404, "{}", Request: "HEAD /reindexed-v9-employees"));
-                responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
-                responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
-            }
-        }
         var invoker = new SequenceRequestInvoker([.. responses]);
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
-        using var configuration = new ElasticConfiguration();
-        using var index = new Index<object>(configuration, "employees");
-        using var cache = new InMemoryCacheClient();
-        var locks = new ThrottlingLockProvider(cache);
-        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+        var index = new Index<object>(new ElasticConfiguration(), "employees");
+        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
         var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
         var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
+        return new(invoker, upgrader, index, compatibility, locks);
+    }
 
-        // A callback exception no longer aborts the upgrade (ReportProgressAsync guards observer failures), so
-        // "before-copy" must cancel instead; the bare rethrow surfaces that cancellation unless the reset itself fails.
-        bool expectCancellation = failure is "before-copy" && !deleteFails;
-        var exception = await Record.ExceptionAsync(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (progress, _) =>
+    [Fact]
+    public async Task UpgradeAsync_WhenCreateFromResponseIsLost_RequiresManualIntervention()
+    {
+        // Arrange: the create_from call itself never gets a response, so nothing beyond the write block exists yet.
+        var responses = CreateSafetySetupResponses();
+        responses.RemoveRange(6, responses.Count - 6);
+        responses.Add(new(500, "", new TimeoutException("Creation response lost"), "PUT /_create_from/employees/reindexed-v9-employees"));
+        responses.AddRange(SafetyInspectionResponses());
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        var locks = fixture.Locks;
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act: there is no positive evidence the target was ever created, so nothing can be safely reset.
+        var exception = await Record.ExceptionAsync(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert
+        Assert.IsAssignableFrom<RepositoryException>(exception);
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+        Assert.Equal(responses.Count, fixture.Invoker.Requests.Count);
+        Assert.DoesNotContain("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
+        Assert.DoesNotContain("PUT /employees/_settings", fixture.Invoker.Requests);
+        Assert.Contains("ManualIntervention", exception!.Message);
+    }
+
+    [Fact]
+    public async Task UpgradeAsync_WhenCanceledBeforeCopyAndResetSucceeds_SurfacesOperationCanceled()
+    {
+        // Arrange: the target was created successfully, but the caller cancels before the copy begins.
+        var responses = CreateSafetySetupResponses();
+        responses.AddRange(SafetyInspectionResponses());
+        responses.AddRange(SafetyInspectionResponses());
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
+        responses.Add(new(404, "{}", Request: "HEAD /reindexed-v9-employees"));
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        var locks = fixture.Locks;
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act: a callback exception no longer aborts the upgrade (ReportProgressAsync guards observer failures),
+        // so canceling at progress 10 must surface as cancellation once the reset itself succeeds.
+        var exception = await Record.ExceptionAsync(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, reindexLock, (progress, _) =>
         {
-            if (failure is "before-copy" && progress is 10)
+            if (progress is 10)
                 throw new OperationCanceledException("Stop before copying");
             return Task.CompletedTask;
         }, CancellationToken.None));
 
-        Assert.NotNull(exception);
-        if (expectCancellation)
-            Assert.IsType<OperationCanceledException>(exception);
-        else
-            Assert.IsAssignableFrom<RepositoryException>(exception);
-        Assert.Equal(0, invoker.RemainingResponses);
-        Assert.Equal(responses.Count, invoker.Requests.Count);
-        Assert.Equal(canReset, invoker.Requests.Contains("DELETE /reindexed-v9-employees"));
-        Assert.Equal(canReset && !deleteFails, invoker.Requests.Contains("PUT /employees/_settings"));
-        if (!canReset)
-            Assert.Contains("ManualIntervention", exception.Message);
-        if (deleteFails)
-            Assert.Contains("delete outcome unknown", exception.ToString());
+        // Assert
+        Assert.IsType<OperationCanceledException>(exception);
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+        Assert.Equal(responses.Count, fixture.Invoker.Requests.Count);
+        Assert.Contains("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
+        Assert.Contains("PUT /employees/_settings", fixture.Invoker.Requests);
+    }
+
+    [Fact]
+    public async Task UpgradeAsync_WhenCanceledBeforeCopyButResetDeleteFails_PreservesArtifacts()
+    {
+        // Arrange: the target was created successfully, the caller cancels before the copy begins, and the
+        // cleanup delete's own outcome is then lost.
+        var responses = CreateSafetySetupResponses();
+        responses.AddRange(SafetyInspectionResponses());
+        responses.AddRange(SafetyInspectionResponses());
+        responses.Add(new(500, """{"error":{"type":"master_not_discovered_exception","reason":"delete outcome unknown"},"status":500}""", Request: "DELETE /reindexed-v9-employees"));
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        var locks = fixture.Locks;
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act: the cancellation itself would normally be safe to reset, but an uncertain delete outcome must
+        // not proceed to unblock the source.
+        var exception = await Record.ExceptionAsync(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, reindexLock, (progress, _) =>
+        {
+            if (progress is 10)
+                throw new OperationCanceledException("Stop before copying");
+            return Task.CompletedTask;
+        }, CancellationToken.None));
+
+        // Assert
+        Assert.IsAssignableFrom<RepositoryException>(exception);
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+        Assert.Equal(responses.Count, fixture.Invoker.Requests.Count);
+        Assert.Contains("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
+        Assert.DoesNotContain("PUT /employees/_settings", fixture.Invoker.Requests);
+        Assert.Contains("delete outcome unknown", exception!.ToString());
+    }
+
+    [Fact]
+    public async Task UpgradeAsync_WhenCopyTaskHasTerminalError_ResetsAfterConfirmedFailure()
+    {
+        // Arrange: the reindex task itself reports a terminal error, which is unambiguous positive evidence.
+        var responses = CreateSafetySetupResponses();
+        responses.Add(new(200, """{"task":"node:1"}""", Request: "POST /_reindex"));
+        responses.Add(new(200, """{"completed":true,"task":{"node":"node","id":1,"status":{}},"error":{"type":"search_phase_execution_exception","reason":"copy failed"}}""", Request: "GET /_tasks/node:1"));
+        responses.AddRange(SafetyInspectionResponses());
+        responses.AddRange(SafetyInspectionResponses());
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
+        responses.Add(new(404, "{}", Request: "HEAD /reindexed-v9-employees"));
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        var locks = fixture.Locks;
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert
+        Assert.IsAssignableFrom<RepositoryException>(exception);
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+        Assert.Equal(responses.Count, fixture.Invoker.Requests.Count);
+        Assert.Contains("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
+        Assert.Contains("PUT /employees/_settings", fixture.Invoker.Requests);
+    }
+
+    [Fact]
+    public async Task UpgradeAsync_WhenCopyIsCanceledAndConfirmed_ResetsCleanly()
+    {
+        // Arrange: the reindex task is canceled and the follow-up check confirms it actually terminated.
+        const string active = """{"completed":false,"task":{"node":"node","id":1,"action":"indices:data/write/reindex","status":{},"running_time_in_nanos":1,"cancellable":true,"headers":{}}}""";
+        var responses = CreateSafetySetupResponses();
+        responses.Add(new(200, """{"task":"node:1"}""", Request: "POST /_reindex"));
+        responses.Add(new(200, active, Request: "GET /_tasks/node:1"));
+        responses.Add(new(200, """{"nodes":{}}""", Request: "POST /_tasks/node:1/_cancel"));
+        responses.Add(new(404, """{"error":{"type":"resource_not_found_exception"},"status":404}""", Request: "GET /_tasks/node:1"));
+        responses.AddRange(SafetyInspectionResponses());
+        responses.AddRange(SafetyInspectionResponses());
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
+        responses.Add(new(404, "{}", Request: "HEAD /reindexed-v9-employees"));
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        var locks = fixture.Locks;
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert
+        Assert.IsAssignableFrom<RepositoryException>(exception);
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+        Assert.Equal(responses.Count, fixture.Invoker.Requests.Count);
+        Assert.Contains("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
+        Assert.Contains("PUT /employees/_settings", fixture.Invoker.Requests);
+    }
+
+    [Fact]
+    public async Task UpgradeAsync_WhenCopyCancellationIsUnconfirmed_RequiresManualIntervention()
+    {
+        // Arrange: the cancel request is sent, but the follow-up check still reports the task as active, so
+        // there is no positive evidence the copy actually stopped.
+        const string active = """{"completed":false,"task":{"node":"node","id":1,"action":"indices:data/write/reindex","status":{},"running_time_in_nanos":1,"cancellable":true,"headers":{}}}""";
+        var responses = CreateSafetySetupResponses();
+        responses.Add(new(200, """{"task":"node:1"}""", Request: "POST /_reindex"));
+        responses.Add(new(200, active, Request: "GET /_tasks/node:1"));
+        responses.Add(new(200, """{"nodes":{}}""", Request: "POST /_tasks/node:1/_cancel"));
+        responses.Add(new(200, active, Request: "GET /_tasks/node:1"));
+        responses.AddRange(SafetyInspectionResponses());
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        var locks = fixture.Locks;
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        // Assert
+        Assert.IsAssignableFrom<RepositoryException>(exception);
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+        Assert.Equal(responses.Count, fixture.Invoker.Requests.Count);
+        Assert.DoesNotContain("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
+        Assert.DoesNotContain("PUT /employees/_settings", fixture.Invoker.Requests);
+        Assert.Contains("ManualIntervention", exception!.Message);
     }
 
     [Theory]

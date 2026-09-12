@@ -22,6 +22,7 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task DeleteAsync_WithVersionWildcard_PreservesClosedIndexes()
     {
+        // Arrange
         string name = $"compat-delete-closed-{Guid.NewGuid():N}";
         using var index = new DailyIndex<object>(_configuration, name, 1);
         string openName = $"{name}-v1-2024.01.01";
@@ -35,8 +36,10 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
         var close = await _client.Indices.CloseAsync(closedName, TestCancellationToken);
         Assert.True(close.IsValidResponse, close.GetErrorMessage());
 
+        // Act
         await index.DeleteAsync();
 
+        // Assert: a version wildcard delete must skip closed partitions it cannot safely inspect
         var closedExists = await _client.Indices.ExistsAsync(closedName, cancellationToken: TestCancellationToken);
         var openExists = await _client.Indices.ExistsAsync(openName, cancellationToken: TestCancellationToken);
         Assert.True(closedExists.Exists, closedExists.GetErrorMessage());
@@ -46,6 +49,7 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetCurrentVersionAsync_ExcludesClosedPartitionsButIncludesHiddenOpenPartitions()
     {
+        // Arrange
         string name = $"compat-discovery-closed-{Guid.NewGuid():N}";
         using var index = new DailyIndex<object>(_configuration, name, 3);
         string closedIndex = $"{name}-v1-2024.01.01";
@@ -63,12 +67,14 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
             .Aliases(a => a.Add($"{name}-2024.01.02", new Alias { IsHidden = true })), TestCancellationToken);
         Assert.True(hidden.IsValidResponse, hidden.GetErrorMessage());
 
+        // Act & Assert
         Assert.Equal(2, await index.GetCurrentVersionAsync());
     }
 
     [Fact]
     public async Task GetIndexCompatibilityAsync_ForVersionedIndex_ExcludesSuffixLookalikes()
     {
+        // Arrange
         string name = $"compat-discovery-versioned-{Guid.NewGuid():N}";
         using var index = new VersionedIndex<object>(_configuration, name, 1);
         string lookalikeIndex = $"{index.VersionedName}-other";
@@ -78,8 +84,10 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
         var createResponse = await _client.Indices.CreateAsync(lookalikeIndex, cancellationToken: TestCancellationToken);
         Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
 
+        // Act
         var compatibility = await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
+        // Assert
         var info = Assert.Single(compatibility);
         Assert.Equal(index.VersionedName, info.Name);
     }
@@ -87,6 +95,7 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetIndexCompatibilityAsync_ForVersionedIndex_DiscoversReplacementThroughCanonicalAlias()
     {
+        // Arrange
         string name = $"compat-discovery-alias-{Guid.NewGuid():N}";
         using var index = new VersionedIndex<object>(_configuration, name, 1);
         string targetIndex = $"reindexed-v8-{index.VersionedName}";
@@ -96,8 +105,10 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
             .Add(index.VersionedName, new Alias())), TestCancellationToken);
         Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
 
+        // Act
         var compatibility = await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
+        // Assert
         var info = Assert.Single(compatibility);
         Assert.Equal(targetIndex, info.Name);
     }

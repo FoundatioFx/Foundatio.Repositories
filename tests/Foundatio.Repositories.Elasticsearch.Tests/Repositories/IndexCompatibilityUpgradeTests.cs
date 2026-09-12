@@ -83,12 +83,15 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
             d => d.Aliases(a => a.Add(ElasticReindexer.ErrorIndexOwnershipAlias, new Alias { IsHidden = true })), TestCancellationToken);
         Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
 
-        // Act
+        // Act: the generated error partition should be reported as needing reindex
         var compatibility = await index.GetIndexCompatibilityAsync(TestCancellationToken);
+
+        // Assert
         var errorInfo = Assert.Single(compatibility, i => String.Equals(i.Name, errorPartition, StringComparison.Ordinal));
         Assert.True(errorInfo.RequiresReindexBeforeNextMajorUpgrade);
         string errorTarget = CompatibilityIndexName.Create(errorPartition, errorInfo.ServerMajor);
 
+        // Act: upgrading the index should also reindex the error partition
         RegisterCompatibilityIndex(index);
         await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
 

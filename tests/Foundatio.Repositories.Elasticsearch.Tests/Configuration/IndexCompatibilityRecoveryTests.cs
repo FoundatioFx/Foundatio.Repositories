@@ -25,6 +25,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task RecoverIndexCompatibilityUpgradeAsync_WithOnlySourceMarker_RequiresManualIntervention()
     {
+        // Arrange
         string name = $"compat-recovery-marker-only-{Guid.NewGuid():N}";
         var (configuration, index) = CreateRegisteredIndex(name);
         using (configuration)
@@ -38,14 +39,24 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
                 .Index(name).Alias(ElasticIndexCompatibilityUpgrader.OwnershipAlias).IsHidden(true))), TestCancellationToken);
             Assert.True(sourceMarker.IsValidResponse, sourceMarker.GetErrorMessage());
 
+            // Act: inspect the marked-but-unblocked source before attempting recovery
             var before = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
-            var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
-                configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken));
-            var after = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
 
+            // Assert
             Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, before.Action);
             Assert.False(before.CanRecover);
+
+            // Act: recovery must refuse to touch an unrecoverable index
+            var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+                configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken));
+
+            // Assert
             Assert.Contains("ManualIntervention", exception.Message);
+
+            // Act: inspect again to confirm the failed attempt left the topology untouched
+            var after = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+
+            // Assert
             Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, after.Action);
             Assert.True(after.SourceExists);
             Assert.False(after.SourceWriteBlocked);
@@ -57,6 +68,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task RecoverIndexCompatibilityUpgradeAsync_WithMarkedInterruptedAttempt_PreservesArtifactsWithoutTerminationEvidence()
     {
+        // Arrange
         string name = $"compat-recovery-{Guid.NewGuid():N}";
         var (configuration, index) = CreateRegisteredIndex(name);
         using (configuration)
@@ -80,10 +92,12 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
                 .Index(targetIndex).Alias(ElasticIndexCompatibilityUpgrader.OwnershipAlias).IsHidden(true))), TestCancellationToken);
             Assert.True(targetMarker.IsValidResponse, targetMarker.GetErrorMessage());
 
+            // Act: inspect before recovery, then attempt recovery of a source/target pair with no termination evidence
             var before = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
             await Assert.ThrowsAsync<RepositoryException>(() => configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken));
             var after = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
 
+            // Assert: both source and target artifacts survive untouched
             Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, before.Action);
             Assert.False(before.CanRecover);
             Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, after.Action);
@@ -98,6 +112,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task RecoverIndexCompatibilityUpgradeAsync_WithUnmarkedDestination_FailsClosed()
     {
+        // Arrange
         string name = $"compat-recovery-unowned-{Guid.NewGuid():N}";
         var (configuration, index) = CreateRegisteredIndex(name);
         using (configuration)
@@ -111,10 +126,12 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
             var create = await client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
             Assert.True(create.IsValidResponse, create.GetErrorMessage());
 
+            // Act: the destination exists but was never marked, so recovery must not assume ownership of it
             var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
             var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
                 configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken));
 
+            // Assert
             Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
             Assert.False(status.CanRecover);
             Assert.Contains("cannot be recovered automatically", exception.Message);
@@ -125,6 +142,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task InspectIndexCompatibilityUpgradeAsync_WithUnexpectedResolvedSource_IsManualIntervention()
     {
+        // Arrange
         string name = $"compat-recovery-source-alias-{Guid.NewGuid():N}";
         using var configuration = CreateConfiguration();
         using var index = new VersionedIndex<object>(configuration, name, 2);
@@ -137,8 +155,10 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
             .Index(index.VersionedName).Alias(sourceIndex))), TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
 
+        // Act: the requested source name resolves to the current (already-upgraded) version through an alias
         var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, TestCancellationToken);
 
+        // Assert
         Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
         Assert.False(status.SourceExists);
         Assert.False(status.TargetExists);
@@ -148,6 +168,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task RecoverIndexCompatibilityUpgradeAsync_WithMarkedCompletedCutover_FinishesUnblockThenUnmarks()
     {
+        // Arrange
         string name = $"compat-recovery-completed-{Guid.NewGuid():N}";
         var (configuration, index) = CreateRegisteredIndex(name);
         using (configuration)
@@ -171,9 +192,11 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
                 d => d.Settings(s => s.Blocks(b => b.Write(true))), TestCancellationToken);
             Assert.True(block.IsValidResponse, block.GetErrorMessage());
 
+            // Act: cutover already renamed the target to the canonical name, so recovery only needs to finish
             var before = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
             var after = await configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
 
+            // Assert
             Assert.Equal(IndexCompatibilityRecoveryAction.Finish, before.Action);
             Assert.True(before.TargetWorkflowMarkerPresent);
             Assert.True(before.TargetWriteBlocked);
@@ -186,6 +209,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task InspectIndexCompatibilityUpgradeAsync_WithErrorSource_AuthenticatesSurvivingSide()
     {
+        // Arrange
         string name = $"compat-recovery-error-{Guid.NewGuid():N}";
         using var configuration = CreateConfiguration();
         using var index = new VersionedIndex<object>(configuration, name, 1);
@@ -199,8 +223,10 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction _ = new(async () =>
             await client.Indices.DeleteAsync(sourceIndex, d => d.IgnoreUnavailable(), TestCancellationToken));
 
+        // Act: only the error-marked source survives, so inspection must authenticate it before recovery
         var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, TestCancellationToken);
 
+        // Assert
         Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
         Assert.True(status.SourceWorkflowMarkerPresent);
     }
@@ -212,6 +238,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
         bool includeTargetErrorMarker,
         IndexCompatibilityRecoveryAction expectedAction)
     {
+        // Arrange
         string name = $"compat-recovery-error-partial-{Guid.NewGuid():N}";
         using var configuration = CreateConfiguration();
         using var index = new VersionedIndex<object>(configuration, name, 1);
@@ -242,8 +269,10 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
         Assert.True(target.IsValidResponse, target.GetErrorMessage());
         await using AsyncDisposableAction _ = DeleteAsync(client, sourceIndex, targetIndex);
 
+        // Act: the target survived the interruption but its error marker depends on the theory case
         var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, TestCancellationToken);
 
+        // Assert
         Assert.Equal(expectedAction, status.Action);
     }
 
@@ -254,6 +283,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
         bool includeErrorMarker,
         IndexCompatibilityRecoveryAction expectedAction)
     {
+        // Arrange
         string name = $"compat-recovery-error-target-{Guid.NewGuid():N}";
         using var configuration = CreateConfiguration();
         using var index = new VersionedIndex<object>(configuration, name, 1);
@@ -280,14 +310,17 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction _ = new(async () =>
             await client.Indices.DeleteAsync(targetIndex, d => d.IgnoreUnavailable(), TestCancellationToken));
 
+        // Act: the source is already gone, so only the target's error marker determines the outcome
         var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, TestCancellationToken);
 
+        // Assert
         Assert.Equal(expectedAction, status.Action);
     }
 
     [Fact]
     public async Task InspectIndexCompatibilityUpgradeAsync_WithMarkedDestinationFromDifferentMajor_IsManualIntervention()
     {
+        // Arrange
         string name = $"compat-recovery-prior-major-{Guid.NewGuid():N}";
         var (configuration, index) = CreateRegisteredIndex(name);
         using (configuration)
@@ -310,8 +343,10 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
                 d => d.Aliases(a => a.Add(ElasticIndexCompatibilityUpgrader.OwnershipAlias, new Alias { IsHidden = true })), TestCancellationToken);
             Assert.True(target.IsValidResponse, target.GetErrorMessage());
 
+            // Act: the marked destination targets a stale major, which cannot be the current upgrade's target
             var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
 
+            // Assert
             Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
             Assert.Equal([priorMajorTarget], status.UnexpectedResolvedIndexes);
         }
