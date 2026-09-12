@@ -1039,6 +1039,80 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     /// <summary>
+    /// A source whose writes have not been made searchable must not be mistaken for an empty one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Catch-up planning samples the source with a search, and a search only sees refreshed writes. An index
+    /// bulk-loaded with <c>refresh_interval: -1</c> therefore looks empty, and "empty" disables both the
+    /// catch-up pass <em>and</em> the sequence-number change guard for the rest of the reindex — while the copy,
+    /// which refreshes first, goes on to copy a full index. That combination promotes the destination with
+    /// neither catch-up nor the refusal gate, which is the silent-loss path the guard exists to close.
+    /// </para>
+    /// <para>
+    /// The model here is date-free with natural-key ids, which is what routes planning through the sampling
+    /// branch at all. The assertion is that the guard still engages: a source written to during the copy is
+    /// refused rather than promoted short.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenSourceHasUnrefreshedWrites_DoesNotTreatItAsEmpty()
+    {
+        // Arrange - a date-free, custom-id source whose writes are deliberately not searchable yet
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await _client.Indices.PutSettingsAsync(version1Index.VersionedName,
+            s => s.Settings(i => i.RefreshInterval(-1)), TestCancellationToken);
+
+        // Indexed without refreshing, so a search against the source returns nothing.
+        foreach (var identity in Enumerable.Range(0, 10).Select(i => new Identity { Id = $"natural-key-{i:D3}" }))
+        {
+            var indexResponse = await _client.IndexAsync(identity,
+                i => i.Index(version1Index.VersionedName).Id(identity.Id), TestCancellationToken);
+            Assert.True(indexResponse.IsValidResponse);
+        }
+
+        var unrefreshedSearch = await _client.SearchAsync<Identity>(d => d
+            .Indices(version1Index.VersionedName)
+            .Size(1), TestCancellationToken);
+        Assert.True(unrefreshedSearch.IsValidResponse);
+        Assert.Empty(unrefreshedSearch.Documents);
+
+        await version2Index.ConfigureAsync();
+
+        // Act - write to the source mid-copy, which the guard must notice
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        var exception = await Record.ExceptionAsync(() => reindexer.ReindexAsync(workItem, async (progress, _) =>
+        {
+            if (progress is 90)
+            {
+                var lateResponse = await _client.IndexAsync(new Identity { Id = "written-during-the-copy" },
+                    i => i.Index(version1Index.VersionedName).Id("written-during-the-copy").Refresh(Refresh.True), TestCancellationToken);
+                Assert.True(lateResponse.IsValidResponse);
+            }
+        }, TestCancellationToken));
+
+        // Assert - the source was planned as non-empty, so the change guard engaged and refused to promote
+        var incomplete = Assert.IsType<ReindexIncompleteException>(exception);
+        Assert.Contains("cannot be caught up", incomplete.Reason);
+
+        // And the alias was never moved to the short destination
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    /// <summary>
     /// A destination that already holds the <em>newest</em> documents must still receive the older ones.
     /// </summary>
     /// <remarks>
