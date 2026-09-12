@@ -292,20 +292,6 @@ public partial class IndexCompatibilityTests
         Assert.DoesNotContain("PUT /employees/_settings", invoker.Requests);
     }
 
-    private sealed record PreCutoverFailureFixture(SequenceRequestInvoker Invoker, ElasticIndexCompatibilityUpgrader Upgrader,
-        Index<object> Index, IndexCompatibilityInfo Compatibility, ThrottlingLockProvider Locks);
-
-    private static PreCutoverFailureFixture CreatePreCutoverFailureFixture(List<StubResponse> responses)
-    {
-        var invoker = new SequenceRequestInvoker([.. responses]);
-        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
-        var index = new Index<object>(new ElasticConfiguration(), "employees");
-        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
-        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
-        var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
-        return new(invoker, upgrader, index, compatibility, locks);
-    }
-
     [Fact]
     public async Task UpgradeAsync_WhenCreateFromResponseIsLost_RequiresManualIntervention()
     {

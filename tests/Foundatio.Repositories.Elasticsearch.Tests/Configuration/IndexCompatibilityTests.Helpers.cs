@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
+using Foundatio.Caching;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
@@ -320,5 +322,19 @@ public partial class IndexCompatibilityTests
         {
             ((IDisposable)_responseFactory).Dispose();
         }
+    }
+
+    private sealed record PreCutoverFailureFixture(SequenceRequestInvoker Invoker, ElasticIndexCompatibilityUpgrader Upgrader,
+        Index<object> Index, IndexCompatibilityInfo Compatibility, ThrottlingLockProvider Locks);
+
+    private static PreCutoverFailureFixture CreatePreCutoverFailureFixture(List<StubResponse> responses)
+    {
+        var invoker = new SequenceRequestInvoker([.. responses]);
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
+        var index = new Index<object>(new ElasticConfiguration(), "employees");
+        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
+        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
+        var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
+        return new(invoker, upgrader, index, compatibility, locks);
     }
 }
