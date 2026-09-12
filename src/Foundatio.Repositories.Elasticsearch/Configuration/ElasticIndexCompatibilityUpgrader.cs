@@ -765,8 +765,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
     private static bool HasExpectedWorkflowMarkers(IReadOnlyDictionary<string, Alias> aliases, bool includeErrorMarker)
     {
         int expectedCount = includeErrorMarker ? 2 : 1;
-        return aliases.Count is var count
-            && count == expectedCount
+        return aliases.Count == expectedCount
             && aliases.HasExactHiddenAlias(OwnershipAlias)
             && (!includeErrorMarker || aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
     }
