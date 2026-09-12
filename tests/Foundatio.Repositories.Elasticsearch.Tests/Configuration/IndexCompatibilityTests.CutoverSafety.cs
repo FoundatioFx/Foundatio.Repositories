@@ -22,6 +22,7 @@ public partial class IndexCompatibilityTests
     [InlineData(true, true)]
     public async Task InspectIndexCompatibilityUpgradeAsync_WithoutWorkflowMarkers_DoesNotHideActiveTask(bool sourceExists, bool taskActive)
     {
+        // Arrange
         string topology = sourceExists ? """{"employees":{"aliases":{},"settings":{}}}""" : "{}";
         string opaqueId = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
         string tasks = taskActive ? """
@@ -37,8 +38,10 @@ public partial class IndexCompatibilityTests
         using var index = new Index<object>(configuration, "employees");
         configuration.AddIndex(index);
 
+        // Act
         var status = await configuration.InspectIndexCompatibilityUpgradeAsync(index, "employees", TestContext.Current.CancellationToken);
 
+        // Assert
         Assert.Equal(taskActive ? IndexCompatibilityRecoveryAction.ManualIntervention : IndexCompatibilityRecoveryAction.None, status.Action);
         Assert.Equal(taskActive ? 1 : 0, status.ActiveReindexTaskCount);
         Assert.False(status.CanRecover);
@@ -48,14 +51,17 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task GetIndexCompatibilityAsync_WithCanceledToken_ThrowsCancellationBeforeRequests()
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker([]);
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
         using var index = new Index<object>(configuration, "employees");
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
+        // Act
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => index.GetIndexCompatibilityAsync(cancellation.Token));
 
+        // Assert
         Assert.Empty(invoker.Requests);
     }
 
@@ -66,6 +72,7 @@ public partial class IndexCompatibilityTests
     [InlineData(true, true)]
     public async Task RunCompatibilityReindexAsync_WithUnrecognizedActiveStatus_ConfirmsCancellation(bool terminated, bool missingTask)
     {
+        // Arrange
         const string active = """{"completed":false,"task":{"node":"node","id":1,"action":"indices:data/write/reindex","status":{},"running_time_in_nanos":1,"cancellable":true,"headers":{}}}""";
         var invoker = new SequenceRequestInvoker(
             new StubResponse(200, """{"task":"node:1"}""", Request: "POST /_reindex"),
@@ -75,9 +82,11 @@ public partial class IndexCompatibilityTests
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
+        // Act
         var exception = await Assert.ThrowsAnyAsync<RepositoryException>(() => runner.RunCompatibilityReindexAsync(
             "employees", "reindexed-v9-employees", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
+        // Assert
         if (terminated)
             Assert.Contains("unrecognized status", exception.Message);
         else
@@ -94,6 +103,7 @@ public partial class IndexCompatibilityTests
     [InlineData("{}", false)]
     public async Task ValidateAsync_WithSourceFilters_RejectsPrunedMappingsBeforeMutation(string source, bool rejected)
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(
             new StubResponse(404, "{}", Request: "HEAD /reindexed-v9-employees"),
             new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":SOURCE},"settings":{}}}""".Replace("SOURCE", source, StringComparison.Ordinal), Request: "GET /employees"),
@@ -104,6 +114,7 @@ public partial class IndexCompatibilityTests
         using var index = new Index<object>(configuration, "employees");
         var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
 
+        // Act & Assert
         if (rejected)
         {
             var exception = await Assert.ThrowsAsync<RepositoryException>(() => upgrader.ValidateAsync(index, compatibility, TestContext.Current.CancellationToken));
@@ -125,6 +136,7 @@ public partial class IndexCompatibilityTests
     [InlineData(true, 256)]
     public async Task ValidateAsync_WithGeneratedName_EnforcesUtf8ByteLimitBeforeRequests(bool multibyte, int bytes)
     {
+        // Arrange
         string name = multibyte ? new string('é', 120) + new string('a', bytes - 253) : new string('a', bytes - 13);
         Assert.Equal(bytes, Encoding.UTF8.GetByteCount($"reindexed-v9-{name}"));
         var invoker = new SequenceRequestInvoker(
@@ -137,6 +149,7 @@ public partial class IndexCompatibilityTests
         using var index = new Index<object>(configuration, name);
         var compatibility = new IndexCompatibilityInfo { Name = name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
 
+        // Act & Assert
         if (bytes > 255)
         {
             var exception = await Assert.ThrowsAsync<RepositoryException>(() => upgrader.ValidateAsync(index, compatibility, TestContext.Current.CancellationToken));
@@ -180,6 +193,7 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task UpgradeAsync_WithLostCutoverResponseAndOldTopology_DoesNotReset()
     {
+        // Arrange
         const string marked = """{"INDEX":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"blocks":{"write":true}}}}}""";
         const string shards = """{"_shards":{"total":1,"successful":1,"failed":0}}""";
         const string count = """{"count":0,"_shards":{"total":1,"successful":1,"failed":0}}""";
@@ -218,8 +232,10 @@ public partial class IndexCompatibilityTests
         var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
         var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
 
+        // Act: the cutover's own alias-swap response is lost, so its outcome on the wire is unknown
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
 
+        // Assert
         Assert.True(exception.Message.Contains("ManualIntervention", StringComparison.Ordinal), exception.ToString());
         Assert.Equal(0, invoker.RemainingResponses);
         Assert.Equal(responses.Count, invoker.Requests.Count);
@@ -233,6 +249,7 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task UpgradeAsync_WithCanceledCutoverResponseAndOldTopology_SurfacesOperationCanceled()
     {
+        // Arrange
         const string marked = """{"INDEX":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"blocks":{"write":true}}}}}""";
         const string shards = """{"_shards":{"total":1,"successful":1,"failed":0}}""";
         const string count = """{"count":0,"_shards":{"total":1,"successful":1,"failed":0}}""";
@@ -264,8 +281,10 @@ public partial class IndexCompatibilityTests
         var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
         var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
 
+        // Act: the cutover's alias-swap call is canceled instead of merely timing out
         var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
 
+        // Assert
         Assert.IsNotType<RepositoryException>(exception);
         Assert.Equal(0, invoker.RemainingResponses);
         Assert.Equal(responses.Count, invoker.Requests.Count);
@@ -478,6 +497,7 @@ public partial class IndexCompatibilityTests
     [InlineData(true)]
     public async Task UpgradeAsync_WithUncertainSubmissionAndEmptyTaskList_RetainsBothArtifacts(bool timeout)
     {
+        // Arrange
         var responses = CreateSafetySetupResponses();
         responses.Add(new StubResponse(timeout ? 500 : 200, "{}", timeout ? new TimeoutException("Submission response lost") : null, "POST /_reindex"));
         responses.AddRange(SafetyInspectionResponses());
@@ -491,8 +511,10 @@ public partial class IndexCompatibilityTests
         var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
         var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
 
+        // Act: the reindex submission response is lost or times out, and no tasks are found on retry
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
 
+        // Assert
         Assert.True(exception.Message.Contains("ManualIntervention", StringComparison.Ordinal), exception + "\n" + String.Join('\n', invoker.Requests));
         Assert.IsType<ElasticReindexTaskUncertainException>(exception.InnerException);
         Assert.Equal(0, invoker.RemainingResponses);
