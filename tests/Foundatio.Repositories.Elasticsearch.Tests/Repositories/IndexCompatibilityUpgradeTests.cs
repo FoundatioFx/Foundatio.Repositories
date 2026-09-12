@@ -212,7 +212,11 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
-        await RemoveDataAsync(false);
+
+        // The cross-major chain test points ELASTICSEARCH_URL at a persistent, hand-provisioned validation
+        // cluster instead of the throwaway default; RemoveDataAsync must not run against it.
+        if (Environment.GetEnvironmentVariable("FOUNDATIO_COMPATIBILITY_CHAIN_MAJOR") is null)
+            await RemoveDataAsync(false);
     }
 
     [Fact]
