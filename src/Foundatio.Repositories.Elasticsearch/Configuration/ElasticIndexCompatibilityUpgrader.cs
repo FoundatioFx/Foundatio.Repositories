@@ -290,6 +290,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             if (status.Action is IndexCompatibilityRecoveryAction.None)
                 throw;
 
+            if (upgradeException.GetBaseException() is OperationCanceledException)
+            {
+                _logger.LogWarning(upgradeException, "Compatibility upgrade {SourceIndex} -> {TargetIndex} was canceled and now requires recovery action '{Action}'. No unmarked index was changed; inspect the reported topology before retrying", sourceIndex, targetIndex, status.Action);
+                throw new OperationCanceledException(upgradeException.Message, upgradeException, cancellationToken);
+            }
+
             throw new RepositoryException(
                 $"Compatibility upgrade for '{sourceIndex}' failed and now requires recovery action '{status.Action}'. No unmarked index was changed; inspect the reported topology before retrying.",
                 upgradeException);

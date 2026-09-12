@@ -230,6 +230,49 @@ public partial class IndexCompatibilityTests
         Assert.DoesNotContain("PUT /employees/_settings", invoker.Requests);
     }
 
+    [Fact]
+    public async Task UpgradeAsync_WithCanceledCutoverResponseAndOldTopology_SurfacesOperationCanceled()
+    {
+        const string marked = """{"INDEX":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"blocks":{"write":true}}}}}""";
+        const string shards = """{"_shards":{"total":1,"successful":1,"failed":0}}""";
+        const string count = """{"count":0,"_shards":{"total":1,"successful":1,"failed":0}}""";
+        var responses = CreateSafetySetupResponses();
+        responses.AddRange([
+            new(200, """{"task":"node:1"}""", Request: "POST /_reindex"),
+            new(200, """{"completed":true,"task":{"node":"node","id":1,"status":{"total":0,"created":0,"updated":0,"deleted":0,"noops":0,"version_conflicts":0}},"response":{"total":0,"created":0,"updated":0,"deleted":0,"noops":0,"version_conflicts":0,"failures":[]}}""", Request: "GET /_tasks/node:1"),
+            new(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"reindexed-v9-employees","blocked":true}]}""", Request: "PUT /reindexed-v9-employees/_block/write"),
+            new(200, shards, Request: "POST /reindexed-v9-employees/_refresh"),
+            new(200, count, Request: "POST /employees/_count"),
+            new(200, count, Request: "POST /reindexed-v9-employees/_count"),
+            new(200, """{"acknowledged":true}""", Request: "PUT /reindexed-v9-employees/_settings"),
+            new(200, """{"status":"green","timed_out":false}""", Request: "GET /_cluster/health/reindexed-v9-employees"),
+            new(200, marked.Replace("INDEX", "reindexed-v9-employees", StringComparison.Ordinal), Request: "GET /reindexed-v9-employees"),
+            new(200, """{"reindexed-v9-employees":{"settings":{"index.blocks.write":"true"}}}""", Request: "GET /reindexed-v9-employees/_settings"),
+            new(200, marked.Replace("INDEX", "employees", StringComparison.Ordinal), Request: "GET /employees"),
+            new(200, """{"employees":{"settings":{"index.blocks.write":"true"}}}""", Request: "GET /employees/_settings"),
+            new(500, "", new OperationCanceledException("Cutover was canceled"), "POST /_aliases"),
+            new(200, SafetyMarkedTopology, Request: "GET /employees,reindexed-v9-employees")
+        ]);
+        responses.AddRange(SafetyInspectionResponses());
+        var invoker = new SequenceRequestInvoker([.. responses]);
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
+        using var configuration = new ElasticConfiguration();
+        using var index = new Index<object>(configuration, "employees");
+        using var cache = new InMemoryCacheClient();
+        var locks = new ThrottlingLockProvider(cache);
+        await using var reindexLock = await locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
+        var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
+
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        Assert.IsNotType<RepositoryException>(exception);
+        Assert.Equal(0, invoker.RemainingResponses);
+        Assert.Equal(responses.Count, invoker.Requests.Count);
+        Assert.DoesNotContain("DELETE /reindexed-v9-employees", invoker.Requests);
+        Assert.DoesNotContain("PUT /employees/_settings", invoker.Requests);
+    }
+
     [Theory]
     [InlineData("create", false)]
     [InlineData("before-copy", false)]
@@ -283,13 +326,21 @@ public partial class IndexCompatibilityTests
         var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
         var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
 
-        var exception = await Assert.ThrowsAnyAsync<RepositoryException>(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (progress, _) =>
+        // A callback exception no longer aborts the upgrade (ReportProgressAsync guards observer failures), so
+        // "before-copy" must cancel instead; the bare rethrow surfaces that cancellation unless the reset itself fails.
+        bool expectCancellation = failure is "before-copy" && !deleteFails;
+        var exception = await Record.ExceptionAsync(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (progress, _) =>
         {
             if (failure is "before-copy" && progress is 10)
-                throw new RepositoryException("Stop before copying");
+                throw new OperationCanceledException("Stop before copying");
             return Task.CompletedTask;
         }, CancellationToken.None));
 
+        Assert.NotNull(exception);
+        if (expectCancellation)
+            Assert.IsType<OperationCanceledException>(exception);
+        else
+            Assert.IsAssignableFrom<RepositoryException>(exception);
         Assert.Equal(0, invoker.RemainingResponses);
         Assert.Equal(responses.Count, invoker.Requests.Count);
         Assert.Equal(canReset, invoker.Requests.Contains("DELETE /reindexed-v9-employees"));
