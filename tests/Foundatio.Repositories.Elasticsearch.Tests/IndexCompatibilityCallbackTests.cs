@@ -14,13 +14,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed partial class IndexCompatibilityUpgradeTests
 {
     [Theory]
-    [InlineData(0, false)]
-    [InlineData(10, false)]
-    [InlineData(92, false)]
-    [InlineData(100, false)]
-    [InlineData(100, true)]
-    public async Task UpgradeIndexCompatibilityAsync_WhenProgressCallbackFailsOrCancels_PreservesCommittedOutcome(int failureProgress, bool cancel)
+    [InlineData(0)]
+    [InlineData(5)]
+    [InlineData(10)]
+    [InlineData(92)]
+    [InlineData(100)]
+    public async Task UpgradeIndexCompatibilityAsync_WhenProgressCallbackThrows_LogsWarningAndCompletesUpgrade(int failureProgress)
     {
+        // Arrange
         string name = $"compat-callback-{Guid.NewGuid():N}";
         using var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
         RegisterCompatibilityIndex(index);
@@ -32,9 +33,9 @@ public sealed partial class IndexCompatibilityUpgradeTests
         await using AsyncDisposableAction cleanup = new(async () =>
             await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
         var callbackException = new InvalidOperationException("Progress observer failed.");
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestCancellationToken);
         bool callbackFailed = false;
 
+        // Act
         var exception = await Record.ExceptionAsync(() => _configuration.UpgradeIndexCompatibilityAsync(
             [index],
             (progress, _) =>
@@ -42,33 +43,67 @@ public sealed partial class IndexCompatibilityUpgradeTests
                 if (progress == failureProgress)
                 {
                     callbackFailed = true;
-                    if (cancel)
-                    {
-                        cancellation.Cancel();
-                        return Task.CompletedTask;
-                    }
-
                     throw callbackException;
+                }
+
+                return Task.CompletedTask;
+            }, TestCancellationToken));
+
+        // Assert
+        Assert.True(callbackFailed);
+        Assert.Null(exception);
+        var state = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
+        Assert.True(state.IsValidResponse, state.GetErrorMessage());
+        Assert.Equal(targetIndex, state.Indices.Keys.Single());
+        var physical = state.Indices.Values.Single();
+        Assert.False(physical.Settings?.Index?.Blocks?.Write is true);
+        Assert.DoesNotContain(ElasticIndexCompatibilityUpgrader.OwnershipAlias, physical.Aliases!.Keys);
+        var document = await _client.GetAsync<Employee>(employee.Id, d => d.Index(name), TestCancellationToken);
+        Assert.True(document.Found, document.GetErrorMessage());
+        Assert.Equal(employee.Name, document.Source?.Name);
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WhenProgressCallbackCancels_PreservesCommittedOutcome()
+    {
+        // Arrange
+        string name = $"compat-callback-{Guid.NewGuid():N}";
+        using var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        RegisterCompatibilityIndex(index);
+        await index.ConfigureAsync();
+        using var repository = new EmployeeRepository(index);
+        var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        await using AsyncDisposableAction cleanup = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestCancellationToken);
+        bool callbackFailed = false;
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => _configuration.UpgradeIndexCompatibilityAsync(
+            [index],
+            (progress, _) =>
+            {
+                if (progress == 100)
+                {
+                    callbackFailed = true;
+                    cancellation.Cancel();
                 }
 
                 return Task.CompletedTask;
             }, cancellation.Token));
 
+        // Assert
         Assert.True(callbackFailed);
-        if (cancel)
-            Assert.IsAssignableFrom<OperationCanceledException>(exception);
-        else if (failureProgress is 100)
-            Assert.Null(exception);
-        else
-            Assert.Same(callbackException, exception);
-
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
         var state = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
         Assert.True(state.IsValidResponse, state.GetErrorMessage());
-        Assert.Equal(failureProgress is 100 ? targetIndex : name, state.Indices.Keys.Single());
+        Assert.Equal(targetIndex, state.Indices.Keys.Single());
         var physical = state.Indices.Values.Single();
         Assert.False(physical.Settings?.Index?.Blocks?.Write is true);
         Assert.DoesNotContain(ElasticIndexCompatibilityUpgrader.OwnershipAlias, physical.Aliases!.Keys);
-        await AssertIndexExistsAsync(targetIndex, failureProgress is 100);
+        await AssertIndexExistsAsync(targetIndex, true);
         var document = await _client.GetAsync<Employee>(employee.Id, d => d.Index(name), TestCancellationToken);
         Assert.True(document.Found, document.GetErrorMessage());
         Assert.Equal(employee.Name, document.Source?.Name);

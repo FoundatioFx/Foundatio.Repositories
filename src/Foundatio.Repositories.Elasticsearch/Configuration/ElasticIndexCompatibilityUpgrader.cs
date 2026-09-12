@@ -101,7 +101,18 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         {
             await reindexLock.RenewAsync().AnyContext();
             _logger.LogInformation("Compatibility upgrade {SourceIndex} -> {TargetIndex} progress {Progress}%: {Message}", sourceIndex, targetIndex, progress, message);
-            await progressCallbackAsync(progress, message).AnyContext();
+            try
+            {
+                await progressCallbackAsync(progress, message).AnyContext();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Compatibility upgrade {SourceIndex} -> {TargetIndex} progress {Progress}% callback failed", sourceIndex, targetIndex, progress);
+            }
         }
 
         bool workflowAttempted = false;
@@ -217,14 +228,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             await RemoveWorkflowMarkerAsync(targetIndex, cancellationToken).AnyContext();
 
             index.MappingResolver.RefreshMapping();
-            try
-            {
-                await ReportProgressAsync(100, $"Replaced {sourceIndex} with {targetIndex}").AnyContext();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Compatibility upgrade {SourceIndex} -> {TargetIndex} completed, but final progress reporting failed", sourceIndex, targetIndex);
-            }
+            await ReportProgressAsync(100, $"Replaced {sourceIndex} with {targetIndex}").AnyContext();
         }
         catch (Exception upgradeException)
         {
