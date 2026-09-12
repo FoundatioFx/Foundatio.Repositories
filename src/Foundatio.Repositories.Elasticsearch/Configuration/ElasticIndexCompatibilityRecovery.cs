@@ -38,13 +38,12 @@ internal sealed class ElasticIndexCompatibilityRecovery
         ValidateExactIndexName(sourceIndex);
 
         var infoResponse = await _client.InfoAsync(cancellationToken).AnyContext();
-        if (!infoResponse.IsValidResponse)
-        {
-            _logger.LogErrorRequest(infoResponse, "Unable to determine the Elasticsearch version while inspecting compatibility recovery for {SourceIndex}", sourceIndex);
-            throw new RepositoryException(infoResponse.GetErrorMessage("Unable to determine the current Elasticsearch server version while inspecting compatibility recovery."), infoResponse.OriginalException());
-        }
+        infoResponse.EnsureValid(
+            _logger,
+            "Unable to determine the Elasticsearch version while inspecting compatibility recovery for {SourceIndex}",
+            "Unable to determine the current Elasticsearch server version while inspecting compatibility recovery.",
+            sourceIndex);
 
-        _logger.LogRequest(infoResponse);
         string? serverVersion = infoResponse.Version?.Number;
         int? serverMajor = Index.ParseCreatedMajor(null, serverVersion);
         if (serverMajor is not int currentMajor)
@@ -97,13 +96,13 @@ internal sealed class ElasticIndexCompatibilityRecovery
             .IncludeDefaults(false)
             .ExpandWildcards(ExpandWildcard.All)
             .IgnoreUnavailable(), cancellationToken).AnyContext();
-        if (!response.IsValidResponse && response.ElasticsearchServerError?.Status is not 404)
-        {
-            _logger.LogErrorRequest(response, "Unable to inspect compatibility recovery topology for {SourceIndex}", sourceIndex);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to inspect compatibility recovery topology for '{sourceIndex}'."), response.OriginalException());
-        }
+        response.EnsureValid(
+            r => r.IsValidResponse || r.ElasticsearchServerError?.Status is 404,
+            _logger,
+            "Unable to inspect compatibility recovery topology for {SourceIndex}",
+            $"Unable to inspect compatibility recovery topology for '{sourceIndex}'.",
+            sourceIndex);
 
-        _logger.LogRequest(response);
         string canonicalSource = CompatibilityIndexName.GetCanonicalName(sourceIndex, index.Name);
         var unexpectedIndexes = new List<string>();
         if (response.Indices is not null)
@@ -233,21 +232,20 @@ internal sealed class ElasticIndexCompatibilityRecovery
             throw new RepositoryException($"Compatibility source '{sourceIndex}' no longer has the marked state required for cleanup. Keep writes stopped and inspect both indexes.");
 
         var deleteResponse = await _client.Indices.DeleteAsync(status.TargetIndex, cancellationToken).AnyContext();
-        if (!deleteResponse.IsValidResponse || !deleteResponse.Acknowledged)
-        {
-            _logger.LogErrorRequest(deleteResponse, "Unable to remove interrupted compatibility destination {TargetIndex}", status.TargetIndex);
-            throw new RepositoryException(deleteResponse.GetErrorMessage($"Unable to remove interrupted compatibility destination '{status.TargetIndex}'. The source remains write blocked."), deleteResponse.OriginalException());
-        }
+        deleteResponse.EnsureValid(
+            r => r.IsValidResponse && r.Acknowledged,
+            _logger,
+            "Unable to remove interrupted compatibility destination {TargetIndex}",
+            $"Unable to remove interrupted compatibility destination '{status.TargetIndex}'. The source remains write blocked.",
+            status.TargetIndex);
 
-        _logger.LogRequest(deleteResponse);
         var existsResponse = await _client.Indices.ExistsAsync(status.TargetIndex, cancellationToken).AnyContext();
-        if ((!existsResponse.IsValidResponse && existsResponse.ApiCallDetails.HttpStatusCode is not 404) || existsResponse.Exists)
-        {
-            _logger.LogErrorRequest(existsResponse, "Unable to confirm removal of compatibility destination {TargetIndex}", status.TargetIndex);
-            throw new RepositoryException(existsResponse.GetErrorMessage($"Unable to confirm removal of compatibility destination '{status.TargetIndex}'. The source remains write blocked."), existsResponse.OriginalException());
-        }
-
-        _logger.LogRequest(existsResponse);
+        existsResponse.EnsureValid(
+            r => (r.IsValidResponse || r.ApiCallDetails.HttpStatusCode is 404) && !r.Exists,
+            _logger,
+            "Unable to confirm removal of compatibility destination {TargetIndex}",
+            $"Unable to confirm removal of compatibility destination '{status.TargetIndex}'. The source remains write blocked.",
+            status.TargetIndex);
 
         await SetWriteBlockAsync(status.SourceIndex, false, cancellationToken).AnyContext();
         await RemoveWorkflowMarkerAsync(status.SourceIndex, cancellationToken).AnyContext();
@@ -268,13 +266,12 @@ internal sealed class ElasticIndexCompatibilityRecovery
     {
         var response = await _client.Indices.PutSettingsAsync(index,
             d => d.Settings(s => s.Blocks(b => b.Write(blocked))), cancellationToken).AnyContext();
-        if (!response.IsValidResponse || !response.Acknowledged)
-        {
-            _logger.LogErrorRequest(response, "Unable to set write block to {WriteBlocked} on recovered compatibility index {IndexName}", blocked, index);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to set the write block to '{blocked}' on recovered compatibility index '{index}'."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && r.Acknowledged,
+            _logger,
+            "Unable to set write block to {WriteBlocked} on recovered compatibility index {IndexName}",
+            $"Unable to set the write block to '{blocked}' on recovered compatibility index '{index}'.",
+            blocked, index);
     }
 
     private async Task RemoveWorkflowMarkerAsync(string index, CancellationToken cancellationToken)
@@ -282,13 +279,12 @@ internal sealed class ElasticIndexCompatibilityRecovery
         var response = await _client.Indices.UpdateAliasesAsync(d => d.Actions(action => action.Remove(remove => remove
             .Index(index)
             .Alias(ElasticIndexCompatibilityUpgrader.OwnershipAlias))), cancellationToken).AnyContext();
-        if (!response.IsValidResponse || !response.Acknowledged)
-        {
-            _logger.LogErrorRequest(response, "Unable to remove compatibility workflow marker from {IndexName}", index);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to remove the compatibility workflow marker from '{index}'."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && r.Acknowledged,
+            _logger,
+            "Unable to remove compatibility workflow marker from {IndexName}",
+            $"Unable to remove the compatibility workflow marker from '{index}'.",
+            index);
     }
 
     private static IndexCompatibilityRecoveryAction GetRecoveryAction(ObservedTopology topology)

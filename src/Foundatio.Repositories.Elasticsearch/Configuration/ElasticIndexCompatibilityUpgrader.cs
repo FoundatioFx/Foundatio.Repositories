@@ -319,13 +319,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
     {
         var response = await _client.Indices.GetAsync((Indices)indexName,
             d => d.Features(Feature.Aliases, Feature.Mappings, Feature.Settings).IncludeDefaults(false), cancellationToken).AnyContext();
-        if (!response.IsValidResponse)
-        {
-            _logger.LogErrorRequest(response, "Unable to read compatibility index {IndexName}", indexName);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to read compatibility index '{indexName}'."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(_logger, "Unable to read compatibility index {IndexName}", $"Unable to read compatibility index '{indexName}'.", indexName);
 
         if (response.Indices is null || response.Indices.Count is not 1 || !response.Indices.TryGetValue(indexName, out var state) || state is null)
             throw new RepositoryException($"Compatibility index '{indexName}' must identify exactly one concrete index.");
@@ -399,13 +393,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             throw new RepositoryException($"Compatibility destination index '{targetIndex}' already exists. Inspect it and remove it only after confirming that it is an unaliased artifact from an interrupted attempt.");
         }
 
-        if (!response.ApiCallDetails.HasSuccessfulStatusCode && response.ApiCallDetails.HttpStatusCode is not 404)
-        {
-            _logger.LogErrorRequest(response, "Unable to determine whether compatibility destination index {TargetIndex} exists", targetIndex);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to determine whether compatibility destination index '{targetIndex}' exists."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.ApiCallDetails.HasSuccessfulStatusCode || r.ApiCallDetails.HttpStatusCode is 404,
+            _logger,
+            "Unable to determine whether compatibility destination index {TargetIndex} exists",
+            $"Unable to determine whether compatibility destination index '{targetIndex}' exists.",
+            targetIndex);
     }
 
     private async Task AddWriteBlockAsync(string indexName, CancellationToken cancellationToken)
@@ -520,13 +513,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         }
 
         var response = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions), cancellationToken).AnyContext();
-        if (!response.IsValidResponse || !response.Acknowledged)
-        {
-            _logger.LogErrorRequest(response, "Unable to add compatibility workflow marker to {IndexName}", index);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to mark compatibility index '{index}' for safe recovery."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && r.Acknowledged,
+            _logger,
+            "Unable to add compatibility workflow marker to {IndexName}",
+            $"Unable to mark compatibility index '{index}' for safe recovery.",
+            index);
     }
 
     private async Task RemoveWorkflowMarkerAsync(string index, CancellationToken cancellationToken)
@@ -534,26 +526,20 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         var response = await _client.Indices.UpdateAliasesAsync(a => a.Actions(action => action.Remove(remove => remove
             .Index(index)
             .Alias(OwnershipAlias))), cancellationToken).AnyContext();
-        if (!response.IsValidResponse || !response.Acknowledged)
-        {
-            _logger.LogErrorRequest(response, "Unable to remove compatibility workflow marker from {IndexName}", index);
-            throw new RepositoryException(response.GetErrorMessage($"Compatibility cutover completed, but the workflow marker could not be removed from '{index}'."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && r.Acknowledged,
+            _logger,
+            "Unable to remove compatibility workflow marker from {IndexName}",
+            $"Compatibility cutover completed, but the workflow marker could not be removed from '{index}'.",
+            index);
     }
 
     private async Task<IReadOnlyDictionary<string, string?>> GetExplicitSettingsAsync(string index, CancellationToken cancellationToken)
     {
         var response = await _client.Indices.GetSettingsAsync((Indices)index,
             d => d.FlatSettings().IncludeDefaults(false), cancellationToken).AnyContext();
-        if (!response.IsValidResponse)
-        {
-            _logger.LogErrorRequest(response, "Unable to read explicit settings for compatibility index {IndexName}", index);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to read explicit settings for compatibility index '{index}'."), response.OriginalException());
-        }
+        response.EnsureValid(_logger, "Unable to read explicit settings for compatibility index {IndexName}", $"Unable to read explicit settings for compatibility index '{index}'.", index);
 
-        _logger.LogRequest(response);
         var state = response.RequireSingleResolvedIndexState(index);
         var settings = state.Settings?.Index ?? state.Settings;
         var result = new Dictionary<string, string?>(settings?.OtherSettings?.Count ?? 0, StringComparer.Ordinal);
@@ -581,22 +567,20 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         CancellationToken cancellationToken)
     {
         var sourceCount = await _client.CountAsync<object>(d => d.Indices(sourceIndex), cancellationToken).AnyContext();
-        if (!sourceCount.IsValidResponse || !ShardsSucceeded(sourceCount.Shards))
-        {
-            _logger.LogErrorRequest(sourceCount, "Unable to count compatibility source index {SourceIndex}", sourceIndex);
-            throw new RepositoryException(sourceCount.GetErrorMessage($"Unable to count compatibility source index '{sourceIndex}'."), sourceCount.OriginalException());
-        }
-
-        _logger.LogRequest(sourceCount);
+        sourceCount.EnsureValid(
+            r => r.IsValidResponse && ShardsSucceeded(r.Shards),
+            _logger,
+            "Unable to count compatibility source index {SourceIndex}",
+            $"Unable to count compatibility source index '{sourceIndex}'.",
+            sourceIndex);
 
         var targetCount = await _client.CountAsync<object>(d => d.Indices(targetIndex), cancellationToken).AnyContext();
-        if (!targetCount.IsValidResponse || !ShardsSucceeded(targetCount.Shards))
-        {
-            _logger.LogErrorRequest(targetCount, "Unable to count compatibility destination index {TargetIndex}", targetIndex);
-            throw new RepositoryException(targetCount.GetErrorMessage($"Unable to count compatibility destination index '{targetIndex}'."), targetCount.OriginalException());
-        }
-
-        _logger.LogRequest(targetCount);
+        targetCount.EnsureValid(
+            r => r.IsValidResponse && ShardsSucceeded(r.Shards),
+            _logger,
+            "Unable to count compatibility destination index {TargetIndex}",
+            $"Unable to count compatibility destination index '{targetIndex}'.",
+            targetIndex);
 
         if (sourceCount.Count != targetCount.Count || sourceCount.Count != reindexResult.Total || targetCount.Count != reindexResult.Created)
         {
@@ -619,26 +603,24 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
         var response = await _client.Indices.PutSettingsAsync(targetIndex,
             d => d.Settings(new IndexSettings { OtherSettings = settings }), cancellationToken).AnyContext();
-        if (!response.IsValidResponse || !response.Acknowledged)
-        {
-            _logger.LogErrorRequest(response, "Unable to restore settings on compatibility destination {TargetIndex}", targetIndex);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to restore settings on compatibility destination index '{targetIndex}'."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && r.Acknowledged,
+            _logger,
+            "Unable to restore settings on compatibility destination {TargetIndex}",
+            $"Unable to restore settings on compatibility destination index '{targetIndex}'.",
+            targetIndex);
     }
 
     private async Task RemoveWriteBlockAsync(string targetIndex, CancellationToken cancellationToken)
     {
         var response = await _client.Indices.PutSettingsAsync(targetIndex,
             d => d.Settings(s => s.Blocks(b => b.Write(false))), cancellationToken).AnyContext();
-        if (!response.IsValidResponse || !response.Acknowledged)
-        {
-            _logger.LogErrorRequest(response, "Unable to remove the write block from compatibility destination {TargetIndex}", targetIndex);
-            throw new RepositoryException(response.GetErrorMessage($"Compatibility cutover completed, but the write block could not be removed from destination index '{targetIndex}'. The source was replaced successfully; inspect and unblock the destination before resuming writes."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && r.Acknowledged,
+            _logger,
+            "Unable to remove the write block from compatibility destination {TargetIndex}",
+            $"Compatibility cutover completed, but the write block could not be removed from destination index '{targetIndex}'. The source was replaced successfully; inspect and unblock the destination before resuming writes.",
+            targetIndex);
     }
 
     private async Task WaitForTargetHealthAsync(string targetIndex, CancellationToken cancellationToken)
@@ -649,15 +631,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             .WaitForNoInitializingShards()
             .WaitForNoRelocatingShards()
             .Timeout("30s"), cancellationToken).AnyContext();
-        if (!response.IsValidResponse
-            || response.TimedOut
-            || response.Status is not HealthStatus.Yellow and not HealthStatus.Green)
-        {
-            _logger.LogErrorRequest(response, "Compatibility destination {TargetIndex} did not reach the required shard health", targetIndex);
-            throw new RepositoryException(response.GetErrorMessage($"Compatibility destination index '{targetIndex}' did not make all primary shards available after restoring replicas. The source remains intact and write blocked."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && !r.TimedOut && r.Status is HealthStatus.Yellow or HealthStatus.Green,
+            _logger,
+            "Compatibility destination {TargetIndex} did not reach the required shard health",
+            $"Compatibility destination index '{targetIndex}' did not make all primary shards available after restoring replicas. The source remains intact and write blocked.",
+            targetIndex);
     }
 
     private static IReadOnlyDictionary<string, Alias> CreateAliasActions(string logicalIndexName, CompatibilityIndexState source, string targetIndex, out List<IndexUpdateAliasesAction> actions)
@@ -840,13 +819,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
     private async Task RefreshAsync(string index, CancellationToken cancellationToken)
     {
         var response = await _client.Indices.RefreshAsync((Indices)index, cancellationToken).AnyContext();
-        if (!response.IsValidResponse || !ShardsSucceeded(response.Shards))
-        {
-            _logger.LogErrorRequest(response, "Unable to refresh compatibility index {IndexName}", index);
-            throw new RepositoryException(response.GetErrorMessage($"Unable to refresh compatibility index '{index}'."), response.OriginalException());
-        }
-
-        _logger.LogRequest(response);
+        response.EnsureValid(
+            r => r.IsValidResponse && ShardsSucceeded(r.Shards),
+            _logger,
+            "Unable to refresh compatibility index {IndexName}",
+            $"Unable to refresh compatibility index '{index}'.",
+            index);
     }
 
     internal static bool ShardsSucceeded(ShardStatistics? shards)
