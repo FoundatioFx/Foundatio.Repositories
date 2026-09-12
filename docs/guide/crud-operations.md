@@ -83,7 +83,7 @@ var employees = await repository.GetByIdsAsync(
     o => o.ThrowOnMultiGetErrors());
 ```
 
-`ThrowOnMultiGetErrors()` throws `DocumentException` before returning results or caching not-found markers when any MGET item reports an error. Documents explicitly returned with `found: false` remain ordinary missing documents.
+For repositories backed by multiple indexes (time-series or parent/child), `ThrowOnMultiGetErrors()` defers the throw until after the multi-index fallback query runs, so a document that errors on its primary index but is still found elsewhere returns normally. `DocumentException` is only thrown for ids that remain unresolved after the fallback, and it is thrown before returning results or caching not-found markers. Documents explicitly returned with `found: false` remain ordinary missing documents.
 
 ### Get All Documents
 

@@ -12,6 +12,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using TimeZoneConverter;
 using Xunit;
@@ -408,20 +409,18 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var closeResponse = await _client.Indices.CloseAsync(_configuration.Identities.Name, TestCancellationToken);
         Assert.True(closeResponse.IsValidResponse, closeResponse.DebugInformation);
 
-        try
-        {
-            Assert.Empty(await _identityRepository.GetByIdsAsync([identity.Id]));
-            await Assert.ThrowsAsync<DocumentException>(() =>
-                _identityRepository.GetByIdsAsync([identity.Id], o => o.Cache().ThrowOnMultiGetErrors()));
-            Assert.Equal(0, _cache.Count);
-        }
-        finally
+        await using AsyncDisposableAction _ = new(async () =>
         {
             var openResponse = await _client.Indices.OpenAsync(_configuration.Identities.Name, TestCancellationToken);
             Assert.True(openResponse.IsValidResponse, openResponse.DebugInformation);
-        }
 
-        Assert.Single(await _identityRepository.GetByIdsAsync([identity.Id], o => o.Cache().ThrowOnMultiGetErrors()));
+            Assert.Single(await _identityRepository.GetByIdsAsync([identity.Id], o => o.Cache().ThrowOnMultiGetErrors()));
+        });
+
+        Assert.Empty(await _identityRepository.GetByIdsAsync([identity.Id]));
+        await Assert.ThrowsAsync<DocumentException>(() =>
+            _identityRepository.GetByIdsAsync([identity.Id], o => o.Cache().ThrowOnMultiGetErrors()));
+        Assert.Equal(0, _cache.Count);
     }
 
     [Fact]
@@ -561,6 +560,20 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Single(await _dailyRepository.GetByIdsAsync([existingLog.Id, missingIndexId]));
         await Assert.ThrowsAsync<DocumentException>(() =>
             _dailyRepository.GetByIdsAsync([existingLog.Id, missingIndexId], o => o.ThrowOnMultiGetErrors()));
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithOutOfSyncTimeSeriesIndexAndThrowOnMultiGetErrors_ReturnsDocument()
+    {
+        string mismatchedDateId = ObjectId.GenerateNewId(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc)).ToString();
+        var log = await _dailyRepository.AddAsync(
+            LogEventGenerator.Generate(mismatchedDateId, createdUtc: DateTime.UtcNow),
+            o => o.ImmediateConsistency());
+        Assert.NotNull(log);
+
+        var results = await _dailyRepository.GetByIdsAsync([mismatchedDateId], o => o.ThrowOnMultiGetErrors());
+        Assert.Single(results);
+        Assert.Equal(log, results.First());
     }
 
     [Fact]

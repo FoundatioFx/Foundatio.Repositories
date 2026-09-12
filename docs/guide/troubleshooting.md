@@ -79,7 +79,7 @@ var documents = await repository.GetByIdsAsync(
     o => o.ThrowOnMultiGetErrors());
 ```
 
-With this option, any per-item MGET error throws `DocumentException` before partial results or not-found cache markers are returned. An explicit `found: false` response still represents a normal missing document.
+For time-series and parent/child repositories, the fallback query across the index's other aliases runs first, so an item error on one dated index does not fail a document that is actually retrievable elsewhere. `DocumentException` is thrown only for ids still unresolved after that fallback, before any partial results or not-found cache markers are returned. An explicit `found: false` response still represents a normal missing document.
 
 ### Index Not Found
 

@@ -5,6 +5,7 @@ using System.Linq;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.AsyncSearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
+using Elastic.Clients.Elasticsearch.Core.MGet;
 using Elastic.Clients.Elasticsearch.Core.Search;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
@@ -415,11 +416,6 @@ public static class ElasticIndexExtensions
 
     public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
     {
-        return response.ToFindHits(logger, false);
-    }
-
-    internal static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger, bool throwOnError) where T : class
-    {
         foreach (var doc in response.Docs)
         {
             FindHit<T>? findHit = null;
@@ -453,14 +449,8 @@ public static class ElasticIndexExtensions
                 {
                     if (error is null)
                     {
-                        if (throwOnError)
-                            throw new DocumentException("Elasticsearch returned an invalid multi-get error item.");
-
                         return;
                     }
-
-                    if (throwOnError)
-                        throw new DocumentException($"Error getting document {error.Id} from index {error.Index}: {error.Error?.Type}: {error.Error?.Reason}");
 
                     logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, type={ErrorType}, reason={Reason}", error.Index, error.Id, error.Error?.Type, error.Error?.Reason);
                 }
@@ -468,6 +458,30 @@ public static class ElasticIndexExtensions
             if (findHit is not null)
                 yield return findHit;
         }
+    }
+
+    public static IReadOnlyCollection<MultiGetError> GetItemErrors<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
+    {
+        List<MultiGetError>? errors = null;
+        foreach (var doc in response.Docs)
+        {
+            doc.Match(
+                result => { },
+                error =>
+                {
+                    if (error is null)
+                    {
+                        logger?.LogWarning("Elasticsearch returned an invalid multi-get error item.");
+                        return;
+                    }
+
+                    errors ??= [];
+                    errors.Add(error);
+                }
+            );
+        }
+
+        return errors ?? (IReadOnlyCollection<MultiGetError>)[];
     }
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
