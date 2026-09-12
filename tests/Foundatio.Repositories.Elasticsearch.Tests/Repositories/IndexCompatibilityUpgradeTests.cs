@@ -40,6 +40,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task DeleteAsync_WhenCompatibilityPatternsAreMissing_DeletesExistingVersionedIndex()
     {
+        // Arrange
         string name = $"compat-delete-{Guid.NewGuid():N}";
         var version1 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
         var version2 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 2);
@@ -47,14 +48,17 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await version1.ConfigureAsync();
         await AssertIndexExistsAsync(version1.VersionedName, true);
 
+        // Act
         await version2.DeleteAsync();
 
+        // Assert
         await AssertIndexExistsAsync(version1.VersionedName, false);
     }
 
     [Fact]
     public async Task DeleteAsync_WithVersionWildcard_UsesExistingPublicDeletionScope()
     {
+        // Arrange
         string name = $"compat-delete-unmarked-{Guid.NewGuid():N}";
         var index = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
         string unmarkedIndex = $"{index.VersionedName}-error";
@@ -64,8 +68,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         var createResponse = await _client.Indices.CreateAsync(unmarkedIndex, cancellationToken: TestCancellationToken);
         Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
 
+        // Act
         await index.DeleteAsync();
 
+        // Assert
         await AssertIndexExistsAsync(index.VersionedName, false);
         await AssertIndexExistsAsync(unmarkedIndex, false);
     }
@@ -190,6 +196,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task SchemaReindexAsync_DoesNotDiscoverPhysicalIndexesOwnedBySiblingConfiguration()
     {
+        // Arrange
         string name = $"schema-sibling-{Guid.NewGuid():N}";
         using var configuration = new EndpointAwareElasticConfiguration();
         var version1 = new ForcedIncompatibleVersionedEmployeeIndex(configuration, name, 1);
@@ -206,8 +213,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await natural.ConfigureAsync();
         await version2.ConfigureAsync();
 
+        // Act
         await version2.ReindexAsync();
 
+        // Assert
         await AssertIndexExistsAsync(version2.VersionedName, true);
         await AssertIndexExistsAsync(natural.VersionedName, true);
     }
@@ -225,6 +234,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task CanUpgradeIndexCompatibilityForPlainIndexAsync()
     {
+        // Arrange
         var index = new ForcedIncompatibleEmployeeIndex(_configuration, $"compat-upgrade-employees-{Guid.NewGuid():N}");
         await index.DeleteAsync();
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
@@ -243,14 +253,17 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         var sourceProperties = sourceMappingResponse.Mappings.Values.Single().Mappings.Properties;
         Assert.NotNull(sourceProperties);
         var expectedPropertyNames = sourceProperties.Select(p => p.Key.ToString()).Order().ToArray();
-
         RegisterCompatibilityIndex(index);
         int finalProgress = 0;
+
+        // Act
         await _configuration.UpgradeIndexCompatibilityAsync(new[] { index }, (progress, _) =>
         {
             finalProgress = progress;
             return Task.CompletedTask;
         }, TestCancellationToken);
+
+        // Assert
         Assert.Equal(100, finalProgress);
 
         // The original nominal name should now resolve through an alias to the replacement physical index.
@@ -322,6 +335,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task CanUpgradePlainIndexWhoseConfiguredNameLooksLikeCompatibilityPrefixAsync()
     {
+        // Arrange
         string name = $"reindexed-v8-compat-natural-{Guid.NewGuid():N}";
         var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
         await index.DeleteAsync();
@@ -329,10 +343,12 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await index.ConfigureAsync();
         var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
         string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor, name);
-
         RegisterCompatibilityIndex(index);
+
+        // Act
         await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
 
+        // Assert
         Assert.Equal($"reindexed-v{compatibility.ServerMajor}-{name}", targetIndex);
         var aliasResponse = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
@@ -345,6 +361,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task CanUpgradeIndexCompatibilityForVersionedIndexAsync()
     {
+        // Arrange
         var index = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, $"compat-upgrade-versioned-employees-{Guid.NewGuid():N}", 1);
         await index.DeleteAsync();
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
@@ -357,10 +374,12 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
         Assert.Equal(index.VersionedName, compatibility.Name);
         string targetIndex = CompatibilityIndexName.Create(index.VersionedName, compatibility.ServerMajor);
-
         RegisterCompatibilityIndex(index);
+
+        // Act
         await _configuration.UpgradeIndexCompatibilityAsync(new[] { index }, cancellationToken: TestCancellationToken);
 
+        // Assert
         var logicalAliasResponse = await _client.Indices.GetAsync((Indices)index.Name, cancellationToken: TestCancellationToken);
         Assert.True(logicalAliasResponse.IsValidResponse, logicalAliasResponse.GetErrorMessage());
         Assert.Equal(targetIndex, logicalAliasResponse.Indices.Keys.Single().ToString());
@@ -427,12 +446,16 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task GetIndexCompatibilityAsync_DoesNotRequireUpgrade_ForCurrentlyCreatedIndex()
     {
+        // Arrange
         var realIndex = _configuration.Employees;
         await realIndex.DeleteAsync();
         await using AsyncDisposableAction _ = new(() => realIndex.DeleteAsync());
         await realIndex.ConfigureAsync();
 
+        // Act
         var compatInfos = await realIndex.GetIndexCompatibilityAsync(TestCancellationToken);
+
+        // Assert
         Assert.Single(compatInfos);
         Assert.False(compatInfos.Single().RequiresReindexBeforeNextMajorUpgrade);
     }
@@ -440,6 +463,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task GetIndexCompatibilityAsync_UsesFixedRequestBudget()
     {
+        // Arrange
         using var configuration = new RequestCountingElasticConfiguration();
         using var index = new RequestCountingIndex(configuration, $"compat-request-count-{Guid.NewGuid():N}");
         configuration.AddIndex(index);
@@ -448,14 +472,18 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await index.ConfigureAsync();
         configuration.ResetRequestCounts();
 
+        // Act
         await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
+        // Assert: a single lookup costs exactly one info request and one metadata request
         Assert.Equal(1, configuration.InfoRequestCount);
         Assert.Equal(1, configuration.CompatibilityMetadataRequestCount);
         Assert.DoesNotContain(configuration.RequestPaths, path => path.Contains("reindexed-v", StringComparison.Ordinal));
 
+        // Act: repeating the lookup must not reuse a stale cache and must cost the same fixed budget again
         await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
+        // Assert
         Assert.Equal(2, configuration.InfoRequestCount);
         Assert.Equal(2, configuration.CompatibilityMetadataRequestCount);
     }
@@ -463,6 +491,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task GetIndexCompatibilityAsync_WithMultipleDailyPartitions_StillUsesOneMetadataRequest()
     {
+        // Arrange
         using var configuration = new RequestCountingElasticConfiguration();
         string name = $"compat-daily-request-count-{Guid.NewGuid():N}";
         using var index = new DailyIndex<object>(configuration, name);
@@ -477,8 +506,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         Assert.True(secondResponse.IsValidResponse, secondResponse.GetErrorMessage());
         configuration.ResetRequestCounts();
 
+        // Act
         var compatibility = await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
+        // Assert
         Assert.Equal(2, compatibility.Count);
         Assert.Equal(1, configuration.InfoRequestCount);
         Assert.Equal(1, configuration.CompatibilityMetadataRequestCount);
@@ -487,6 +518,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task GetIndexCompatibilityAsync_IgnoresUnaliasedCompatibilityTarget()
     {
+        // Arrange
         using var configuration = new RequestCountingElasticConfiguration();
         string name = $"compat-orphan-{Guid.NewGuid():N}";
         using var index = new RequestCountingIndex(configuration, name);
@@ -494,7 +526,6 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await configuration.Client.WaitForReadyAsync(TestCancellationToken);
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
         await index.ConfigureAsync();
-
         string orphanName = CompatibilityIndexName.Create(name, 99);
         await using AsyncDisposableAction orphanScope = new(async () =>
             await configuration.Client.Indices.DeleteAsync(orphanName, d => d.IgnoreUnavailable(), TestCancellationToken));
@@ -502,8 +533,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
             d => d.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)), TestCancellationToken);
         Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
 
+        // Act
         var compatibility = await index.GetIndexCompatibilityAsync(TestCancellationToken);
 
+        // Assert
         var info = Assert.Single(compatibility);
         Assert.Equal(name, info.Name);
     }
@@ -511,6 +544,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task ConfigureIndexesAsync_DoesNotIssueCompatibilityRequests()
     {
+        // Arrange
         using var configuration = new RequestCountingElasticConfiguration();
         using var index = new RequestCountingIndex(configuration, $"compat-configure-count-{Guid.NewGuid():N}");
         configuration.AddIndex(index);
@@ -519,8 +553,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await index.ConfigureAsync();
         configuration.ResetRequestCounts();
 
+        // Act
         await configuration.ConfigureIndexesAsync([index]);
 
+        // Assert
         Assert.Equal(0, configuration.InfoRequestCount);
         Assert.Equal(0, configuration.CompatibilityMetadataRequestCount);
         Assert.DoesNotContain(configuration.RequestPaths, path => path.Contains("reindexed-v", StringComparison.Ordinal));
@@ -529,14 +565,17 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task DeleteAsync_WithConcreteName_PerformsNoMetadataLookup()
     {
+        // Arrange
         using var configuration = new RequestCountingElasticConfiguration();
         using var index = new RequestCountingIndex(configuration, $"compat-delete-count-{Guid.NewGuid():N}");
         await configuration.Client.WaitForReadyAsync(TestCancellationToken);
         await index.ConfigureAsync();
         configuration.ResetRequestCounts();
 
+        // Act
         await index.DeleteAsync();
 
+        // Assert
         string request = Assert.Single(configuration.RequestPaths);
         Assert.StartsWith("DELETE /", request, StringComparison.Ordinal);
         Assert.Equal(0, configuration.CompatibilityMetadataRequestCount);
@@ -545,6 +584,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task DeleteAsync_WithHiddenCanonicalDatedAlias_DeletesCompatibilityBackingIndex()
     {
+        // Arrange
         string name = $"compat-delete-hidden-{Guid.NewGuid():N}";
         string canonicalName = $"{name}-v1-2026.08.10";
         string physicalIndex = $"reindexed-v9-{canonicalName}";
@@ -557,8 +597,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
                 .Aliases(a => a.Add(canonicalName, new Alias { IsHidden = true })), TestCancellationToken);
         Assert.True(createResponse.IsValidResponse, createResponse.GetErrorMessage());
 
+        // Act
         await index.DeleteAsync();
 
+        // Assert
         var existsResponse = await _client.Indices.ExistsAsync(physicalIndex, cancellationToken: TestCancellationToken);
         Assert.False(existsResponse.Exists, existsResponse.DebugInformation);
     }
@@ -566,6 +608,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task DeleteAsync_WhenCanonicalAliasHasMultipleTargets_FailsWithoutDeletingEitherTarget()
     {
+        // Arrange
         string name = $"compat-delete-multiple-{Guid.NewGuid():N}";
         string first = $"reindexed-v8-{name}";
         string second = $"reindexed-v9-{name}";
@@ -577,8 +620,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         Assert.True(firstCreate.IsValidResponse, firstCreate.GetErrorMessage());
         Assert.True(secondCreate.IsValidResponse, secondCreate.GetErrorMessage());
 
+        // Act
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => index.DeleteAsync());
 
+        // Assert
         Assert.Contains("resolves to 2 concrete indexes", exception.Message);
         var firstExists = await _client.Indices.ExistsAsync(first, cancellationToken: TestCancellationToken);
         var secondExists = await _client.Indices.ExistsAsync(second, cancellationToken: TestCancellationToken);
@@ -589,6 +634,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task CleanupIndexesJob_DeletesCompatibilityIndexOnlyWithCanonicalDatedAlias()
     {
+        // Arrange
         string unmarked = "reindexed-v9-logs-2020.01.01";
         string marked = "reindexed-v9-logs-2020.01.02";
         await using AsyncDisposableAction _ = new(async () =>
@@ -600,8 +646,10 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         Assert.True(markedCreate.IsValidResponse, markedCreate.GetErrorMessage());
         var job = new CompatibilityCleanupJob(_client);
 
+        // Act
         await job.RunAsync(TestCancellationToken);
 
+        // Assert
         Assert.Equal([marked], job.DeletedIndexes);
         var unmarkedExists = await _client.Indices.ExistsAsync(unmarked, cancellationToken: TestCancellationToken);
         var markedExists = await _client.Indices.ExistsAsync(marked, cancellationToken: TestCancellationToken);
@@ -612,6 +660,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task CanUpgradeIndexCompatibilityForDailyIndexAndPreserveCanonicalPhysicalAliasAsync()
     {
+        // Arrange
         string name = $"compat-upgrade-daily-{Guid.NewGuid():N}";
         var index = new ForcedIncompatibleDailyEmployeeIndex(_configuration, name, 1);
         string windowedAlias = $"{name}-last7days";
@@ -637,10 +686,12 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
         Assert.Equal(oldPhysicalIndex, compatibility.Name);
         string targetIndex = CompatibilityIndexName.Create(oldPhysicalIndex, compatibility.ServerMajor);
-
         RegisterCompatibilityIndex(index);
+
+        // Act
         await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
 
+        // Assert
         var datedAliasResponse = await _client.Indices.GetAsync((Indices)datedAlias, cancellationToken: TestCancellationToken);
         Assert.True(datedAliasResponse.IsValidResponse, datedAliasResponse.GetErrorMessage());
         Assert.Equal(targetIndex, datedAliasResponse.Indices.Keys.Single().ToString());
@@ -719,6 +770,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task SchemaReindexAfterCompatibilityUpgrade_UsesPrefixedPhysicalSource()
     {
+        // Arrange
         string name = $"compat-then-schema-{Guid.NewGuid():N}";
         var version1 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
         var version2 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 2);
@@ -727,22 +779,22 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await using AsyncDisposableAction version1Scope = new(() => version1.DeleteAsync());
         await using AsyncDisposableAction version2Scope = new(() => version2.DeleteAsync());
         await version1.ConfigureAsync();
-
         var repository = new EmployeeRepository(version1);
         var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
         Assert.NotNull(employee);
         var compatibility = Assert.Single(await version1.GetIndexCompatibilityAsync(TestCancellationToken));
         string compatibilityTarget = CompatibilityIndexName.Create(version1.VersionedName, compatibility.ServerMajor);
         RegisterCompatibilityIndex(version1);
-        await _configuration.UpgradeIndexCompatibilityAsync([version1], cancellationToken: TestCancellationToken);
 
+        // Act: upgrade the index to the current server major, then run a schema reindex against the result
+        await _configuration.UpgradeIndexCompatibilityAsync([version1], cancellationToken: TestCancellationToken);
         var versionedAlias = await _client.Indices.GetAsync((Indices)version1.VersionedName, cancellationToken: TestCancellationToken);
         Assert.Equal(compatibilityTarget, versionedAlias.Indices.Keys.Single().ToString());
-
         ReplaceRegisteredCompatibilityIndex(version2);
         await version2.ConfigureAsync();
         await version2.ReindexAsync();
 
+        // Assert
         var aliasResponse = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
         Assert.Equal(version2.VersionedName, aliasResponse.Indices.Keys.Single().ToString());
@@ -760,6 +812,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_DoesNotRunIndexPipelinesDuringCopyAndRestoresThem()
     {
+        // Arrange
         string name = $"compat-pipelines-{Guid.NewGuid():N}";
         string defaultPipeline = $"{name}-default";
         string finalPipeline = $"{name}-final";
@@ -771,13 +824,11 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
             await _client.Ingest.DeletePipelineAsync(defaultPipeline, cancellationToken: TestCancellationToken);
             await _client.Ingest.DeletePipelineAsync(finalPipeline, cancellationToken: TestCancellationToken);
         });
-
         await index.ConfigureAsync();
         var repository = new EmployeeRepository(index);
         var employee = EmployeeGenerator.Generate(age: 37);
         employee = await repository.AddAsync(employee, o => o.ImmediateConsistency());
         Assert.NotNull(employee);
-
         var defaultPipelineResponse = await _client.Ingest.PutPipelineAsync(defaultPipeline,
             p => p.Processors(processors => processors.Script(script => script.Source("ctx.age += 1"))), TestCancellationToken);
         Assert.True(defaultPipelineResponse.IsValidResponse, defaultPipelineResponse.GetErrorMessage());
@@ -787,10 +838,12 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         var settingsResponse = await _client.Indices.PutSettingsAsync(name,
             p => p.Settings(settings => settings.DefaultPipeline(defaultPipeline).FinalPipeline(finalPipeline)), TestCancellationToken);
         Assert.True(settingsResponse.IsValidResponse, settingsResponse.GetErrorMessage());
-
         RegisterCompatibilityIndex(index);
+
+        // Act: the copy must bypass both pipelines so it does not double-apply their transformations
         await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
 
+        // Assert: the copied document reflects only the original write-time pipeline run, not a second one
         var copiedEmployee = await repository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.NotNull(copiedEmployee);
         Assert.Equal(37, copiedEmployee.Age);
@@ -811,6 +864,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenDestinationTemplateAddsSetting_FailsBeforeCopy()
     {
+        // Arrange
         string name = $"compat-template-setting-{Guid.NewGuid():N}";
         string templateName = $"{name}-template";
         var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
@@ -819,7 +873,6 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await index.ConfigureAsync();
         var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
         string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
-
         string templateBody = $$"""
             {
               "index_patterns": ["{{targetIndex}}"],
@@ -838,11 +891,13 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
             await _client.Transport.RequestAsync<ElasticsearchStringResponse>(
                 new EndpointPath(Elastic.Transport.HttpMethod.DELETE, $"/_index_template/{Uri.EscapeDataString(templateName)}"),
                 null, null, null, TestCancellationToken));
-
         RegisterCompatibilityIndex(index);
+
+        // Act: a matching index template silently injects a setting the upgrader did not request
         var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
             _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken));
 
+        // Assert
         Assert.Contains("did not preserve explicit settings", exception.Message);
         await AssertIndexExistsAsync(name, true);
         await AssertIndexExistsAsync(targetIndex, false);
@@ -853,6 +908,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenLaterDestinationExists_PrevalidatesWholeBatchBeforeBlockingFirstSource()
     {
+        // Arrange
         string firstName = $"compat-batch-first-{Guid.NewGuid():N}";
         string secondName = $"compat-batch-second-{Guid.NewGuid():N}";
         using var first = new ForcedIncompatibleEmployeeIndex(_configuration, firstName);
@@ -870,9 +926,11 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         RegisterCompatibilityIndex(first);
         RegisterCompatibilityIndex(second);
 
+        // Act: the second index's target already exists, so the whole batch must fail before touching the first
         var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
             _configuration.UpgradeIndexCompatibilityAsync([first, second], cancellationToken: TestCancellationToken));
 
+        // Assert
         Assert.Contains("already exists", exception.Message);
         var firstState = await _client.Indices.GetAsync((Indices)firstName,
             d => d.Features(Feature.Aliases, Feature.Settings), TestCancellationToken);
@@ -888,19 +946,20 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenCanceledDuringReindex_RemovesTargetAndWriteBlock()
     {
+        // Arrange
         string name = $"compat-cancel-{Guid.NewGuid():N}";
         var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
         await index.DeleteAsync();
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
         await index.ConfigureAsync();
-
         var repository = new EmployeeRepository(index);
         await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
         var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
         string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
         bool observedWriteBlock = false;
-
         RegisterCompatibilityIndex(index);
+
+        // Act: cancel mid-reindex after confirming the source write block actually took effect
         var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _configuration.UpgradeIndexCompatibilityAsync(
             [index],
             async (_, message) =>
@@ -914,6 +973,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
             },
             TestCancellationToken));
 
+        // Assert
         Assert.Contains("Test cancellation", exception.Message);
         Assert.True(observedWriteBlock);
         var allIndexesResponse = await _client.Indices.GetAsync(Indices.All,
@@ -930,26 +990,27 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
     [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WithExistingWriteBlock_RejectsBeforeMutation()
     {
+        // Arrange
         string name = $"compat-existing-block-{Guid.NewGuid():N}";
         var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
         await index.DeleteAsync();
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
         await index.ConfigureAsync();
-
         var repository = new EmployeeRepository(index);
         var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
         Assert.NotNull(employee);
-
         var blockResponse = await _client.Indices.PutSettingsAsync(name,
             d => d.Settings(s => s.Blocks(b => b.Write(true))), TestCancellationToken);
         Assert.True(blockResponse.IsValidResponse, blockResponse.GetErrorMessage());
-
         var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
         string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
         RegisterCompatibilityIndex(index);
+
+        // Act: the source already carries an externally-applied write block, which the upgrader did not create
         var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
             _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken));
 
+        // Assert
         Assert.Contains("already has an index write block", exception.Message);
         var sourceSettingsResponse = await _client.Indices.GetSettingsAsync((Indices)name, cancellationToken: TestCancellationToken);
         Assert.True(sourceSettingsResponse.IsValidResponse, sourceSettingsResponse.GetErrorMessage());
@@ -965,5 +1026,4 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         Assert.False(blockedWrite.IsValidResponse, blockedWrite.DebugInformation);
         Assert.Equal("cluster_block_exception", blockedWrite.ElasticsearchServerError?.Error?.Type);
     }
-
 }
