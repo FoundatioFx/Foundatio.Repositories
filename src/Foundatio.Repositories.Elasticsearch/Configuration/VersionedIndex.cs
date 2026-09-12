@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -31,6 +32,34 @@ public interface IVersionedIndex : IIndex
 
 public class VersionedIndex : Index, IVersionedIndex
 {
+    /// <summary>
+    /// How long alias maintenance holds the reindex lock. Maintenance only rewrites aliases, so this bounds a
+    /// crashed run's blast radius rather than covering a long operation, and it is deliberately not renewed.
+    /// </summary>
+    protected static readonly TimeSpan MaintenanceLockDuration = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// How long alias maintenance waits for the reindex lock before skipping the run. Kept short on purpose: a
+    /// reindex holds this lock for minutes to hours, so waiting longer would never turn a skip into an
+    /// acquisition — it would only stall callers like <c>ConfigureIndexesAsync</c>. The wait exists to ride out
+    /// a competing maintenance run, which only issues a few alias calls.
+    /// </summary>
+    protected static readonly TimeSpan MaintenanceLockAcquireTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long a reindex holds its lock. Renewed on every progress report, so a migration that runs longer
+    /// than this keeps the lock as long as it is making progress, while a crashed run releases it after this
+    /// much silence rather than blocking migrations forever.
+    /// </summary>
+    protected static readonly TimeSpan ReindexLockDuration = TimeSpan.FromMinutes(20);
+
+    /// <summary>
+    /// How long a reindex waits for the lock before skipping. Generous because the holder is doing the same
+    /// work this caller wants done: waiting lets a queued instance pick up where a finishing one left off,
+    /// and the post-acquire version re-check turns an already-completed migration into a clean no-op.
+    /// </summary>
+    protected static readonly TimeSpan ReindexLockAcquireTimeout = TimeSpan.FromMinutes(30);
+
     public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
         : base(configuration, name)
     {
@@ -215,11 +244,11 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion != Version)
         {
             indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
-            indexesToDelete.Add(String.Concat(Name, "-v", currentVersion, "-error"));
+            indexesToDelete.Add(ElasticReindexer.GetFailureIndexName(String.Concat(Name, "-v", currentVersion)));
         }
 
         indexesToDelete.Add(VersionedName);
-        indexesToDelete.Add(String.Concat(VersionedName, "-error"));
+        indexesToDelete.Add(ElasticReindexer.GetFailureIndexName(VersionedName));
         await DeleteIndexesAsync(indexesToDelete.ToArray()).AnyContext();
     }
 
@@ -262,22 +291,109 @@ public class VersionedIndex : Index, IVersionedIndex
         return sb.ToString();
     }
 
-    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    {
+        await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
+        if (lease is null)
+            return;
+
+        var reindexWorkItem = CreateReindexWorkItem(lease.CurrentVersion);
+
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
+        await reindexer.ReindexAsync(reindexWorkItem, CreateReindexProgressCallback(lease.Lock, progressCallbackAsync), cancellationToken).AnyContext();
+    }
+
+    /// <summary>
+    /// Holds the reindex lock together with the index version observed after the lock was taken.
+    /// </summary>
+    protected sealed class ReindexLease : IAsyncDisposable
+    {
+        public ReindexLease(ILock reindexLock, int currentVersion)
+        {
+            Lock = reindexLock;
+            CurrentVersion = currentVersion;
+        }
+
+        public ILock Lock { get; }
+        public int CurrentVersion { get; }
+
+        public ValueTask DisposeAsync() => Lock.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Acquires the reindex lock and re-reads the version under it, returning <c>null</c> when there is
+    /// nothing to do: the index is already current, or another migration holds the lock.
+    /// </summary>
+    /// <remarks>
+    /// The version is deliberately read twice. The first read avoids taking the lock at all in the common
+    /// no-op case; the second is the authoritative one, because another process may have completed the
+    /// migration while this one waited for the lock.
+    /// </remarks>
+    /// <param name="cancellationToken">
+    /// Cancels the wait for the lock. Without this a cancelled reindex would still block for the full acquire
+    /// timeout before the token was ever observed.
+    /// </param>
+    protected async Task<ReindexLease?> TryAcquireReindexLeaseAsync(CancellationToken cancellationToken = default)
     {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
-            return;
+            return null;
 
         string lockKey = ElasticReindexer.GetLockName(Name);
-        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
+        ILock? reindexLock;
+
+        // There is no acquire overload taking both a timeout and a token, so the timeout is expressed as a
+        // linked token - the same approach ReindexWorkItemHandler uses. Cancellation and timeout then arrive
+        // as the same signal, and the two are distinguished below by inspecting the caller's token.
+        using var acquireTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        acquireTimeoutSource.CancelAfter(ReindexLockAcquireTimeout);
+
+        try
+        {
+            reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, ReindexLockDuration, acquireTimeoutSource.Token).AnyContext();
+        }
+        catch (LockAcquisitionTimeoutException)
+        {
+            // How the real providers report contention. Losing the race is the lock working, not a failure:
+            // the holder is migrating this index, so this caller has nothing to do. Left to propagate it would
+            // surface as a failed migration - and ElasticConfiguration.ReindexAsync now aggregates and throws,
+            // so two instances starting together would fail startup on whichever one lost.
+            _logger.LogInformation("Skipping reindex of {Index}: lock {LockKey} is held, so another migration is in progress.", Name, lockKey);
+            return null;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The acquire timeout elapsed rather than the caller cancelling, which is contention again.
+            _logger.LogInformation("Skipping reindex of {Index}: lock {LockKey} could not be acquired within {AcquireTimeout:g}, so another migration is in progress.", Name, lockKey, ReindexLockAcquireTimeout);
+            return null;
+        }
+
+        // AcquireAsync is declared as returning a non-nullable ILock, but the interface does not forbid null
+        // and an implementation may return it instead of throwing. Both denials must degrade to a clean skip,
+        // never to a NullReferenceException at the first RenewAsync.
+        if (reindexLock is null)
+        {
+            _logger.LogWarning("Skipping reindex of {Index}: could not acquire lock {LockKey} within the timeout. Another migration is likely in progress.", Name, lockKey);
+            return null;
+        }
 
         currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
-            return;
+        {
+            await reindexLock.DisposeAsync().AnyContext();
+            return null;
+        }
 
-        var reindexWorkItem = CreateReindexWorkItem(currentVersion);
+        return new ReindexLease(reindexLock, currentVersion);
+    }
 
-        Func<int, string?, Task> wrappedCallback = async (progress, message) =>
+    /// <summary>
+    /// Wraps the caller's progress callback so the reindex lock is renewed on every progress report, which
+    /// is what keeps a migration longer than the lock's TTL from having the lock expire underneath it.
+    /// </summary>
+    protected Func<int, string?, Task> CreateReindexProgressCallback(ILock reindexLock, Func<int, string?, Task>? progressCallbackAsync)
+    {
+        return async (progress, message) =>
         {
             await reindexLock.RenewAsync().AnyContext();
 
@@ -290,13 +406,47 @@ public class VersionedIndex : Index, IVersionedIndex
                 _logger.LogInformation("Reindex Progress {Progress:F1}%: {Message}", progress, message);
             }
         };
-
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
-        await reindexer.ReindexAsync(reindexWorkItem, wrappedCallback).AnyContext();
     }
 
+    /// <summary>
+    /// Acquires the <c>reindex:{alias}</c> lock for the duration of an alias maintenance run, or returns
+    /// <c>null</c> when a reindex holds it and this run should be skipped.
+    /// </summary>
+    /// <remarks>
+    /// Alias maintenance and a reindex cutover both rewrite the same aliases, so they share a lock. Callers
+    /// must hold it only across reading the current alias state and writing the new one: the lock is not
+    /// renewed, so anything unbounded (like deleting expired indexes) belongs outside it. A run that cannot
+    /// get the lock is skipped rather than queued, because maintenance is periodic and idempotent.
+    /// </remarks>
+    protected async Task<ILock?> TryAcquireMaintenanceLockAsync()
+    {
+        string lockName = ElasticReindexer.GetLockName(Name);
+        var maintenanceLock = await Configuration.LockProvider.TryAcquireAsync(lockName, MaintenanceLockDuration, MaintenanceLockAcquireTimeout).AnyContext();
+        if (maintenanceLock is null)
+            _logger.LogInformation("Skipping alias maintenance of {Index}: could not acquire lock {LockName} within {AcquireTimeout:g}. A reindex is likely in progress.", Name, lockName, MaintenanceLockAcquireTimeout);
+
+        return maintenanceLock;
+    }
+
+    /// <summary>
+    /// Restores the alias when it is missing, which is how an index whose alias was lost gets back into
+    /// queries.
+    /// </summary>
+    /// <remarks>
+    /// The alias is checked twice. The first check keeps the overwhelmingly common case (the alias is
+    /// present) off the lock entirely; the second is the authoritative one, because a reindex cutover may
+    /// have created the alias while this call waited for the lock. Without the second check this would add
+    /// the alias back onto the <em>old</em> version, leaving the alias pointing at two versions at once.
+    /// </remarks>
     public override async Task MaintainAsync(bool includeOptionalTasks = true)
     {
+        if (await AliasExistsAsync(Name).AnyContext())
+            return;
+
+        await using var maintenanceLock = await TryAcquireMaintenanceLockAsync().AnyContext();
+        if (maintenanceLock is null)
+            return;
+
         if (await AliasExistsAsync(Name).AnyContext())
             return;
 

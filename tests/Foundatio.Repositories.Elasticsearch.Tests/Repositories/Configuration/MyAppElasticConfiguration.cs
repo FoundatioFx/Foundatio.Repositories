@@ -1,13 +1,13 @@
-using System;
-using System.Linq;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
+using Foundatio.Lock;
 using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
 
@@ -15,8 +15,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
 public class MyAppElasticConfiguration : ElasticConfiguration
 {
-    public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory)
-        : base(workItemQueue, cacheClient, messageBus, loggerFactory: loggerFactory)
+    public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory, ILockProvider? lockProvider = null)
+        : base(workItemQueue, cacheClient, messageBus, loggerFactory: loggerFactory, lockProvider: lockProvider)
     {
         AddIndex(Identities = new IdentityIndex(this));
         AddIndex(Employees = new EmployeeIndex(this));
@@ -33,19 +33,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
     protected override NodePool CreateConnectionPool()
     {
-        string? connectionString = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL");
-        bool fiddlerIsRunning = String.Equals(Environment.GetEnvironmentVariable("USE_FIDDLER_PROXY"), "true", StringComparison.OrdinalIgnoreCase);
-
-        if (!String.IsNullOrEmpty(connectionString))
-        {
-            var servers = connectionString.Split(',')
-                .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url))
-                .ToList();
-            return new StaticNodePool(servers);
-        }
-
-        var host = fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me";
-        return new SingleNodePool(new Uri($"http://{host}:9200"));
+        return ElasticTestNodePool.Create();
     }
 
     protected override void ConfigureSettings(ElasticsearchClientSettings settings)

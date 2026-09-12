@@ -8,6 +8,7 @@ using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -15,6 +16,7 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -1882,5 +1884,31 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         // Act & Assert — VersionedEmployeeIndex uses the same "employees" alias
         var ex = Assert.Throws<ArgumentException>(() => config.AddIndex(new VersionedEmployeeIndex(config, 1)));
         Assert.Contains("employees", ex.Message);
+    }
+
+    /// <summary>
+    /// Index locks are only as distributed as the cache behind them, so falling back to the in-process default
+    /// must be announced rather than passing for a distributed guarantee.
+    /// </summary>
+    [Fact]
+    public void Constructor_WithNoCacheOrLockProvider_WarnsThatLocksAreProcessLocal()
+    {
+        var messages = new List<string>();
+        using var loggerFactory = new LoggerFactory([new CapturingLoggerProvider(messages)]);
+
+        using var config = new ElasticConfiguration(loggerFactory: loggerFactory);
+
+        Assert.Contains(messages, m => m.Contains("only serialize within this process"));
+    }
+
+    [Fact]
+    public void Constructor_WithCacheClient_DoesNotWarnAboutProcessLocalLocks()
+    {
+        var messages = new List<string>();
+        using var loggerFactory = new LoggerFactory([new CapturingLoggerProvider(messages)]);
+
+        using var config = new ElasticConfiguration(cacheClient: _cache, loggerFactory: loggerFactory);
+
+        Assert.DoesNotContain(messages, m => m.Contains("only serialize within this process"));
     }
 }

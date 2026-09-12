@@ -2,15 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.AsyncEx;
+using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -54,9 +59,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
 
-        // ES does not support reindexing into the same index -- verify data is preserved after the failed reindex attempt
+        // ES does not support reindexing into the same index. This must surface as an explicit failure rather
+        // than a silent no-op, and must leave the data intact.
         var newIndex = new EmployeeIndexWithYearsEmployed(_configuration);
-        await newIndex.ReindexAsync();
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => newIndex.ReindexAsync(cancellationToken: TestCancellationToken));
+        Assert.Contains("cannot write into an index its reading from", exception.Reason);
 
         countResponse = await _client.CountAsync<Employee>(d => d.Indices(index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
@@ -68,6 +76,1134 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(employee.Id, result.Id);
     }
 
+    /// <summary>
+    /// A reindex that loses documents must throw, and must not promote the alias to the short destination.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The destination is given a mapping that rejects half the source documents (<c>name</c> mapped as an
+    /// integer, so alphabetic names cannot be indexed). <c>_reindex</c> drops those documents and reports them
+    /// as failures. Before R3 this returned normally, so a caller - a startup migration, a queued handler, an
+    /// operator script - could not distinguish it from success.
+    /// </para>
+    /// <para>
+    /// Asserts identities rather than a total, since a count cannot distinguish "all documents arrived" from
+    /// "the wrong documents arrived", and asserts the alias still points at the source so reads are not
+    /// silently served from an incomplete index.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentsFailToCopy_ThrowsAndLeavesAliasOnSource()
+    {
+        // Arrange
+        const int totalEmployees = 20;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        // The destination maps `name` as an integer, so alphabetic names cannot be indexed there.
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2, null,
+            m => m.Properties(p => p.IntegerNumber(e => e.Name!)));
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = new List<Employee>(totalEmployees);
+        for (int i = 0; i < totalEmployees; i++)
+        {
+            // Half get numeric names (which the destination accepts), half alphabetic (which it rejects).
+            string name = i % 2 is 0 ? i.ToString() : $"employee-{i:D3}";
+            employees.Add(EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString(), name: name));
+        }
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        // Assert: the exception names both indexes and says why, so an operator can act on it.
+        Assert.Equal(version1Index.VersionedName, exception.OldIndex);
+        Assert.Equal(version2Index.VersionedName, exception.NewIndex);
+        Assert.Contains("failed to copy", exception.Reason);
+
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // The alias must still serve the complete source, not the short destination.
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+#if ELASTICSEARCH9
+        var aliasTargets = aliasResponse.Aliases;
+#else
+        var aliasTargets = aliasResponse.Values;
+#endif
+        Assert.NotNull(aliasTargets);
+        Assert.DoesNotContain(version2Index.VersionedName, aliasTargets.Keys);
+        Assert.Contains(version1Index.VersionedName, aliasTargets.Keys);
+
+        // Read what actually arrived, so the assertions below are about identities rather than a count.
+        var arrived = new HashSet<string>();
+        var searchResponse = await _client.SearchAsync<Employee>(d => d
+            .Indices(version2Index.VersionedName)
+            .Size(totalEmployees * 2)
+            .Query(q => q.MatchAll(_ => { })), TestCancellationToken);
+        Assert.True(searchResponse.IsValidResponse);
+        foreach (var hit in searchResponse.Hits)
+        {
+            if (hit.Id is not null)
+                arrived.Add(hit.Id);
+        }
+
+        // The destination really is short - the exception is not a false alarm.
+        Assert.Contains(employees, e => !arrived.Contains(e.Id));
+
+        // R7: the documents left behind are searchable in the failure index, so they can be found and replayed.
+        string failureIndex = ElasticReindexer.GetFailureIndexName(version2Index.VersionedName);
+        await _client.Indices.RefreshAsync((Indices)failureIndex, TestCancellationToken);
+        var failureResponse = await _client.SearchAsync<ReindexFailure>(d => d
+            .Indices(failureIndex)
+            .Size(totalEmployees * 2)
+            .Query(q => q.Term(tq => tq.Field("source_index").Value(version1Index.VersionedName))), TestCancellationToken);
+
+        Assert.True(failureResponse.IsValidResponse);
+        Assert.NotEmpty(failureResponse.Documents);
+        Assert.All(failureResponse.Documents, failure =>
+        {
+            Assert.NotNull(failure.Id);
+            Assert.DoesNotContain(failure.Id!, arrived);
+            Assert.NotNull(failure.Cause?.Type);
+        });
+    }
+
+    /// <summary>
+    /// A reindex whose script drops documents leaves the destination legitimately short, so it must complete
+    /// normally and keep the source rather than reporting data loss.
+    /// </summary>
+    /// <remarks>
+    /// This covers the count comparison running on a reindex with <c>DiscardIndexesOnReindex = false</c>. The
+    /// comparison used to live inside the delete branch, so this path was never checked at all; it now runs
+    /// but must only warn, since <c>ctx.op = 'noop'</c> is a documented, intentional way to drop documents.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenScriptDropsDocuments_CompletesAndKeepsSourceIndex()
+    {
+        // Arrange
+        const int totalEmployees = 10;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        // Drops every employee with an even age, so the destination is legitimately short of the source.
+        var version2Index = new VersionedEmployeeIndexWithDocumentDroppingScript(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = new List<Employee>(totalEmployees);
+        for (int i = 0; i < totalEmployees; i++)
+            employees.Add(EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString(), age: i));
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act: a deliberately lossy script is not a failure.
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // Assert: the destination is short, but the source was kept so nothing is unrecoverable.
+        var newCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(newCount.IsValidResponse);
+        Assert.Equal(totalEmployees / 2, newCount.Count);
+
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+
+        // The alias still moved, because the copy itself completed.
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+#if ELASTICSEARCH9
+        var aliasTargets = aliasResponse.Aliases;
+#else
+        var aliasTargets = aliasResponse.Values;
+#endif
+        Assert.NotNull(aliasTargets);
+        Assert.Contains(version2Index.VersionedName, aliasTargets.Keys);
+    }
+
+    /// <summary>
+    /// A document hard-deleted through the alias after the cutover leaves the destination short of the frozen
+    /// source, and that must not be reported as data loss.
+    /// </summary>
+    /// <remarks>
+    /// Regression guard: comparing live index document counts cannot establish completeness once the alias has
+    /// moved, because deletes land on the destination while the source still counts them. Throwing here would
+    /// tell callers to retry a reindex that would resurrect the deleted document.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentDeletedAfterCutover_DoesNotReportDataLoss()
+    {
+        // Arrange
+        const int totalEmployees = 5;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = EmployeeGenerator.GenerateEmployees(totalEmployees);
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Delete through the alias, which now points at the destination. The source is untouched, so a naive
+        // count comparison would see the destination as one document short.
+        IEmployeeRepository version2Repository = new EmployeeRepository(_configuration);
+        await version2Repository.RemoveAsync(employees.First(), o => o.ImmediateConsistency());
+
+        // A second reindex of the same versions is a no-op, but re-running the verification must still not
+        // report loss, and must not resurrect the deleted document.
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // Assert
+        var newCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(newCount.IsValidResponse);
+        Assert.Equal(totalEmployees - 1, newCount.Count);
+
+        var oldCount = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), TestCancellationToken);
+        Assert.True(oldCount.IsValidResponse);
+        Assert.Equal(totalEmployees, oldCount.Count);
+
+        // The deleted document must stay deleted.
+        Assert.Null(await version2Repository.GetByIdAsync(employees.First().Id));
+    }
+
+    /// <summary>
+    /// A date-free model with custom (non-ObjectId) ids is a supported configuration and must keep working when
+    /// the source is not being written to.
+    /// </summary>
+    /// <remarks>
+    /// This is the characterization test for the safety policy that follows: the refusal must be triggered by
+    /// "concurrent changes cannot be accounted for", <em>not</em> by "this model has no timestamp field" or
+    /// "these ids are not ObjectIds". Not every model has or wants an <c>updated_utc</c>, and ids are frequently
+    /// natural keys. If this test ever fails, the policy has been implemented too broadly.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WithStaticSourceAndCustomIds_CopiesEveryDocument()
+    {
+        // Arrange - a model with no date fields, and ids that are deliberately not ObjectIds
+        const int totalIdentities = 50;
+
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        // Confirms the premise rather than assuming it: this really is the no-timestamp path.
+        Assert.Null(GetTimestampField(version2Index));
+
+        var identities = Enumerable.Range(0, totalIdentities)
+            .Select(i => new Identity { Id = $"natural-key-{i:D3}" })
+            .ToList();
+
+        await IndexIdentitiesAsync(version1Index.VersionedName, identities);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+        await version2Index.ConfigureAsync();
+
+        // Act - the source is static for the whole operation
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Assert - every document arrived and the alias moved
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
+
+        var countResponse = await _client.CountAsync<Identity>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(totalIdentities, countResponse.Count);
+    }
+
+    /// <summary>
+    /// A document written to the source before the cutover must not be silently dropped when the model has no
+    /// timestamp field and non-ObjectId ids.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the false-success case. With no timestamp field the catch-up pass slices the source by id, which
+    /// only works for ObjectId-format ids because their prefix encodes creation time. For any other id format
+    /// the catch-up pass is skipped entirely - and the operation still reports <c>100 / "Reindex complete"</c>
+    /// after having already switched the alias. The document is lost, with only a warning in the log.
+    /// </para>
+    /// <para>
+    /// The safe outcome is either inclusion before promotion or refusal to promote. Which one depends on the
+    /// mode; both are acceptable here, and neither is "promoted and reported complete". The old index must
+    /// survive either way, because it is the only copy of the missing document.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentWrittenBeforeCutoverCannotBeCaughtUp_DoesNotReportSuccess()
+    {
+        // Arrange
+        const int totalIdentities = 20;
+        const string lateId = "written-during-the-copy";
+
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, totalIdentities).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+
+        await version2Index.ConfigureAsync();
+
+        // Act - insert into the source after the first pass finishes but before the cutover. Progress 90 is the
+        // documented end of the first copy pass, which makes this deterministic without racing the copy.
+        bool hookFired = false;
+        bool writeRejected = false;
+        var progressReports = new List<int>();
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(async (progress, _) =>
+        {
+            progressReports.Add(progress);
+            if (progress is 90 && !hookFired)
+            {
+                hookFired = true;
+
+                // A write barrier on the source is one of the two acceptable safe outcomes (the other being
+                // refusal to promote), so a rejected write means the guarantee held.
+                var insert = await _client.IndexAsync(new Identity { Id = lateId },
+                    d => d.Index(version1Index.VersionedName).Id(lateId).Refresh(Refresh.True), TestCancellationToken);
+                writeRejected = !insert.IsValidResponse;
+            }
+        }, TestCancellationToken));
+
+        Assert.True(hookFired, "The pre-cutover hook never fired, so this test proved nothing.");
+
+        if (writeRejected)
+            return; // The source was frozen before the write landed, so there is nothing to catch up.
+
+        // Assert - the late document must not be silently lost. Either it was copied, or the migration refused
+        // to promote; reporting success while it is missing is the defect.
+        // The old index is the only copy of anything missed, so losing it is checked first.
+        var oldExists = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(oldExists.Exists, "The old index was deleted, destroying the only copy of documents the catch-up pass could not reach.");
+
+        await _client.Indices.RefreshAsync(Indices.Index(version1Index.VersionedName).And(version2Index.VersionedName),
+            d => d.IgnoreUnavailable(), TestCancellationToken);
+
+        bool promoted = await version2Index.GetCurrentVersionAsync() is 2;
+        var destination = await _client.GetAsync<Identity>(lateId, d => d.Index(version2Index.VersionedName), TestCancellationToken);
+        bool copied = destination.Found;
+
+        Assert.True(copied || !promoted,
+            $"The document written before cutover is missing from the destination, yet the migration promoted it and reported success (exception: {exception?.GetType().Name ?? "none"}).");
+
+        // When the outcome is refusal, it must be a refusal in full: reported as a failure, the alias left on
+        // the source, and no claim of completion.
+        if (!copied)
+        {
+            Assert.IsType<ReindexIncompleteException>(exception);
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            Assert.DoesNotContain(100, progressReports);
+        }
+    }
+
+    /// <summary>
+    /// The same-count variant: an <em>existing</em> document is modified before the cutover rather than a new
+    /// one inserted, so document counts match and only content differs.
+    /// </summary>
+    /// <remarks>
+    /// Document counts are the check most likely to be reached for first, and this is the case they cannot
+    /// catch: source and destination agree on every id and on the total, while the destination holds a stale
+    /// copy. Verification has to compare identity and content, not cardinality.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDocumentModifiedBeforeCutoverCannotBeCaughtUp_DoesNotReportSuccess()
+    {
+        // Arrange
+        const int totalIdentities = 20;
+        const string modifiedId = "natural-key-007";
+
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, totalIdentities).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+
+        await version2Index.ConfigureAsync();
+
+        // Act - overwrite an existing document pre-cutover, bumping its _version without changing the count.
+        bool hookFired = false;
+        bool writeRejected = false;
+        var progressReports = new List<int>();
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(async (progress, _) =>
+        {
+            progressReports.Add(progress);
+            if (progress is 90 && !hookFired)
+            {
+                hookFired = true;
+
+                // A write barrier on the source is one of the two acceptable safe outcomes, so a rejected write
+                // is a pass, not a test failure. Asserting success here would fail against a correct
+                // implementation.
+                var update = await _client.IndexAsync(new Identity { Id = modifiedId },
+                    d => d.Index(version1Index.VersionedName).Id(modifiedId).Refresh(Refresh.True), TestCancellationToken);
+                writeRejected = !update.IsValidResponse;
+            }
+        }, TestCancellationToken));
+
+        Assert.True(hookFired, "The pre-cutover hook never fired, so this test proved nothing.");
+
+        if (writeRejected)
+            return; // The source was frozen before the modification landed, so there is nothing to catch up.
+
+        // Assert - the old index is the only copy of the modification, so losing it is itself a failure. Checked
+        // first because it also determines whether the source is still readable for the content comparison.
+        var oldExists = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(oldExists.Exists, "The old index was deleted even though the destination never received the pre-cutover modification, destroying the only copy of it.");
+
+        await _client.Indices.RefreshAsync(Indices.Index(version1Index.VersionedName).And(version2Index.VersionedName),
+            d => d.IgnoreUnavailable(), TestCancellationToken);
+
+        // Counts match, so they prove nothing on their own - this is the case cardinality checks cannot catch.
+        var sourceCount = await _client.CountAsync<Identity>(d => d.Indices(version1Index.VersionedName), TestCancellationToken);
+        var destinationCount = await _client.CountAsync<Identity>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.Equal(sourceCount.Count, destinationCount.Count);
+
+        // The destination must hold the post-modification document, or the migration must not have promoted.
+        var source = await _client.GetAsync<Identity>(modifiedId, d => d.Index(version1Index.VersionedName), TestCancellationToken);
+        var destination = await _client.GetAsync<Identity>(modifiedId, d => d.Index(version2Index.VersionedName), TestCancellationToken);
+        Assert.True(source.Found);
+
+        bool promoted = await version2Index.GetCurrentVersionAsync() is 2;
+        bool caughtUp = destination.Found && destination.Version >= source.Version;
+
+        Assert.True(caughtUp || !promoted,
+            $"The destination holds a stale copy of {modifiedId} (source _version {source.Version}, destination _version {(destination.Found ? destination.Version : null)}) yet the migration promoted it and reported success.");
+
+        // When the outcome is refusal, it must be a refusal in full.
+        if (!caughtUp)
+        {
+            Assert.IsType<ReindexIncompleteException>(exception);
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            Assert.DoesNotContain(100, progressReports);
+        }
+    }
+
+    /// <summary>
+    /// Reads the timestamp field the reindexer would use, so tests assert the configuration under test rather
+    /// than assuming it.
+    /// </summary>
+    private static string? GetTimestampField<T>(VersionedIndex<T> index) where T : class
+    {
+        // Resolved from the runtime type: the method is declared on Index<T> but overridden further down, and
+        // binding against the declaring type invokes it on the wrong target.
+        var method = index.GetType().GetMethod("GetTimeStampField", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (string?)method.Invoke(index, null);
+    }
+
+    /// <summary>Indexes identities directly, since the shared repository is bound to the unversioned index.</summary>
+    private async Task IndexIdentitiesAsync(string index, IReadOnlyCollection<Identity> identities)
+    {
+        var response = await _client.BulkAsync(b => b
+            .Index(index)
+            .Refresh(Refresh.True)
+            .IndexMany(identities, (d, i) => d.Id(i.Id)), TestCancellationToken);
+
+        _logger.LogRequest(response);
+        Assert.True(response.IsValidResponse);
+        Assert.False(response.Errors, "Bulk indexing the test fixture failed.");
+    }
+
+    /// <summary>
+    /// An incomplete reindex must surface as a failure and must not be retried.
+    /// </summary>
+    /// <remarks>
+    /// The per-index call is wrapped in a resilience policy that retries on exception. Retrying an incomplete
+    /// reindex cannot recover it and actively hides it: the alias may already point at the destination, so the
+    /// next attempt reads the version from the alias, finds it at the target, skips, and returns normally -
+    /// converting a known-short migration into a reported success. That is exactly the silent failure this
+    /// change set exists to remove, so the exception has to escape the policy on the first attempt.
+    /// </remarks>
+    [Fact]
+    public async Task ConfigurationReindexAsync_WhenReindexIsIncomplete_FailsWithoutRetrying()
+    {
+        // Arrange - an outdated index whose reindex always reports incompleteness
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        var version2Index = new IncompleteReindexIdentityIndex(_configuration, 2);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() =>
+            _configuration.ReindexAsync([version2Index], cancellationToken: TestCancellationToken));
+
+        // Assert - reported as a failure, attempted exactly once
+        var aggregate = Assert.IsType<AggregateException>(exception);
+        Assert.IsType<ReindexIncompleteException>(Assert.Single(aggregate.InnerExceptions));
+        Assert.Equal(1, version2Index.ReindexAttempts);
+    }
+
+    private sealed class IncompleteReindexIdentityIndex(IElasticConfiguration configuration, int version)
+        : VersionedIndex<Identity>(configuration, "identity", version)
+    {
+        public int ReindexAttempts { get; private set; }
+
+        public override Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+        {
+            ReindexAttempts++;
+            throw new ReindexIncompleteException(VersionedName, VersionedName, "simulated post-cutover shortfall");
+        }
+    }
+
+    /// <summary>
+    /// Drives a work item through the real queue and <see cref="WorkItemJob"/> so the assertions can be about
+    /// the queue's actual disposition (completed, abandoned, dead-lettered) rather than about whether
+    /// <see cref="ReindexWorkItemHandler.HandleItemAsync"/> happened to throw.
+    /// </summary>
+    /// <remarks>
+    /// The handler-only helper above cannot answer the question that matters for a redelivery: a handler that
+    /// returns normally and a handler that throws both look like "no exception reached my test" once the job
+    /// wraps them. <see cref="WorkItemJob"/> maps a throw to <c>AbandonAsync</c> and a normal return to
+    /// <c>CompleteAsync</c>, and only the queue's own counters distinguish those.
+    /// </remarks>
+    private async Task<QueueDisposition> RunReindexThroughQueueAsync(IElasticConfiguration configuration, ReindexWorkItem workItem)
+    {
+        var handlers = new WorkItemHandlers();
+        handlers.Register<ReindexWorkItem>(new ReindexWorkItemHandler(configuration));
+
+        string workItemId = await _workItemQueue.EnqueueAsync(workItem);
+        Assert.NotNull(workItemId);
+
+        var job = new WorkItemJob(_workItemQueue, _messageBus, handlers, Log);
+        var result = await job.RunAsync(TestCancellationToken);
+
+        var stats = await _workItemQueue.GetQueueStatsAsync();
+        return new QueueDisposition(result, stats.Completed, stats.Abandoned, stats.Deadletter);
+    }
+
+    private sealed record QueueDisposition(JobResult Result, long Completed, long Abandoned, long Deadletter);
+
+    /// <summary>
+    /// A redelivered work item whose destination was already promoted but whose migration never completed must
+    /// not be acknowledged as successful.
+    /// </summary>
+    /// <remarks>
+    /// The alias switch happens before the catch-up pass, so a first attempt that fails after the cutover
+    /// leaves the version already advanced. The skip check reads that version, concludes the migration is
+    /// already done, and completes the queue item - so the queue retry that the docs present as the recovery
+    /// path instead records a known-short migration as complete. An advanced alias alone cannot distinguish
+    /// "another process finished this" from "this promoted the destination and then failed", so it must not be
+    /// treated as completion evidence.
+    /// <para>
+    /// The destination here holds the same <em>number</em> of documents as the source but different content, so
+    /// nothing about counts or progress can rescue the decision.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenDestinationPromotedButMigrationNeverCompleted_IsNotAcknowledgedAsSuccess()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository sourceRepository = new EmployeeRepository(_configuration);
+        var sourceEmployees = EmployeeGenerator.GenerateEmployees(5);
+        await sourceRepository.AddAsync(sourceEmployees, o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        // Simulate a first attempt that promoted the destination and then failed: the alias points at v2 only
+        // (as the real cutover leaves it), but the destination holds equal-count, wrong-content documents
+        // rather than the source's data.
+        await _client.Indices.PutAliasAsync(version2Index.VersionedName, version2Index.Name, cancellationToken: TestCancellationToken);
+        await _client.Indices.DeleteAliasAsync(version1Index.VersionedName, version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        var wrongContent = EmployeeGenerator.GenerateEmployees(5);
+        foreach (var employee in wrongContent)
+        {
+            var indexResponse = await _client.IndexAsync(employee,
+                i => i.Index(version2Index.VersionedName).Id(employee.Id), TestCancellationToken);
+            Assert.True(indexResponse.IsValidResponse);
+        }
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
+
+        // Act
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert - not acknowledged as successful work
+        Assert.Equal(0, disposition.Completed);
+        Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0,
+            $"Expected the item to be abandoned or dead-lettered, but got {disposition.Result.Message}");
+        Assert.IsType<ReindexCompletionUnknownException>(disposition.Result.Error);
+
+        // Assert - and no unsafe replay: both indexes survive for recovery
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    /// <summary>
+    /// A successful migration whose acknowledgment was lost must be recognized by a fresh handler.
+    /// </summary>
+    /// <remarks>
+    /// This is the ordinary redelivery case and the reason completion has to be durable rather than in-process:
+    /// the second delivery is served by a new handler instance that shares no memory with the first, so the
+    /// only thing that can vouch for the finished migration is the persisted record.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCompletedThenRedeliveredToFreshHandler_IsAcknowledgedWithoutRecopying()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Drop the source so a re-copy could not silently succeed - it would have to fail loudly.
+        await _client.Indices.DeleteAsync(version1Index.VersionedName, TestCancellationToken);
+
+        // Act - redeliver to a brand new handler, as a restarted worker would
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert
+        Assert.True(disposition.Result.IsSuccess, disposition.Result.Message);
+        Assert.Equal(1, disposition.Completed);
+        Assert.Equal(0, disposition.Abandoned);
+    }
+
+    /// <summary>
+    /// A migration completed directly must be recognized by a queued duplicate through the same mechanism.
+    /// </summary>
+    /// <remarks>
+    /// Both execution paths run the same reindexer, so completion is recorded identically whichever one did the
+    /// work. Without that, a queued item left over from a migration an operator ran directly would be reported
+    /// as an unknown outcome.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenDirectMigrationCompletedIt_IsAcknowledgedAsAlreadyDone()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(4), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        // The direct path does the work.
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Act - the queued duplicate arrives afterwards
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert
+        Assert.True(disposition.Result.IsSuccess, disposition.Result.Message);
+        Assert.Equal(1, disposition.Completed);
+    }
+
+    /// <summary>
+    /// A completion record naming a different destination generation must not vouch for this migration.
+    /// </summary>
+    /// <remarks>
+    /// Index names are reusable: a destination can be deleted and recreated under the same name, at which point
+    /// a record written for the earlier index describes data that no longer exists. Binding the record to the
+    /// destination's uuid is what makes that detectable, since nothing else about the migration changes.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCompletionRecordNamesAnotherIndexGeneration_IsNotAcknowledgedAsSuccess()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Stale the record by recreating the destination: same name, new uuid, and re-promote it.
+        await _client.Indices.DeleteAsync(version2Index.VersionedName, TestCancellationToken);
+        await version2Index.ConfigureAsync();
+        await _client.Indices.PutAliasAsync(version2Index.VersionedName, version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Act
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert - the stale record is treated as no evidence at all
+        Assert.Equal(0, disposition.Completed);
+        Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0,
+            $"Expected the item to be abandoned or dead-lettered, but got {disposition.Result.Message}");
+        Assert.IsType<ReindexCompletionUnknownException>(disposition.Result.Error);
+    }
+
+    /// <summary>
+    /// A completion record written for a different transformation must not vouch for this migration.
+    /// </summary>
+    /// <remarks>
+    /// Two migrations can share an alias, source, and destination while applying different reindex scripts, so
+    /// the record is bound to the script as well. Otherwise a completed unscripted copy would appear to satisfy
+    /// a later scripted one, which would never run.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCompletionRecordWasWrittenForAnotherTransformation_IsNotAcknowledgedAsSuccess()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // Complete an unscripted migration, which records completion for transformation "none".
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Act - the same physical migration, but now carrying a script
+        var scriptedWorkItem = version2Index.CreateReindexWorkItem(1) with { Script = "ctx._source.scripted = true;" };
+        var disposition = await RunReindexThroughQueueAsync(configuration, scriptedWorkItem);
+
+        // Assert - the unscripted record does not vouch for the scripted copy
+        Assert.Equal(0, disposition.Completed);
+        Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0,
+            $"Expected the item to be abandoned or dead-lettered, but got {disposition.Result.Message}");
+        Assert.IsType<ReindexCompletionUnknownException>(disposition.Result.Error);
+    }
+
+    /// <summary>
+    /// A migration that finished but could not record its completion must not report success.
+    /// </summary>
+    /// <remarks>
+    /// Reporting success here would leave a promoted destination with no completion evidence, which every later
+    /// delivery would be forced to treat as an unknown outcome. Failing instead keeps the contradiction from
+    /// being created: the operator learns immediately that the record could not be written.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenCompletionCannotBeRecorded_DoesNotReportSuccess()
+    {
+        // Arrange
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, 5).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+        await version2Index.ConfigureAsync();
+
+        // Block the completion write by taking the record's name as a closed index, so writes to it fail.
+        string completionIndex = ElasticReindexer.GetCompletionIndexName();
+        await _client.Indices.DeleteAsync(completionIndex, TestCancellationToken);
+        await _client.Indices.CreateAsync(completionIndex, TestCancellationToken);
+        await _client.Indices.CloseAsync(completionIndex, TestCancellationToken);
+        await using AsyncDisposableAction cleanup = new(async () =>
+        {
+            await _client.Indices.OpenAsync(completionIndex, TestCancellationToken);
+            await _client.Indices.DeleteAsync(completionIndex, TestCancellationToken);
+        });
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => reindexer.ReindexAsync(workItem, cancellationToken: TestCancellationToken));
+
+        // Assert
+        Assert.Contains("completion could not be recorded", exception.Reason);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    /// <summary>
+    /// A cleanup failure after completion was recorded must not send a finished migration back to copying.
+    /// </summary>
+    /// <remarks>
+    /// Deleting the source is an optimization that runs after the migration is already complete and recorded.
+    /// If a failure there were allowed to invalidate the record, a transient delete error would demote a
+    /// finished migration to an unknown outcome and cost a full recopy.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenSourceCleanupFailsAfterCompletion_StillAcknowledgesTheMigration()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(4), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // DeleteOld with the source already gone: the copy succeeds, then cleanup fails.
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        workItem.DeleteOld = true;
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        await reindexer.ReindexAsync(workItem, cancellationToken: TestCancellationToken);
+
+        // Removing the source now makes the delete in any later attempt fail, standing in for a cleanup error.
+        if ((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists)
+            await _client.Indices.DeleteAsync(version1Index.VersionedName, TestCancellationToken);
+
+        // Act - redelivery must rely on the completion record, not on the source still being there
+        var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
+
+        // Assert
+        Assert.True(disposition.Result.IsSuccess, disposition.Result.Message);
+        Assert.Equal(1, disposition.Completed);
+    }
+
+    /// <summary>
+    /// An ambiguous completion write is resolved by reading the exact record back, not by assuming an outcome.
+    /// </summary>
+    /// <remarks>
+    /// An index request can time out or drop its response after the write has actually landed. Assuming failure
+    /// would rerun a finished migration; assuming success would claim evidence that may not exist. The only safe
+    /// resolution is to look for the specific record, which is what this verifies: a record written once is
+    /// recognized as valid evidence on a subsequent read, and the write is idempotent so a retry of an
+    /// ambiguous attempt overwrites rather than duplicating.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenCompletionIsWrittenTwice_RemainsSingleValidRecord()
+    {
+        // Arrange
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, 4).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+        await version2Index.ConfigureAsync();
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await reindexer.ReindexAsync(workItem, cancellationToken: TestCancellationToken);
+
+        string completionIndex = ElasticReindexer.GetCompletionIndexName();
+        string completionId = ElasticReindexer.GetCompletionId(workItem);
+
+        // Act - replay the same write, standing in for a retry after an ambiguous response
+        var replayResponse = await _client.GetAsync<ReindexCompletion>(completionId, d => d.Index(completionIndex), TestCancellationToken);
+        Assert.True(replayResponse.Found);
+        var reindexResponse = await _client.IndexAsync(replayResponse.Source!,
+            i => i.Index(completionIndex).Id(completionId).Refresh(Refresh.True), TestCancellationToken);
+        Assert.True(reindexResponse.IsValidResponse);
+
+        // Assert - still exactly one record, and it still describes this exact migration generation
+        var countResponse = await _client.CountAsync<ReindexCompletion>(d => d
+            .Indices(completionIndex)
+            .Query(q => q.Ids(idq => idq.Values(completionId))), TestCancellationToken);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(1, countResponse.Count);
+
+        var settingsResponse = await _client.Indices.GetSettingsAsync((Indices)version2Index.VersionedName, TestCancellationToken);
+        Assert.True(settingsResponse.IsValidResponse);
+        string? currentUuid = settingsResponse.Settings.Values.Select(s => s.Settings?.Index?.Uuid).FirstOrDefault(u => !String.IsNullOrEmpty(u));
+
+        var storedResponse = await _client.GetAsync<ReindexCompletion>(completionId, d => d.Index(completionIndex), TestCancellationToken);
+        Assert.True(storedResponse.Found);
+        Assert.Equal(currentUuid, storedResponse.Source!.DestinationUuid);
+        Assert.Equal(version2Index.VersionedName, storedResponse.Source.DestinationIndex);
+        Assert.Equal("none", storedResponse.Source.Transformation);
+    }
+
+    /// <summary>
+    /// A source whose writes have not been made searchable must not be mistaken for an empty one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Catch-up planning samples the source with a search, and a search only sees refreshed writes. An index
+    /// bulk-loaded with <c>refresh_interval: -1</c> therefore looks empty, and "empty" disables both the
+    /// catch-up pass <em>and</em> the sequence-number change guard for the rest of the reindex — while the copy,
+    /// which refreshes first, goes on to copy a full index. That combination promotes the destination with
+    /// neither catch-up nor the refusal gate, which is the silent-loss path the guard exists to close.
+    /// </para>
+    /// <para>
+    /// The model here is date-free with natural-key ids, which is what routes planning through the sampling
+    /// branch at all. The assertion is that the guard still engages: a source written to during the copy is
+    /// refused rather than promoted short.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenSourceHasUnrefreshedWrites_DoesNotTreatItAsEmpty()
+    {
+        // Arrange - a date-free, custom-id source whose writes are deliberately not searchable yet
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await _client.Indices.PutSettingsAsync(version1Index.VersionedName,
+            s => s.Settings(i => i.RefreshInterval(-1)), TestCancellationToken);
+
+        // Indexed without refreshing, so a search against the source returns nothing.
+        foreach (var identity in Enumerable.Range(0, 10).Select(i => new Identity { Id = $"natural-key-{i:D3}" }))
+        {
+            var indexResponse = await _client.IndexAsync(identity,
+                i => i.Index(version1Index.VersionedName).Id(identity.Id), TestCancellationToken);
+            Assert.True(indexResponse.IsValidResponse);
+        }
+
+        var unrefreshedSearch = await _client.SearchAsync<Identity>(d => d
+            .Indices(version1Index.VersionedName)
+            .Size(1), TestCancellationToken);
+        Assert.True(unrefreshedSearch.IsValidResponse);
+        Assert.Empty(unrefreshedSearch.Documents);
+
+        await version2Index.ConfigureAsync();
+
+        // Act - write to the source mid-copy, which the guard must notice
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        var exception = await Record.ExceptionAsync(() => reindexer.ReindexAsync(workItem, async (progress, _) =>
+        {
+            if (progress is 90)
+            {
+                var lateResponse = await _client.IndexAsync(new Identity { Id = "written-during-the-copy" },
+                    i => i.Index(version1Index.VersionedName).Id("written-during-the-copy").Refresh(Refresh.True), TestCancellationToken);
+                Assert.True(lateResponse.IsValidResponse);
+            }
+        }, TestCancellationToken));
+
+        // Assert - the source was planned as non-empty, so the change guard engaged and refused to promote
+        var incomplete = Assert.IsType<ReindexIncompleteException>(exception);
+        Assert.Contains("cannot be caught up", incomplete.Reason);
+
+        // And the alias was never moved to the short destination
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    /// <summary>
+    /// A destination that already holds the <em>newest</em> documents must still receive the older ones.
+    /// </summary>
+    /// <remarks>
+    /// This pins down the resume behaviour that caused the original data loss. Progress used to be inferred by
+    /// reading the newest timestamp already in the destination and then copying only documents at or after it.
+    /// Elasticsearch copies in unordered doc order, so a first pass that was interrupted leaves an arbitrary
+    /// subset behind - and if that subset happens to include the newest document, the watermark concludes there
+    /// is nothing older left to copy. The correct fail-safe is to recopy everything: the source is the source of
+    /// truth, and reindex overwrites by document id, so a full recopy is idempotent.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenDestinationAlreadyHasTheNewestDocuments_StillCopiesTheOlderOnes()
+    {
+        // Arrange - 50 documents with strictly increasing ids/timestamps in v1
+        const int totalEmployees = 50;
+        const int preSeededCount = 5;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        var employees = new List<Employee>(totalEmployees);
+        var baseUtc = DateTime.UtcNow.AddHours(-totalEmployees);
+        for (int i = 0; i < totalEmployees; i++)
+        {
+            var createdUtc = baseUtc.AddHours(i);
+            employees.Add(EmployeeGenerator.Generate(id: ObjectId.GenerateNewId(createdUtc).ToString(), createdUtc: createdUtc));
+        }
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Simulate an interrupted first pass that happened to copy only the newest documents. A timestamp
+        // watermark reading the destination would see the very newest document and copy nothing older.
+        var newest = employees.OrderByDescending(e => e.CreatedUtc).Take(preSeededCount).ToList();
+        var seedResponse = await _client.BulkAsync(b => b
+            .Index(version2Index.VersionedName)
+            .IndexMany(newest, (d, e) => d.Id(e.Id)), TestCancellationToken);
+        _logger.LogRequest(seedResponse);
+        Assert.False(seedResponse.Errors);
+
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, TestCancellationToken);
+        var seededCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        Assert.Equal(preSeededCount, seededCount.Count);
+
+        // Act
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+
+        // Assert - every document made it, not just the ones newer than the pre-seeded watermark
+        await _client.Indices.RefreshAsync(version2Index.VersionedName, TestCancellationToken);
+        var finalCount = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(finalCount);
+        Assert.True(finalCount.IsValidResponse);
+        Assert.Equal(totalEmployees, finalCount.Count);
+
+        // And specifically the oldest document, which a watermark would have skipped
+        var oldest = employees.OrderBy(e => e.CreatedUtc).First();
+        var oldestResponse = await _client.GetAsync<Employee>(oldest.Id, d => d.Index(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(oldestResponse);
+        Assert.True(oldestResponse.Found);
+    }
+
+    /// <summary>
+    /// A reindex interrupted before the cutover must leave the alias on the old index, and a retry must
+    /// converge on the full document set including documents added in between.
+    /// </summary>
+    /// <remarks>
+    /// The interrupt is taken at progress 90, which is emitted when the first pass finishes copying but before
+    /// the alias is switched. That value is deterministic; an earlier one is not, because a copy this small can
+    /// complete between two status polls, so a test that threw at "some progress below 90" would silently stop
+    /// interrupting anything. Throwing at 91 - as this test used to - is worse still: the cutover decision has
+    /// already been made by then.
+    /// <para>
+    /// The document added before the retry is back-dated rather than future-dated. A future-dated document is
+    /// the one case a destination-timestamp watermark handles correctly, so dating it in the past is what makes
+    /// the retry prove older documents are not skipped. The genuinely partial destination is covered
+    /// deterministically by <see cref="ReindexAsync_WhenDestinationAlreadyHasTheNewestDocuments_StillCopiesTheOlderOnes"/>,
+    /// which pre-seeds only the newest documents instead of relying on interrupt timing.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task CanResumeReindexAsync()
     {
@@ -96,21 +1232,26 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
-        // Throw error before second repass.
+        // Interrupt when the first pass has finished copying but before the alias is switched.
         await Assert.ThrowsAsync<ApplicationException>(async () => await version2Index.ReindexAsync((progress, message) =>
         {
-            _logger.LogInformation("Reindex Progress {0}%: {1}", progress, message);
-            if (progress == 91)
+            _logger.LogInformation("Reindex Progress {Progress}%: {Message}", progress, message);
+            if (progress is 90)
                 throw new ApplicationException("Random Error");
 
             return Task.CompletedTask;
-        }));
+        }, TestCancellationToken));
 
+        // The interrupted attempt must not have promoted the incomplete destination.
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
-        // Add a document and ensure it resumes from this document.
-        await version1Repository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId(DateTime.UtcNow.AddMinutes(1)).ToString()), o => o.ImmediateConsistency());
-        await version2Index.ReindexAsync();
+        // Back-dated on purpose: it sorts *older* than everything already copied, so a resume that trusted the
+        // destination's newest timestamp would skip it.
+        await version1Repository.AddAsync(
+            EmployeeGenerator.Generate(ObjectId.GenerateNewId(DateTime.UtcNow.AddMinutes(-30)).ToString()),
+            o => o.ImmediateConsistency());
+
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -169,7 +1310,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
-        await version2Index.ReindexAsync();
+        // The destination's mapping rejects the document, so the reindex must fail loudly rather than
+        // promoting the alias to an empty index.
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+        Assert.Contains("failed to copy", exception.Reason);
+
         await version2Index.Configuration.Client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
@@ -285,7 +1431,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -340,7 +1486,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var existsResponse = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -392,7 +1538,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             await using AsyncDisposableAction version20Scope = new(() => version20Index.DeleteAsync());
             await version20Index.ConfigureAsync();
-            await version20Index.ReindexAsync();
+            await version20Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
             IEmployeeRepository version20Repository = new EmployeeRepository(version20Index);
             var result = await version20Repository.GetByIdAsync(employee.Id);
@@ -401,7 +1547,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
             await version21Index.ConfigureAsync();
-            await version21Index.ReindexAsync();
+            await version21Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             result = await version21Repository.GetByIdAsync(employee.Id);
@@ -421,7 +1567,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
             await version21Index.ConfigureAsync();
-            await version21Index.ReindexAsync();
+            await version21Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             var result = await version21Repository.GetByIdAsync(employee.Id);
@@ -450,7 +1596,11 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version22Scope = new(() => version22Index.DeleteAsync());
         await version22Index.ConfigureAsync();
-        await version22Index.ReindexAsync();
+
+        // The reindex script does not compile, so the copy must fail loudly and leave the alias on v1.
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version22Index.ReindexAsync(cancellationToken: TestCancellationToken));
+        Assert.Contains("script_exception", exception.Reason);
 
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -525,7 +1675,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
@@ -598,7 +1748,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 countdown.Signal();
                 await Task.Delay(1000, TestCancellationToken);
             }
-        });
+        }, TestCancellationToken);
 
         // Wait until the first reindex pass is done (with timeout to prevent hang).
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -685,7 +1835,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 countdown.Signal();
                 await Task.Delay(1000, TestCancellationToken);
             }
-        });
+        }, TestCancellationToken);
 
         // Wait until the first reindex pass is done (with timeout to prevent hang).
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -803,7 +1953,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
@@ -860,7 +2010,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
 
         // Act
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
@@ -892,7 +2042,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
 
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         var existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -946,7 +2096,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
@@ -981,7 +2131,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1016,7 +2166,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1052,7 +2202,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1086,7 +2236,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
@@ -1097,6 +2247,171 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         string json = ToJson(data);
         Assert.Equal("{\"keepField\":\"keepValue\"}", json);
+    }
+
+    /// <summary>
+    /// A lock acquisition that times out must not surface as a <see cref="NullReferenceException"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>VersionedIndex.ReindexAsync</c> and <c>DailyIndex.ReindexAsync</c> never null-checked the result of
+    /// <c>LockProvider.AcquireAsync</c>, which returns <c>null</c> on timeout. The subsequent
+    /// <c>reindexLock.RenewAsync()</c> then dereferenced null. A caller that cannot get the lock deserves a
+    /// clean skip or a meaningful exception - never a <c>NullReferenceException</c>, which is
+    /// indistinguishable from a genuine bug and defeats retry logic that keys on exception type.
+    /// </para>
+    /// <para>
+    /// Uses a lock provider that returns <c>null</c> immediately rather than holding a real lock. Holding a
+    /// real one only makes <c>AcquireAsync</c> *wait* for its 30-minute timeout, which does not exercise this
+    /// path and makes the test take as long as the lease.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenLockCannotBeAcquired_DoesNotThrowNullReference()
+    {
+        // Arrange
+        var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log, new DenyingLockProvider());
+
+        var version1Index = new VersionedEmployeeIndex(configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        // Assert: losing the lock race is not an error, so this must skip cleanly rather than throw
+        // anything at all - a NullReferenceException being the specific regression guarded against.
+        Assert.Null(exception);
+
+        // No migration work was authorized, so the alias must not have moved.
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+    }
+
+    /// <summary>
+    /// A lock provider that denies by <em>throwing</em> must also result in a clean skip.
+    /// </summary>
+    /// <remarks>
+    /// This is the production path, and the null-returning test above does not cover it. The real providers
+    /// (<c>CacheLockProvider</c>, and therefore the Redis-backed one) throw
+    /// <see cref="LockAcquisitionTimeoutException"/> from the acquire-with-timeout overload rather than
+    /// returning null, so a null check alone leaves contention propagating out of the migration. That matters
+    /// because <c>ElasticConfiguration.ReindexAsync</c> now aggregates failures and throws: without this,
+    /// two instances starting together would turn benign contention - the exact case the lock exists to
+    /// handle - into a failed startup migration on the instance that lost the race.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenLockAcquisitionTimesOut_SkipsWithoutThrowing()
+    {
+        // Arrange
+        var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log, new ThrowingLockProvider());
+
+        var version1Index = new VersionedEmployeeIndex(configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        // Assert
+        Assert.Null(exception);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+    }
+
+    /// <summary>
+    /// Alias metadata must survive the cutover.
+    /// </summary>
+    /// <remarks>
+    /// The cutover previously recreated each alias with only its name, discarding <c>filter</c>, routing,
+    /// <c>is_write_index</c>, and <c>is_hidden</c>. Dropping a filter is a data-exposure bug, not merely a
+    /// configuration regression: a filtered alias is often the only thing scoping a shared index to one
+    /// tenant, so a migration that silently unfiltered it would widen every reader's visibility.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_PreservesAliasFilterAndRoutingAcrossCutover()
+    {
+        // Arrange
+        const string filteredAlias = "employees-acme";
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        var acmeEmployees = EmployeeGenerator.GenerateEmployees(5, companyId: "acme");
+        var otherEmployees = EmployeeGenerator.GenerateEmployees(5, companyId: "other");
+        await repository.AddAsync(acmeEmployees.Concat(otherEmployees).ToList(), o => o.ImmediateConsistency());
+
+        // A tenant-scoping alias with a filter and routing, alongside the primary alias.
+        var createAliasResponse = await _client.Indices.PutAliasAsync(
+            Indices.Index(version1Index.VersionedName), filteredAlias, d => d
+                .Filter(f => f.Term(t => t.Field("companyId").Value("acme")))
+                .Routing("acme"), TestCancellationToken);
+        Assert.True(createAliasResponse.IsValidResponse);
+
+        await version2Index.ConfigureAsync();
+
+        // Act
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        // Assert
+        var aliasResponse = await _client.Indices.GetAliasAsync(a => a.Name(filteredAlias), TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+#if ELASTICSEARCH9
+        var indices = aliasResponse.Aliases;
+#else
+        var indices = aliasResponse.Values;
+#endif
+        Assert.NotNull(indices);
+        Assert.True(indices.ContainsKey(version2Index.VersionedName),
+            $"Alias '{filteredAlias}' was stranded and did not follow the cutover to {version2Index.VersionedName}.");
+
+        var definition = indices[version2Index.VersionedName].Aliases?[filteredAlias];
+        Assert.NotNull(definition);
+        Assert.NotNull(definition.Filter);
+
+        // Elasticsearch expands the `routing` shorthand into index_routing and search_routing on read, so
+        // assert those rather than the shorthand.
+        Assert.Equal("acme", definition.IndexRouting);
+        Assert.Equal("acme", definition.SearchRouting);
+
+        // The filter must still scope reads, or the migration widened tenant visibility.
+        var filteredCount = await _client.CountAsync<Employee>(d => d.Indices(filteredAlias), TestCancellationToken);
+        Assert.True(filteredCount.IsValidResponse);
+        Assert.Equal(acmeEmployees.Count, filteredCount.Count);
     }
 
     [Fact]
@@ -1115,8 +2430,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
 
         // Act
-        var task1 = version2Index.ReindexAsync();
-        var task2 = version2Index.ReindexAsync();
+        var task1 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        var task2 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         await Task.WhenAll(task1, task2);
 
         // Assert
@@ -1162,7 +2477,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var reindexTask = Task.Run(async () =>
         {
             reindexStarted.SetResult(true);
-            await version2Index.ReindexAsync();
+            await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         }, TestCancellationToken);
         await reindexStarted.Task;
         await Task.Delay(TimeSpan.FromSeconds(2), TestCancellationToken);
@@ -1202,7 +2517,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var reindexTask = Task.Run(async () =>
         {
             reindexStarted.SetResult(true);
-            await version3Index.ReindexAsync();
+            await version3Index.ReindexAsync(cancellationToken: TestCancellationToken);
         }, TestCancellationToken);
         await reindexStarted.Task;
         await Task.Delay(TimeSpan.FromSeconds(2), TestCancellationToken);
@@ -1241,10 +2556,47 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             if (progress > 5)
                 throw new OperationCanceledException("Test cancellation");
             return Task.CompletedTask;
-        });
+        }, TestCancellationToken);
 
         // Assert
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reindexTask);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WhenCancellationTokenSignaled_StopsWithoutSwitchingAlias()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5000), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Act: cancel the caller's token once the copy is underway. Nothing throws from the callback, so the
+        // only way the reindex can stop is if the token is actually observed by the copy loop.
+        using var cts = new CancellationTokenSource();
+        var reindexTask = version2Index.ReindexAsync((progress, message) =>
+        {
+            _logger.LogInformation("Reindex Progress {Progress}%: {Message}", progress, message);
+            if (progress > 5)
+                cts.Cancel();
+
+            return Task.CompletedTask;
+        }, cts.Token);
+
+        // Assert: cancellation is a throwing concept, so it must surface rather than being swallowed into a
+        // silent return that a caller cannot distinguish from success.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reindexTask);
+
+        // And it must stop before the alias is admitted to the new version.
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
         Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
@@ -1283,7 +2635,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         // A batch size smaller than the total document count forces the Elasticsearch reindex API to
         // issue multiple internal bulk sub-requests; verify all documents still migrate successfully.
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
@@ -1325,7 +2677,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // batches, so a correctly-throttled reindex takes noticeably longer than an unthrottled one would
         // (which typically completes well under a second locally).
         var sw = Stopwatch.StartNew();
-        await version2Index.ReindexAsync();
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
         sw.Stop();
 
         // Assert
@@ -1387,8 +2739,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
         // Act — launch two concurrent reindex operations
-        var task1 = version2Index.ReindexAsync();
-        var task2 = version2Index.ReindexAsync();
+        var task1 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        var task2 = version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
 
         await Task.WhenAll(task1, task2);
 
@@ -1399,5 +2751,438 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasCountResponse);
         Assert.True(aliasCountResponse.IsValidResponse);
         Assert.Equal(1, aliasCountResponse.Count);
+    }
+
+    /// <summary>
+    /// Reindex must detect documents that failed to copy on a client configured the way production is, with
+    /// direct streaming left enabled.
+    /// </summary>
+    /// <remarks>
+    /// The per-document failure list lives only in the raw task-status body, which the transport discards
+    /// unless direct streaming is disabled. Every other test configuration disables it (for readable request
+    /// logs), which masked a defect where a reindex that copied nothing reported success and flipped the alias
+    /// onto the empty destination. This test is the guard for that, so it must not disable direct streaming.
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WithDirectStreamingEnabled_StillDetectsFailedDocuments()
+    {
+        // Arrange
+        using var configuration = new DirectStreamingElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+
+        // The destination maps `name` as an integer, so the generated alphabetic names cannot be indexed.
+        await _client.Indices.CreateAsync(version2Index.VersionedName, d => d
+            .Mappings(md => md.Properties<Employee>(p => p.IntegerNumber(e => e.Name!))), TestCancellationToken);
+
+        // Act & Assert - the copy failed, so it must not be reported as complete
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => version2Index.ReindexAsync(cancellationToken: TestCancellationToken));
+
+        Assert.Contains("failed to copy", exception.Reason);
+
+        // The alias must still serve the complete source rather than the empty destination.
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+    }
+
+    [Fact]
+    public async Task QueuedReindex_MigratesDocumentsAndSwitchesAlias()
+    {
+        // Arrange - the queued path must reindex exactly like the direct one
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(10), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+
+        // Act
+        var handler = new ReindexWorkItemHandler(configuration);
+        await HandleReindexWorkItemAsync(handler, version2Index.CreateReindexWorkItem(1));
+
+        // Assert - alias moved to v2 and every document came across
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(10, countResponse.Count);
+    }
+
+    [Fact]
+    public async Task QueuedReindex_WhenDocumentsFailToCopy_ThrowsSoTheQueueRetries()
+    {
+        // Arrange - v2 rejects the documents, so the copy cannot succeed
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+
+        await _client.Indices.CreateAsync(version2Index.VersionedName, d => d
+            .Mappings(md => md.Properties<Employee>(p => p.IntegerNumber(e => e.Name!))), TestCancellationToken);
+
+        // Act & Assert - the failure must propagate so the queue can retry or dead-letter it
+        var handler = new ReindexWorkItemHandler(configuration);
+        var exception = await Assert.ThrowsAsync<ReindexIncompleteException>(
+            () => HandleReindexWorkItemAsync(handler, version2Index.CreateReindexWorkItem(1)));
+
+        Assert.Contains("failed to copy", exception.Reason);
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+    }
+
+    /// <summary>
+    /// The refusal must reach the queued path too — neither acknowledged as success nor retried forever.
+    /// </summary>
+    /// <remarks>
+    /// A configuration that cannot catch up is not a transient fault, so the distinction that matters here is
+    /// that the handler surfaces it as a failure (rather than reporting 100% and acking the item) while leaving
+    /// the alias and source untouched. Retry policy is the queue's concern; what the library must not do is
+    /// report success.
+    /// </remarks>
+    [Fact]
+    public async Task QueuedReindex_WhenCatchUpImpossibleAndSourceChanged_FailsWithoutPromoting()
+    {
+        // Arrange - a date-free model with natural-key ids, so catch-up is impossible
+        var version1Index = new VersionedIdentityIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedIdentityIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        await IndexIdentitiesAsync(version1Index.VersionedName,
+            Enumerable.Range(0, 10).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
+        await version2Index.ConfigureAsync();
+
+        // Act - write to the source pre-cutover through the queued handler
+        var handler = new ReindexWorkItemHandler(_configuration);
+        var workItem = version2Index.CreateReindexWorkItem(1);
+
+        var exception = await Record.ExceptionAsync(() => HandleReindexWorkItemAsync(handler, workItem, async progress =>
+        {
+            if (progress is 90)
+                await IndexIdentitiesAsync(version1Index.VersionedName, [new Identity { Id = "written-during-the-copy" }]);
+        }));
+
+        // Assert - surfaced as a failure, not an acknowledged success, and nothing was promoted or deleted
+        var incomplete = Assert.IsType<ReindexIncompleteException>(exception);
+        Assert.Contains("cannot be caught up", incomplete.Reason);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+        var oldExists = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(oldExists.Exists);
+    }
+
+    [Fact]
+    public async Task QueuedReindex_WhenMigrationAlreadyCompleted_SkipsInsteadOfRecopying()
+    {
+        // Arrange - run the migration first, then replay the same stale work item
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        var version2Index = configuration.Employees;
+        await version1Index.DeleteAsync();
+        await version2Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version2Index.DeleteAsync());
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+        var workItem = version2Index.CreateReindexWorkItem(1);
+        await version2Index.ReindexAsync(cancellationToken: TestCancellationToken);
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        // Drop the source index so a re-copy could not silently succeed - it would have to fail loudly.
+        await _client.Indices.DeleteAsync(version1Index.VersionedName, TestCancellationToken);
+
+        // Act - replaying the stale work item must be a no-op, not a failed re-copy
+        var handler = new ReindexWorkItemHandler(configuration);
+        await HandleReindexWorkItemAsync(handler, workItem);
+
+        // Assert
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(5, countResponse.Count);
+    }
+
+    [Fact]
+    public async Task GetWorkItemLockAsync_WhenAliasIsAlreadyLocked_AbandonsWorkItem()
+    {
+        // Arrange - hold the reindex lock the direct path uses
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var workItem = configuration.Employees.CreateReindexWorkItem(1);
+
+        string lockKey = ElasticReindexer.GetLockName(workItem.Alias);
+        await using var externalLock = await configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(1), TestCancellationToken);
+        Assert.NotNull(externalLock);
+
+        var handler = new ReindexWorkItemHandler(configuration);
+
+        // Act - a cancelled token stands in for the acquire timeout elapsing
+        using var cancelledSource = new CancellationTokenSource();
+        await cancelledSource.CancelAsync();
+        var workItemLock = await handler.GetWorkItemLockAsync(workItem, cancelledSource.Token);
+
+        // Assert - no lock means the queue redelivers rather than running two reindexes at once
+        Assert.Null(workItemLock);
+    }
+
+    [Fact]
+    public async Task GetWorkItemLockAsync_WhenAliasIsFree_AcquiresTheSameLockTheDirectPathUses()
+    {
+        // Arrange
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var workItem = configuration.Employees.CreateReindexWorkItem(1);
+        var handler = new ReindexWorkItemHandler(configuration);
+
+        // Act
+        await using var workItemLock = await handler.GetWorkItemLockAsync(workItem, TestCancellationToken);
+
+        // Assert - the handler holds the alias lock, so the direct path is blocked out
+        Assert.NotNull(workItemLock);
+        Assert.True(await configuration.LockProvider.IsLockedAsync(ElasticReindexer.GetLockName(workItem.Alias)));
+    }
+
+    [Fact]
+    public async Task GetWorkItemLockAsync_WithUnknownWorkItemType_AbandonsWorkItem()
+    {
+        using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
+        var handler = new ReindexWorkItemHandler(configuration);
+
+        Assert.Null(await handler.GetWorkItemLockAsync(new object(), TestCancellationToken));
+    }
+
+    /// <summary>
+    /// Alias maintenance must not run concurrently with a reindex of the same time-series index.
+    /// </summary>
+    /// <remarks>
+    /// <c>UpdateAliasesAsync</c> decides which partition each alias points at from a snapshot of the index
+    /// list. If a reindex flips a partition's alias after that snapshot was read, the stale decisions revert
+    /// the cutover - and because a partition whose version no longer matches its current version has its
+    /// aliases <em>removed</em>, the partition can end up with no alias at all and silently stop being queried.
+    /// Taking the reindex lock is what prevents the interleaving, so maintenance must skip its alias update
+    /// while a reindex holds it.
+    /// </remarks>
+    [Fact]
+    public async Task MaintainAsync_WhileReindexHoldsTheLock_SkipsInsteadOfRevertingTheCutover()
+    {
+        // Arrange
+        var version1Index = new DailyEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(version1Index);
+        var utcNow = DateTime.UtcNow;
+        await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+
+        string datedAlias = version1Index.GetIndex(utcNow);
+        string versionedIndex = version1Index.GetVersionedIndex(utcNow, 1);
+        Assert.Equal(versionedIndex, await GetAliasTargetsAsync(datedAlias));
+
+        // Drop the dated alias so there is maintenance work to do and its effect is observable.
+        var removeResponse = await _client.Indices.DeleteAliasAsync(versionedIndex, datedAlias, TestCancellationToken);
+        Assert.True(removeResponse.IsValidResponse);
+        Assert.Equal(String.Empty, await GetAliasTargetsAsync(datedAlias));
+
+        // Act - hold the reindex lock the way an in-flight reindex would, then maintain
+        string lockName = ElasticReindexer.GetLockName(version1Index.Name);
+        await using (var reindexLock = await _configuration.LockProvider.AcquireAsync(lockName, TimeSpan.FromMinutes(1), TestCancellationToken))
+        {
+            Assert.NotNull(reindexLock);
+            await version1Index.MaintainAsync();
+
+            // Assert - maintenance must not touch aliases while a reindex could be mid-cutover
+            Assert.Equal(String.Empty, await GetAliasTargetsAsync(datedAlias));
+        }
+
+        // Assert - once the lock is free the same call does its work, so this is a skip, not a no-op method
+        await version1Index.MaintainAsync();
+        Assert.Equal(versionedIndex, await GetAliasTargetsAsync(datedAlias));
+    }
+
+    [Fact]
+    public async Task MaintainAsync_WhenLockIsFree_StillMaintainsAliases()
+    {
+        // Arrange - a partition with no current-version alias yet
+        var version1Index = new DailyEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(version1Index);
+        var utcNow = DateTime.UtcNow;
+        await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+
+        // Act
+        await version1Index.MaintainAsync();
+
+        // Assert - the alias still resolves and the document is still reachable through it
+        Assert.Equal(version1Index.GetVersionedIndex(utcNow, 1), await GetAliasTargetsAsync(version1Index.GetIndex(utcNow)));
+
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(1, countResponse.Count);
+    }
+
+    [Fact]
+    public async Task VersionedIndexMaintainAsync_WhileReindexHoldsTheLock_DoesNotReAddTheAliasToTheOldVersion()
+    {
+        // Arrange - v1 holds a document and owns the alias
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup1 = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository repository = new EmployeeRepository(version1Index);
+        await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await using AsyncDisposableAction cleanup2 = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+
+        // A cutover removes the alias from v1 before adding it to v2; maintenance seeing that gap must not
+        // "repair" it by pointing the alias back at the version being migrated away from.
+        var removeResponse = await _client.Indices.DeleteAliasAsync(version1Index.VersionedName, version1Index.Name, TestCancellationToken);
+        Assert.True(removeResponse.IsValidResponse);
+        Assert.Equal(String.Empty, await GetAliasTargetsAsync(version1Index.Name));
+
+        // Act
+        string lockName = ElasticReindexer.GetLockName(version1Index.Name);
+        await using (var reindexLock = await _configuration.LockProvider.AcquireAsync(lockName, TimeSpan.FromMinutes(1), TestCancellationToken))
+        {
+            Assert.NotNull(reindexLock);
+            await version1Index.MaintainAsync();
+
+            // Assert - the mid-cutover gap is left alone
+            Assert.Equal(String.Empty, await GetAliasTargetsAsync(version1Index.Name));
+        }
+
+        // Assert - with the lock free the alias is restored, so this is a skip and not a disabled code path
+        await version1Index.MaintainAsync();
+        Assert.Equal(version1Index.VersionedName, await GetAliasTargetsAsync(version1Index.Name));
+    }
+
+    [Fact]
+    public async Task VersionedIndexMaintainAsync_WhenTheCutoverCompletesWhileWaitingForTheLock_LeavesTheNewAlias()
+    {
+        // Arrange - the alias already points at v2, as it would right after a cutover
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        await using AsyncDisposableAction cleanup1 = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await using AsyncDisposableAction cleanup2 = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+
+        await _client.Indices.DeleteAliasAsync(version1Index.VersionedName, version1Index.Name, TestCancellationToken);
+        var addResponse = await _client.Indices.PutAliasAsync(version2Index.VersionedName, version2Index.Name, TestCancellationToken);
+        Assert.True(addResponse.IsValidResponse);
+
+        // Act - maintenance must re-check under the lock rather than trusting the check that got it here
+        await version1Index.MaintainAsync();
+
+        // Assert - the alias points at v2 only; adding v1 back would fan the alias across both versions
+        Assert.Equal(version2Index.VersionedName, await GetAliasTargetsAsync(version1Index.Name));
+    }
+
+    [Fact]
+    public async Task MaintainAsync_WhileReindexHoldsTheLock_StillDeletesExpiredPartitions()
+    {
+        // Arrange - create a 10-day-old partition while the retention window still allows it, then shrink the
+        // window so that partition is expired. EnsureIndexAsync refuses to create an already-expired index.
+        var index = new DailyEmployeeIndex(_configuration, 1)
+        {
+            MaxIndexAge = TimeSpan.FromDays(30)
+        };
+        await index.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+
+        var utcNow = DateTime.UtcNow;
+        var expiredUtc = utcNow.AddDays(-10);
+        await index.EnsureIndexAsync(expiredUtc);
+
+        string expiredIndex = index.GetVersionedIndex(expiredUtc, 1);
+        Assert.True((await _client.Indices.ExistsAsync(expiredIndex, cancellationToken: TestCancellationToken)).Exists);
+
+        index.MaxIndexAge = TimeSpan.FromDays(2);
+
+        // Act - retention must not be held hostage by a reindex: that is when disk pressure is highest,
+        // because the reindex has both the source and the destination on disk.
+        string lockName = ElasticReindexer.GetLockName(index.Name);
+        await using (var reindexLock = await _configuration.LockProvider.AcquireAsync(lockName, TimeSpan.FromMinutes(1), TestCancellationToken))
+        {
+            Assert.NotNull(reindexLock);
+            await index.MaintainAsync();
+        }
+
+        // Assert
+        var existsResponse = await _client.Indices.ExistsAsync(expiredIndex, cancellationToken: TestCancellationToken);
+        _logger.LogRequest(existsResponse);
+        Assert.False(existsResponse.Exists);
+    }
+
+    private async Task<string> GetAliasTargetsAsync(string alias)
+    {
+        await _client.Indices.RefreshAsync(Indices.All, TestCancellationToken);
+
+        var response = await _client.Indices.GetAliasAsync((Indices)alias, cancellationToken: TestCancellationToken);
+        if (!response.IsValidResponse)
+            return String.Empty;
+
+#if ELASTICSEARCH9
+        var targets = response.Aliases;
+#else
+        var targets = response.Values;
+#endif
+        return targets is null ? String.Empty : String.Join(",", targets.Keys.OrderBy(k => k));
+    }
+
+    // onProgressAsync lets a test mutate the source at a known phase boundary (progress 90 is the end of the
+    // first copy pass), which is how the queued path is exercised against a mid-migration write.
+    private async Task HandleReindexWorkItemAsync(ReindexWorkItemHandler handler, ReindexWorkItem workItem, Func<int, Task>? onProgressAsync = null)
+    {
+        await using var workItemLock = await handler.GetWorkItemLockAsync(workItem, TestCancellationToken);
+        Assert.NotNull(workItemLock);
+
+        var context = new WorkItemContext(workItem, Guid.NewGuid().ToString("N"), workItemLock, TestCancellationToken,
+            async (progress, message) =>
+            {
+                _logger.LogInformation("Queued reindex progress {Progress}%: {Message}", progress, message);
+                if (onProgressAsync is not null)
+                    await onProgressAsync(progress);
+            });
+
+        await handler.HandleItemAsync(context);
     }
 }

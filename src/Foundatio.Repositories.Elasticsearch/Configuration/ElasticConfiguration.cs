@@ -42,7 +42,7 @@ public class ElasticConfiguration : IElasticConfiguration
     public const string ConfigureIndexesResourceName = "configure-indexes";
     private int _disposed;
 
-    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
+    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null, ILockProvider? lockProvider = null)
     {
         _workItemQueue = workItemQueue;
         TimeProvider = timeProvider ?? TimeProvider.System;
@@ -65,8 +65,14 @@ public class ElasticConfiguration : IElasticConfiguration
         _shouldDisposeMessageBus = messageBus is null;
         messageBus ??= new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         MessageBus = messageBus;
-        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+        _lockProvider = lockProvider ?? new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+
+        // Reindex serialization is only as distributed as the cache behind the lock provider. With the
+        // in-memory default, two processes each believe they hold the reindex lock and can both copy and flip
+        // the same alias, so warn rather than let a single-process guarantee pass for a distributed one.
+        if (lockProvider is null && cacheClient is null)
+            _logger.LogWarning("No cache client or lock provider configured, so index locks only serialize within this process. Configure a distributed cache (e.g. Redis) before running more than one instance, or index migrations can overlap.");
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository?>(CreateCustomFieldDefinitionRepository);
         _client = new Lazy<ElasticsearchClient>(CreateElasticClient);
@@ -246,7 +252,7 @@ public class ElasticConfiguration : IElasticConfiguration
         }
     }
 
-    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
+    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         if (indexes is null)
             indexes = Indexes;
@@ -264,24 +270,60 @@ public class ElasticConfiguration : IElasticConfiguration
         if (outdatedIndexes.Count == 0)
             return;
 
+        List<Exception>? failures = null;
         foreach (var outdatedIndex in outdatedIndexes)
         {
+            // An incomplete reindex must not be retried. Retrying cannot recover it and actively hides it: the
+            // alias may already point at the destination, so the next attempt reads the version from the alias,
+            // finds it at the target, skips, and returns normally - turning a known-short migration into a
+            // reported success. Capturing it leaves the policy no exception to retry, and it is recorded as a
+            // failure below. Pre-cutover refusals are equally non-retryable: the condition is a property of the
+            // data, so retrying only pays for more full copies before surfacing the same refusal.
+            ReindexIncompleteException? incomplete = null;
             try
             {
-                await ResiliencePolicy.ExecuteAsync(async _ =>
+                await ResiliencePolicy.ExecuteAsync(async ct =>
                 {
-                    await outdatedIndex.ReindexAsync((progress, message) =>
-                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask)
-                        .AnyContext();
-                }).AnyContext();
+                    try
+                    {
+                        await outdatedIndex.ReindexAsync((progress, message) =>
+                                progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, ct)
+                            .AnyContext();
+                    }
+                    catch (ReindexIncompleteException ex)
+                    {
+                        incomplete = ex;
+                    }
+                }, cancellationToken).AnyContext();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The caller asked to stop. Swallowing this would log cancellation as a failure and then carry
+                // on reindexing the remaining indexes, so it has to propagate.
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to begin reindex for {IndexName} after retries", outdatedIndex.Name);
+                // Every outdated index still gets an attempt, because one index failing does not mean the
+                // others cannot migrate. But the failures are collected and rethrown below: logging and
+                // returning normally is what let an incomplete migration look like a successful startup.
+                _logger.LogError(ex, "Failed to reindex {IndexName} after retries", outdatedIndex.Name);
+                (failures ??= []).Add(ex);
+            }
+
+            if (incomplete is not null)
+            {
+                _logger.LogError(incomplete, "Reindex of {IndexName} did not complete", outdatedIndex.Name);
+                (failures ??= []).Add(incomplete);
             }
         }
 
+        // The marker is what makes ConfigureIndexesAsync skip, so it must not be left behind after a partial
+        // failure - leaving it would suppress the very call that re-enqueues the reindex.
         await TryRemoveCacheMarkerAsync().AnyContext();
+
+        if (failures is { Count: > 0 })
+            throw new AggregateException($"{failures.Count} of {outdatedIndexes.Count} index(es) failed to reindex.", failures);
     }
 
     private string GetConfigureIndexesCacheKey()

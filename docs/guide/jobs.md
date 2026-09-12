@@ -35,6 +35,10 @@ public class MaintainIndexesJob : IJob
 - Delete expired indexes (if `DiscardExpiredIndexes` is true)
 - Ensure index consistency
 
+::: warning Maintenance skips aliases for indexes that are being reindexed
+Index maintenance takes the same `reindex:{alias}` lock a reindex holds and skips its alias update for that index when it can't get it. Alias decisions are made from a snapshot of the index list read under the lock, so running concurrently with a reindex could revert its cutover — and because a partition whose version no longer matches its current version has its aliases removed, the partition could end up with no alias and silently stop being queried. Maintenance is periodic and idempotent, so the next run picks up whatever was skipped. Deleting expired indexes still happens.
+:::
+
 **Usage:**
 
 ```csharp
@@ -236,10 +240,14 @@ public class ReindexWorkItem
 ```
 
 **Features:**
+- **Same behavior as the direct path**: Construct it with your `IElasticConfiguration` (`new ReindexWorkItemHandler(configuration)`) so a queued reindex uses the same `TimeProvider`, resilience policies, and alias lock the direct `index.ReindexAsync()` path uses. The looser `(client, serializer, lockProvider, loggerFactory)` constructor still works but cannot tell that a work item's migration was already completed, so a stale or duplicated work item is copied again instead of skipped.
+- **Skips already-completed migrations**: Once the lock is held, the destination index's version is re-read. A work item whose migration another process finished while it sat in the queue is completed as a no-op rather than reindexed a second time.
+- **Bounded lock wait**: Waiting for the alias lock gives up after 30 minutes (matching the direct path) and abandons the work item for redelivery, so a queue worker is never parked indefinitely behind another reindex.
 - **Automatic Lock Renewal**: The handler sets `AutoRenewLockOnProgress = true`, which automatically renews the distributed lock whenever progress is reported
 - **Progress Reporting**: Reports progress percentage and status messages during reindex
-- **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format; logs a warning if neither strategy is available
+- **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format. If neither is available a second pass is impossible, so the reindex refuses to promote the copy (throwing `ReindexIncompleteException` and retaining the old index) unless the source went unchanged for the whole copy
 - **Error Handling**: Failed documents are stored in an error index (`{newIndex}-error`)
+- **Durable completion records**: A finished migration writes a record to the `foundatio-reindex-completions` index before the queue item is acknowledged and before the source is deleted. A redelivered work item is acknowledged as already done only when a matching record exists; if the alias is already promoted but no record vouches for the migration, the handler throws `ReindexCompletionUnknownException` rather than acknowledging it or recopying into the live destination. An advanced alias is never treated as proof of completion, because the alias moves before the catch-up pass and so a post-cutover failure leaves the same state a success does
 - **Resilient Status Polling**: Progress is tracked by repeatedly polling the Elasticsearch task status API; failures back off exponentially with jitter (1 second, doubling up to a 30 second cap, +/-25% jitter) instead of retrying immediately, so a struggling cluster isn't hammered with repeated requests, and multiple work items failing at once don't retry in lockstep
 - **Stall Detection Scales With Throttle**: A reindex making no progress for too long is treated as stalled and abandoned. The threshold defaults to 10 minutes, but when `ReindexRequestsPerSecond` is set low enough that Elasticsearch's own inter-batch pause (`ReindexBatchSize` ÷ `ReindexRequestsPerSecond`, with a 3x safety margin) would exceed 10 minutes, the threshold extends to cover it - so a healthy, intentionally throttled reindex isn't mistaken for a stalled one
 - **Validated Throttle Settings**: `ReindexBatchSize`/`ReindexRequestsPerSecond` must be positive, finite numbers when set - `ReindexAsync` throws `ArgumentOutOfRangeException` immediately for a zero, negative, `NaN`, or infinite value

@@ -5,13 +5,13 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
-using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -240,24 +240,18 @@ public class DailyIndex : VersionedIndex
         return DeleteIndexAsync($"{Name}-v*");
     }
 
-    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
-        int currentVersion = await GetCurrentVersionAsync().AnyContext();
-        if (currentVersion < 0 || currentVersion >= Version)
+        await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
+        if (lease is null)
             return;
 
-        string lockKey = ElasticReindexer.GetLockName(Name);
-        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
-
-        currentVersion = await GetCurrentVersionAsync().AnyContext();
-        if (currentVersion < 0 || currentVersion >= Version)
-            return;
-
-        var indexes = await GetIndexesAsync(currentVersion).AnyContext();
+        var indexes = await GetIndexesAsync(lease.CurrentVersion).AnyContext();
         if (indexes.Count == 0)
             return;
 
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
+        var progressCallback = CreateReindexProgressCallback(lease.Lock, progressCallbackAsync);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
         foreach (var index in indexes)
         {
             if (Configuration.TimeProvider.GetUtcNow().UtcDateTime > GetIndexExpirationDate(index.DateUtc))
@@ -282,28 +276,49 @@ public class DailyIndex : VersionedIndex
             // attempt to create the index. If it exists the index will not be created.
             await CreateIndexAsync(reindexWorkItem.NewIndex, ConfigureIndex).AnyContext();
 
-            await reindexLock.RenewAsync().AnyContext();
-            await reindexer.ReindexAsync(reindexWorkItem, async (progress, message) =>
-            {
-                await reindexLock.RenewAsync().AnyContext();
-
-                if (progressCallbackAsync is not null)
-                    await progressCallbackAsync(progress, message).AnyContext();
-                else
-                    _logger.LogInformation("Reindex Progress {Progress:F1}%: {Message}", progress, message);
-            }).AnyContext();
+            await lease.Lock.RenewAsync().AnyContext();
+            await reindexer.ReindexAsync(reindexWorkItem, progressCallback, cancellationToken).AnyContext();
         }
     }
 
+    /// <summary>
+    /// Updates the date aliases and, optionally, deletes expired partitions.
+    /// </summary>
+    /// <remarks>
+    /// The alias update takes the same <c>reindex:{alias}</c> lock a reindex holds, because the two rewrite the
+    /// same aliases and cannot safely interleave: which partition each alias should point at is decided from a
+    /// snapshot of the index list, so a reindex that flips a partition's alias after that snapshot was read
+    /// would have its cutover reverted — and because a partition whose version no longer matches its current
+    /// version has its aliases <em>removed</em>, the partition can end up with no alias at all and simply stop
+    /// being queried. The snapshot is therefore read <em>under</em> the lock, since reading it outside would
+    /// reintroduce exactly the staleness the lock prevents. When a reindex holds the lock the alias update is
+    /// skipped rather than waited on: maintenance is periodic and idempotent, so the next run picks it up.
+    /// <para>
+    /// Deleting expired partitions is deliberately <em>not</em> gated on the lock. It is unbounded, so holding
+    /// the un-renewed lock across it would be unsafe, and it cannot collide with a reindex because a reindex
+    /// already skips partitions past their expiration date. Skipping it during a reindex would also stall
+    /// retention at the exact moment a reindex has the source and destination on disk at once.
+    /// </para>
+    /// </remarks>
     public override async Task MaintainAsync(bool includeOptionalTasks = true)
     {
-        var indexes = await GetIndexesAsync().AnyContext();
-        if (indexes.Count == 0)
+        IList<IndexInfo>? indexes = null;
+        await using (var maintenanceLock = await TryAcquireMaintenanceLockAsync().AnyContext())
+        {
+            if (maintenanceLock is not null)
+            {
+                indexes = await GetIndexesAsync().AnyContext();
+                if (indexes.Count > 0)
+                    await UpdateAliasesAsync(indexes).AnyContext();
+            }
+        }
+
+        if (!includeOptionalTasks || !DiscardExpiredIndexes || !MaxIndexAge.HasValue || MaxIndexAge <= TimeSpan.Zero)
             return;
 
-        await UpdateAliasesAsync(indexes).AnyContext();
-
-        if (includeOptionalTasks && DiscardExpiredIndexes && MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero)
+        // Re-read only when the alias update was skipped, so each path makes a single call.
+        indexes ??= await GetIndexesAsync().AnyContext();
+        if (indexes.Count > 0)
             await DeleteOldIndexesAsync(indexes).AnyContext();
     }
 

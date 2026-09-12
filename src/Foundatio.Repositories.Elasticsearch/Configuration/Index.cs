@@ -379,7 +379,7 @@ public class Index : IIndex, IHaveLogger
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException());
     }
 
-    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         var reindexWorkItem = new ReindexWorkItem
         {
@@ -392,8 +392,8 @@ public class Index : IIndex, IHaveLogger
             ReindexRequestsPerSecond = ReindexRequestsPerSecond
         };
 
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
-        return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
+        return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync, cancellationToken);
     }
 
     protected virtual string? GetTimeStampField()
