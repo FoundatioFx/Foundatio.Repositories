@@ -16,7 +16,7 @@ public partial class IndexCompatibilityTests
     {
         // Arrange
         using var configuration = new ElasticConfiguration();
-        using var index = new CountingCompatibilityIndex(configuration);
+        using var index = CreateCountingCompatibilityIndex(configuration);
 
         // Act
         await configuration.ConfigureIndexesAsync([index]);

@@ -409,7 +409,7 @@ public partial class IndexCompatibilityTests
             new StubResponse(200, """{"becomes-compatible":{"aliases":{},"mappings":{},"settings":{}}}""", Request: "GET /becomes-compatible"),
             new StubResponse(200, """{"becomes-compatible":{"settings":{}}}""", Request: "GET /becomes-compatible/_settings"));
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
-        using var index = new BecomesCompatibleIndex(configuration);
+        using var index = CreateBecomesCompatibleIndex(configuration);
         configuration.AddIndex(index);
 
         // Act
@@ -427,7 +427,7 @@ public partial class IndexCompatibilityTests
         // Arrange
         var invoker = new SequenceRequestInvoker(new StubResponse(200, "{}"), new StubResponse(200, "{}"));
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
-        using var index = new ConflictingDestinationIndex(configuration);
+        using var index = CreateConflictingDestinationIndex(configuration);
         configuration.AddIndex(index);
 
         // Act
@@ -446,7 +446,7 @@ public partial class IndexCompatibilityTests
     {
         // Arrange
         using var configuration = new ElasticConfiguration();
-        using var index = new CanceledCompatibilityIndex(configuration);
+        using var index = CreateCanceledCompatibilityIndex(configuration);
         configuration.AddIndex(index);
 
         // Act & Assert
@@ -459,7 +459,7 @@ public partial class IndexCompatibilityTests
         // Arrange
         using var owner = new ElasticConfiguration();
         using var other = new ElasticConfiguration();
-        using var index = new CountingCompatibilityIndex(owner);
+        using var index = CreateCountingCompatibilityIndex(owner);
         owner.AddIndex(index);
 
         // Act
@@ -475,8 +475,8 @@ public partial class IndexCompatibilityTests
     {
         // Arrange
         using var configuration = new ElasticConfiguration();
-        using var first = new StaticCompatibilityIndex(configuration, "employees", "shared-v1");
-        using var second = new StaticCompatibilityIndex(configuration, "employees-archive", "shared-v1");
+        using var first = CreateStaticCompatibilityIndex(configuration, "employees", "shared-v1");
+        using var second = CreateStaticCompatibilityIndex(configuration, "employees-archive", "shared-v1");
         configuration.AddIndex(first);
         configuration.AddIndex(second);
 
@@ -495,8 +495,8 @@ public partial class IndexCompatibilityTests
         // Arrange
         using var configuration = new ElasticConfiguration();
         using var other = new ElasticConfiguration();
-        using var first = new CountingCompatibilityIndex(configuration);
-        using var foreign = new CountingCompatibilityIndex(other);
+        using var first = CreateCountingCompatibilityIndex(configuration);
+        using var foreign = CreateCountingCompatibilityIndex(other);
         configuration.AddIndex(first);
         other.AddIndex(foreign);
 
@@ -515,7 +515,7 @@ public partial class IndexCompatibilityTests
     {
         // Arrange
         using var configuration = new ElasticConfiguration();
-        using var index = new CountingCompatibilityIndex(configuration);
+        using var index = CreateCountingCompatibilityIndex(configuration);
 
         // Act
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
@@ -531,7 +531,7 @@ public partial class IndexCompatibilityTests
     {
         // Arrange
         using var configuration = new ElasticConfiguration();
-        using var index = new UnsupportedCompatibilityIndex(configuration);
+        using var index = CreateUnsupportedCompatibilityIndex(configuration);
         configuration.AddIndex(index);
 
         // Act

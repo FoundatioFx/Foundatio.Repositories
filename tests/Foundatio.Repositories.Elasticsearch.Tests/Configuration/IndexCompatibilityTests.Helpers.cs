@@ -44,77 +44,15 @@ public partial class IndexCompatibilityTests
         public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
     }
 
-    private sealed class BecomesCompatibleIndex : Index<object>
+    private sealed class StubCompatibilityIndex : Index<object>
     {
-        public BecomesCompatibleIndex(IElasticConfiguration configuration) : base(configuration, "becomes-compatible") { }
+        private readonly Func<int, Task<IReadOnlyCollection<IndexCompatibilityInfo>>> _resultFactory;
 
-        public int CompatibilityChecks { get; private set; }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+        public StubCompatibilityIndex(IElasticConfiguration configuration, string name,
+            Func<int, Task<IReadOnlyCollection<IndexCompatibilityInfo>>> resultFactory) : base(configuration, name)
         {
-            CompatibilityChecks++;
-            IReadOnlyCollection<IndexCompatibilityInfo> result = CompatibilityChecks is 1
-                ?
-                [
-                    new IndexCompatibilityInfo
-                    {
-                        Name = Name,
-                        CreatedMajor = 8,
-                        CreatedVersion = "8.0.0",
-                        ServerMajor = 9,
-                        ServerVersion = "9.0.0"
-                    }
-                ]
-                : [];
-
-            return Task.FromResult(result);
+            _resultFactory = resultFactory;
         }
-    }
-
-    private sealed class CanceledCompatibilityIndex : Index<object>
-    {
-        public CanceledCompatibilityIndex(IElasticConfiguration configuration) : base(configuration, "canceled-compatibility") { }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromCanceled<IReadOnlyCollection<IndexCompatibilityInfo>>(new CancellationToken(true));
-        }
-    }
-
-    private sealed class ConflictingDestinationIndex : VersionedIndex<object>
-    {
-        public ConflictingDestinationIndex(IElasticConfiguration configuration) : base(configuration, "conflicting-destination", 1) { }
-
-        public int CompatibilityChecks { get; private set; }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            CompatibilityChecks++;
-            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
-            [
-                new IndexCompatibilityInfo
-                {
-                    Name = VersionedName,
-                    CreatedMajor = 8,
-                    CreatedVersion = "8.0.0",
-                    ServerMajor = 9,
-                    ServerVersion = "9.0.0"
-                },
-                new IndexCompatibilityInfo
-                {
-                    Name = $"reindexed-v8-{VersionedName}",
-                    CreatedMajor = 8,
-                    CreatedVersion = "8.0.0",
-                    ServerMajor = 9,
-                    ServerVersion = "9.0.0"
-                }
-            ]);
-        }
-    }
-
-    private sealed class CountingCompatibilityIndex : Index<object>
-    {
-        public CountingCompatibilityIndex(IElasticConfiguration configuration) : base(configuration, "counting-compatibility") { }
 
         public int CompatibilityChecks { get; private set; }
 
@@ -125,55 +63,53 @@ public partial class IndexCompatibilityTests
         public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
         {
             CompatibilityChecks++;
-            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>([]);
+            return _resultFactory(CompatibilityChecks);
         }
     }
 
-    private sealed class UnsupportedCompatibilityIndex : Index<object>
+    private static StubCompatibilityIndex CreateBecomesCompatibleIndex(IElasticConfiguration configuration)
     {
-        public UnsupportedCompatibilityIndex(IElasticConfiguration configuration) : base(configuration, "unsupported-compatibility") { }
-
-        public int CompatibilityChecks { get; private set; }
-
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            CompatibilityChecks++;
-            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
-            [
-                new IndexCompatibilityInfo
-                {
-                    Name = Name,
-                    CreatedMajor = 7,
-                    CreatedVersion = "7.17.29",
-                    ServerMajor = 9,
-                    ServerVersion = "9.5.0"
-                }
-            ]);
-        }
+        return new StubCompatibilityIndex(configuration, "becomes-compatible", checkCount => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+            checkCount is 1
+                ? [new IndexCompatibilityInfo { Name = "becomes-compatible", CreatedMajor = 8, CreatedVersion = "8.0.0", ServerMajor = 9, ServerVersion = "9.0.0" }]
+                : []));
     }
 
-    private sealed class StaticCompatibilityIndex : Index<object>
+    private static StubCompatibilityIndex CreateCanceledCompatibilityIndex(IElasticConfiguration configuration)
     {
-        private readonly string _source;
+        return new StubCompatibilityIndex(configuration, "canceled-compatibility",
+            _ => Task.FromCanceled<IReadOnlyCollection<IndexCompatibilityInfo>>(new CancellationToken(true)));
+    }
 
-        public StaticCompatibilityIndex(IElasticConfiguration configuration, string name, string source) : base(configuration, name)
-        {
-            _source = source;
-        }
+    private static StubCompatibilityIndex CreateConflictingDestinationIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "conflicting-destination-v1", _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+        [
+            new IndexCompatibilityInfo { Name = "conflicting-destination-v1", CreatedMajor = 8, CreatedVersion = "8.0.0", ServerMajor = 9, ServerVersion = "9.0.0" },
+            new IndexCompatibilityInfo { Name = "reindexed-v8-conflicting-destination-v1", CreatedMajor = 8, CreatedVersion = "8.0.0", ServerMajor = 9, ServerVersion = "9.0.0" }
+        ]));
+    }
 
-        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
-            [
-                new IndexCompatibilityInfo
-                {
-                    Name = _source,
-                    CreatedMajor = 8,
-                    ServerMajor = 9,
-                    ServerVersion = "9.0.0"
-                }
-            ]);
-        }
+    private static StubCompatibilityIndex CreateCountingCompatibilityIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "counting-compatibility",
+            _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>([]));
+    }
+
+    private static StubCompatibilityIndex CreateUnsupportedCompatibilityIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "unsupported-compatibility", _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+        [
+            new IndexCompatibilityInfo { Name = "unsupported-compatibility", CreatedMajor = 7, CreatedVersion = "7.17.29", ServerMajor = 9, ServerVersion = "9.5.0" }
+        ]));
+    }
+
+    private static StubCompatibilityIndex CreateStaticCompatibilityIndex(IElasticConfiguration configuration, string name, string source)
+    {
+        return new StubCompatibilityIndex(configuration, name, _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+        [
+            new IndexCompatibilityInfo { Name = source, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" }
+        ]));
     }
 
     private sealed class MinimalIndex : IIndex

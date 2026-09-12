@@ -16,12 +16,6 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
 {
     public IndexCompatibilityRecoveryTests(ITestOutputHelper output) : base(output) { }
 
-    private async Task AssertIndexExistsAsync(ElasticsearchClient client, string index, bool expected)
-    {
-        var response = await client.Indices.ExistsAsync(index, cancellationToken: TestCancellationToken);
-        Assert.True(expected ? response.Exists : !response.Exists, response.DebugInformation);
-    }
-
     [Fact]
     public async Task RecoverIndexCompatibilityUpgradeAsync_WithOnlySourceMarker_RequiresManualIntervention()
     {
@@ -358,11 +352,6 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
         var index = new Index<object>(configuration, name);
         configuration.AddIndex(index);
         return (configuration, index);
-    }
-
-    private MyAppElasticConfiguration CreateConfiguration()
-    {
-        return new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
     }
 
     private AsyncDisposableAction DeleteAsync(ElasticsearchClient client, string sourceIndex, string targetIndex)

@@ -15,18 +15,11 @@ using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed partial class IndexCompatibilityUpgradeTests
 {
-    private async Task AssertIndexExistsAsync(string index, bool expected)
-    {
-        var response = await _client.Indices.ExistsAsync(index, cancellationToken: TestCancellationToken);
-        Assert.True(expected ? response.Exists : !response.Exists, response.DebugInformation);
-    }
-
     private class EndpointAwareElasticConfiguration : ElasticConfiguration
     {
         protected override NodePool CreateConnectionPool()
