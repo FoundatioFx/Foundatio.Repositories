@@ -7,13 +7,10 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Transport;
-using Foundatio.Caching;
-using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
-using Foundatio.Utility;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;

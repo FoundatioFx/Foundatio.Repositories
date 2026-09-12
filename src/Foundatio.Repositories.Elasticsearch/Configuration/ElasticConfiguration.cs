@@ -318,7 +318,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             .Select(group => $"{group.Key} <= {String.Join(", ", group.Select(item => item.Index))}")
             .ToArray();
         if (duplicateSources.Length > 0)
-            throw new RepositoryException($"Multiple configured indexes claim the same compatibility source: {String.Join("; ", duplicateSources)}. Resolve the overlapping registration before retrying; no indexes were changed.");
+            throw new RepositoryException($"Multiple configured indexes claim the same compatibility source: {String.Join("; ", duplicateSources)}.");
 
         var duplicateTargets = plans
             .SelectMany(plan => plan.Candidates.Select(candidate => new
@@ -331,7 +331,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             .Select(group => $"{group.Key} <= {String.Join(", ", group.Select(item => item.Source))}")
             .ToArray();
         if (duplicateTargets.Length > 0)
-            throw new RepositoryException($"Multiple compatibility sources in the requested batch resolve to the same destination: {String.Join("; ", duplicateTargets)}. Resolve the duplicate physical index lineage before retrying; no indexes were changed.");
+            throw new RepositoryException($"Multiple compatibility sources in the requested batch resolve to the same destination: {String.Join("; ", duplicateTargets)}.");
 
         foreach (var (index, candidates) in plans)
         {
@@ -412,7 +412,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
         if (conflictingTargets.Length > 0)
         {
             throw new RepositoryException(
-                $"Multiple compatibility source indexes for '{index.Name}' resolve to the same destination: {String.Join("; ", conflictingTargets)}. Resolve the duplicate physical index lineage before retrying; no indexes were changed.");
+                $"Multiple compatibility source indexes for '{index.Name}' resolve to the same destination: {String.Join("; ", conflictingTargets)}.");
         }
 
         return candidates;

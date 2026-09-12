@@ -603,7 +603,7 @@ public class Index : IIndexCompatibility, IHaveLogger
             if (isErrorIndex && !(kvp.Value?.Aliases).HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
             {
                 throw new RepositoryException(
-                    $"Index '{kvp.Key}' looks like a generated reindex error index for '{Name}', but it does not have the Foundatio ownership marker. Rename or remove the conflicting index, or add the marker only after verifying its provenance; no indexes were changed.");
+                    $"Index '{kvp.Key}' looks like a generated reindex error index for '{Name}', but it does not have the Foundatio ownership marker. Rename or remove it, or add the marker after verifying its provenance.");
             }
 
             var versioning = kvp.Value?.Settings?.Index?.Version;

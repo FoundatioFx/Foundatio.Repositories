@@ -135,7 +135,7 @@ internal sealed class ElasticReindexTaskRunner
     private static ElasticReindexTaskUncertainException CreateUncertainStartException(string sourceIndex, string targetIndex, Exception innerException)
     {
         return new ElasticReindexTaskUncertainException(
-            $"The compatibility reindex start outcome for '{sourceIndex}' -> '{targetIndex}' is unknown because no task ID was confirmed. Keep the source write blocked and retain the destination until matching Elasticsearch tasks have been inspected.",
+            $"The compatibility reindex start outcome for '{sourceIndex}' -> '{targetIndex}' is unknown because no task ID was confirmed.",
             innerException);
     }
 
@@ -210,9 +210,10 @@ internal sealed class ElasticReindexTaskRunner
         if (failures > 0 || result.VersionConflicts > 0 || result.Created != result.Total || result.Updated > 0 || result.Deleted > 0 || result.Noops > 0)
         {
             throw new RepositoryException(
-                $"Compatibility reindex from '{workItem.OldIndex}' to '{workItem.NewIndex}' was not an exact copy. " +
-                $"Total: {result.Total}, Created: {result.Created}, Updated: {result.Updated}, Deleted: {result.Deleted}, Noops: {result.Noops}, " +
-                $"Version conflicts: {result.VersionConflicts}, Failures: {failures}.");
+                $"""
+                Compatibility reindex from '{workItem.OldIndex}' to '{workItem.NewIndex}' was not an exact copy.
+                Total: {result.Total}, Created: {result.Created}, Updated: {result.Updated}, Deleted: {result.Deleted}, Noops: {result.Noops}, Version conflicts: {result.VersionConflicts}, Failures: {failures}.
+                """);
         }
     }
 

@@ -138,9 +138,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             canResetCurrentAttempt = true;
             var targetState = await GetIndexStateAsync(targetIndex, cancellationToken).AnyContext();
             if (!HasExpectedWorkflowMarkers(targetState.Aliases, isErrorIndex))
-                throw new RepositoryException($"Compatibility destination index '{targetIndex}' has unexpected aliases before reindexing. The marked source remains intact and write blocked.");
+                throw new RepositoryException($"Compatibility destination index '{targetIndex}' has unexpected aliases before reindexing.");
             if (!JsonDefinitionsMatch(sourceState.Mapping, targetState.Mapping))
-                throw new RepositoryException($"Compatibility destination index '{targetIndex}' did not receive the source mapping exactly. Adjust matching index templates before retrying.");
+                throw new RepositoryException($"Compatibility destination index '{targetIndex}' did not receive the source mapping exactly.");
             EnsureExplicitSettingsMatch(sourceState.ExplicitSettings, targetState.ExplicitSettings, ignoreTemporarySettings: true, targetIndex);
             await ReportProgressAsync(10, $"Created {targetIndex} from {sourceIndex}").AnyContext();
 
@@ -172,13 +172,14 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 || !String.Equals(sourceState.RestorableSettingsSignature, targetState.RestorableSettingsSignature, StringComparison.Ordinal))
             {
                 throw new RepositoryException(
-                    $"Compatibility destination index '{targetIndex}' did not preserve the source mapping and restorable settings exactly. " +
-                    $"Source settings: '{sourceState.RestorableSettingsSignature.Replace('\n', '|')}', target settings: '{targetState.RestorableSettingsSignature.Replace('\n', '|')}'. " +
-                    "The source remains intact and write blocked.");
+                    $"""
+                    Compatibility destination index '{targetIndex}' did not preserve the source mapping and restorable settings exactly.
+                    Source settings: '{sourceState.RestorableSettingsSignature.Replace('\n', '|')}', target settings: '{targetState.RestorableSettingsSignature.Replace('\n', '|')}'.
+                    """);
             }
             EnsureExplicitSettingsMatch(sourceState.ExplicitSettings, targetState.ExplicitSettings, ignoreTemporarySettings: false, targetIndex);
             if (!HasExpectedWorkflowMarkers(targetState.Aliases, isErrorIndex))
-                throw new RepositoryException($"Compatibility destination index '{targetIndex}' received unexpected aliases before cutover. The source remains intact and write blocked.");
+                throw new RepositoryException($"Compatibility destination index '{targetIndex}' received unexpected aliases before cutover.");
 
             var currentSourceState = await GetIndexStateAsync(sourceIndex, cancellationToken).AnyContext();
             ValidateSource(currentSourceState, allowWorkflowMarker: true);
@@ -186,7 +187,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 || !JsonDefinitionsMatch(sourceState.Mapping, currentSourceState.Mapping)
                 || !String.Equals(sourceState.RestorableSettingsSignature, currentSourceState.RestorableSettingsSignature, StringComparison.Ordinal))
             {
-                throw new RepositoryException($"Aliases, mappings, or restorable settings on compatibility source index '{sourceIndex}' changed during the upgrade. No cutover was attempted; stop index-management jobs, inspect the source, and retry.");
+                throw new RepositoryException($"Aliases, mappings, or restorable settings on compatibility source index '{sourceIndex}' changed during the upgrade; no cutover was attempted.");
             }
             var sourceSettingChanges = GetExplicitSettingDifferences(
                 sourceState.ExplicitSettings,
@@ -195,7 +196,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             if (sourceSettingChanges.Length > 0)
             {
                 throw new RepositoryException(
-                    $"Explicit settings on compatibility source index '{sourceIndex}' changed during the upgrade: {String.Join(", ", sourceSettingChanges)}. No cutover was attempted; stop index-management jobs, inspect the source, and retry.");
+                    $"Explicit settings on compatibility source index '{sourceIndex}' changed during the upgrade: {String.Join(", ", sourceSettingChanges)}; no cutover was attempted.");
             }
 
             expectedCutoverAliases = CreateAliasActions(index.Name, currentSourceState, targetIndex, out var aliasActions);
@@ -221,7 +222,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             }
             if (topology is not CutoverTopology.Completed)
             {
-                throw new RepositoryException($"Compatibility cutover for '{sourceIndex}' is in an unexpected state. Do not retry or delete either index until the aliases and both physical indexes have been inspected manually.");
+                throw new RepositoryException($"Compatibility cutover for '{sourceIndex}' is in an unexpected state; do not retry or delete either index without manual inspection.");
             }
 
             await RemoveWriteBlockAsync(targetIndex, cancellationToken).AnyContext();
@@ -244,7 +245,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             catch (Exception inspectionException)
             {
                 throw new RepositoryException(
-                    $"Compatibility upgrade for '{sourceIndex}' failed and its recovery evidence could not be inspected. Keep writes stopped and inspect both physical indexes before retrying.",
+                    $"Compatibility upgrade for '{sourceIndex}' failed and its recovery evidence could not be inspected.",
                     new AggregateException(upgradeException, inspectionException));
             }
 
@@ -257,7 +258,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 catch (Exception recoveryException)
                 {
                     throw new RepositoryException(
-                        $"Compatibility upgrade for '{sourceIndex}' failed and evidence-based reset did not complete. Inspect both physical indexes before retrying.",
+                        $"Compatibility upgrade for '{sourceIndex}' failed and evidence-based reset did not complete.",
                         new AggregateException(upgradeException, recoveryException));
                 }
 
@@ -270,7 +271,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                     || await GetTopologyIndependentlyAsync(sourceIndex, targetIndex, expectedCutoverAliases).AnyContext() is not CutoverTopology.Completed)
                 {
                     throw new RepositoryException(
-                        $"Compatibility cutover for '{sourceIndex}' committed with aliases that do not match the pre-cutover source. Keep the marked destination write blocked and inspect its complete alias definitions before recovery.",
+                        $"Compatibility cutover for '{sourceIndex}' committed with aliases that do not match the pre-cutover source.",
                         upgradeException);
                 }
 
@@ -292,12 +293,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
             if (upgradeException.GetBaseException() is OperationCanceledException)
             {
-                _logger.LogWarning(upgradeException, "Compatibility upgrade {SourceIndex} -> {TargetIndex} was canceled and now requires recovery action '{Action}'. No unmarked index was changed; inspect the reported topology before retrying", sourceIndex, targetIndex, status.Action);
+                _logger.LogWarning(upgradeException, "Compatibility upgrade {SourceIndex} -> {TargetIndex} was canceled and now requires recovery action '{Action}'", sourceIndex, targetIndex, status.Action);
                 throw new OperationCanceledException(upgradeException.Message, upgradeException, cancellationToken);
             }
 
             throw new RepositoryException(
-                $"Compatibility upgrade for '{sourceIndex}' failed and now requires recovery action '{status.Action}'. No unmarked index was changed; inspect the reported topology before retrying.",
+                $"Compatibility upgrade for '{sourceIndex}' failed and now requires recovery action '{status.Action}'.",
                 upgradeException);
         }
     }
@@ -478,7 +479,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             {
                 _logger.LogErrorRequest(response, "Unable to create compatibility destination {TargetIndex} from {SourceIndex}", targetIndex, sourceIndex);
                 throw new ElasticCompatibilityOperationUncertainException(
-                    $"The compatibility destination creation outcome for '{sourceIndex}' -> '{targetIndex}' is unknown. Keep the source write blocked and retain the destination until both indexes have been inspected.",
+                    $"The compatibility destination creation outcome for '{sourceIndex}' -> '{targetIndex}' is unknown.",
                     response.OriginalException() ?? new RepositoryException(response.GetErrorMessage($"Unable to create compatibility destination index '{targetIndex}' from '{sourceIndex}'.")));
             }
             _logger.LogRequest(response);
@@ -490,7 +491,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         catch (Exception ex)
         {
             throw new ElasticCompatibilityOperationUncertainException(
-                $"The compatibility destination creation outcome for '{sourceIndex}' -> '{targetIndex}' is unknown because no response was received. Keep the source write blocked and retain the destination until both indexes have been inspected.",
+                $"The compatibility destination creation outcome for '{sourceIndex}' -> '{targetIndex}' is unknown because no response was received.",
                 ex);
         }
     }
@@ -585,8 +586,10 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         if (sourceCount.Count != targetCount.Count || sourceCount.Count != reindexResult.Total || targetCount.Count != reindexResult.Created)
         {
             throw new RepositoryException(
-                $"Compatibility reindex count mismatch for '{sourceIndex}' -> '{targetIndex}'. " +
-                $"Source: {sourceCount.Count}, Target: {targetCount.Count}, Reindex total: {reindexResult.Total}, Created: {reindexResult.Created}.");
+                $"""
+                Compatibility reindex count mismatch for '{sourceIndex}' -> '{targetIndex}'.
+                Source: {sourceCount.Count}, Target: {targetCount.Count}, Reindex total: {reindexResult.Total}, Created: {reindexResult.Created}.
+                """);
         }
     }
 
@@ -635,7 +638,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             r => r.IsValidResponse && !r.TimedOut && r.Status is HealthStatus.Yellow or HealthStatus.Green,
             _logger,
             "Compatibility destination {TargetIndex} did not reach the required shard health",
-            $"Compatibility destination index '{targetIndex}' did not make all primary shards available after restoring replicas. The source remains intact and write blocked.",
+            $"Compatibility destination index '{targetIndex}' did not make all primary shards available after restoring replicas.",
             targetIndex);
     }
 
@@ -778,7 +781,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         if (differences.Length > 0)
         {
             throw new RepositoryException(
-                $"Compatibility destination index '{targetIndex}' did not preserve explicit settings: {String.Join(", ", differences)}. The marked source remains intact and write blocked.");
+                $"Compatibility destination index '{targetIndex}' did not preserve explicit settings: {String.Join(", ", differences)}.");
         }
     }
 
