@@ -1,0 +1,66 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Foundatio.Repositories.Elasticsearch.Configuration;
+
+/// <summary>
+/// Exposes Elasticsearch major-version compatibility operations for a repository configuration.
+/// </summary>
+public interface IElasticConfigurationCompatibility : IElasticConfiguration
+{
+    /// <summary>
+    /// Inspects the physical source, deterministic destination, aliases, write blocks, and active reindex tasks
+    /// without changing cluster state.
+    /// </summary>
+    /// <param name="index">The configured index that owns <paramref name="sourceIndex"/>.</param>
+    /// <param name="sourceIndex">The exact original physical source name used to start the compatibility upgrade.</param>
+    /// <param name="cancellationToken">The token used to cancel the inspection.</param>
+    Task<IndexCompatibilityUpgradeStatus> InspectIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies the evidence-based <see cref="IndexCompatibilityUpgradeStatus.Action"/> returned by inspection.
+    /// It finishes only a marked committed cutover. Interrupted pre-cutover attempts require manual reconciliation:
+    /// an empty task listing cannot prove a timed-out request will not still arrive. Foreign, unmarked, active,
+    /// or contradictory states are never changed.
+    /// </summary>
+    /// <param name="index">The configured index that owns <paramref name="sourceIndex"/>.</param>
+    /// <param name="sourceIndex">The exact original physical source name used to start the compatibility upgrade.</param>
+    /// <param name="cancellationToken">The token used to acquire the lock and perform recovery.</param>
+    Task<IndexCompatibilityUpgradeStatus> RecoverIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Recreates physical indexes written by an older Elasticsearch major version using the connected server's
+    /// index format. Indexes that don't derive from <see cref="Index"/> are rejected; compatible indexes are skipped.
+    /// The operation verifies that no incompatible physical indexes remain before returning.
+    /// </summary>
+    /// <remarks>
+    /// This is an offline maintenance operation. It blocks writes, creates an exact replacement with
+    /// Elasticsearch's <c>_create_from</c> API, copies documents without applying ingest pipelines, atomically
+    /// moves aliases, and deletes the source. Stop all writers and index-management processes, take and verify a
+    /// snapshot, and do not invoke it while rollback to the previous Elasticsearch major remains an option.
+    /// Mapping-level source includes/excludes and generated names over 255 UTF-8 bytes are rejected before
+    /// batch mutation. Ambiguous requests retain the marked artifacts for manual reconciliation.
+    /// Restart or drain application instances before resuming writes because cached document concurrency tokens
+    /// belong to the deleted physical index.
+    /// Progress callbacks are awaited and report each physical index separately. A callback failure before
+    /// cutover aborts that attempt and invokes the same evidence-based cleanup as other failures. A failure
+    /// reporting 100 percent is logged without undoing the completed cutover. The batch is not transactional:
+    /// earlier physical indexes remain upgraded if a later operation fails or is canceled. Cancellation may
+    /// be reported after a cutover has committed; inspect the original physical source before retrying.
+    /// </remarks>
+    /// <param name="indexes">The indexes to inspect and upgrade, or <c>null</c> for all configured indexes.</param>
+    /// <param name="progressCallbackAsync">An optional callback for per-index progress updates.</param>
+    /// <param name="cancellationToken">The token used to cancel detection or pre-cutover work.</param>
+    /// <exception cref="Foundatio.Repositories.Exceptions.RepositoryException">The compatibility upgrade did not complete.</exception>
+    /// <exception cref="ArgumentException">An index belongs to a different configuration.</exception>
+    /// <exception cref="NotSupportedException">An index implementation is unsupported or the connected Elasticsearch version is older than 8.18.</exception>
+    Task UpgradeIndexCompatibilityAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default);
+}

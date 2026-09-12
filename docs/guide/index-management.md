@@ -1165,6 +1165,150 @@ await configuration.ReindexAsync(async (progress, message) =>
 await index.ReindexAsync();
 ```
 
+### Explicit Index Compatibility Upgrades
+
+Elasticsearch supports indexes created by the immediately previous major version, but those indexes must be reindexed before the following major upgrade. Foundatio.Repositories provides an explicit compatibility preflight and maintenance operation, independent of schema versioning (`VersionedIndex.Version`). It intentionally does **not** run from `ConfigureIndexesAsync` or `ElasticMigrationJobBase`.
+
+**How detection works:**
+
+1. `GetIndexCompatibilityAsync()` reads the connected server version and issues one settings-and-aliases request per index. Plain indexes resolve their configured name plus the generated `{name}-error` partition; versioned, daily, and monthly indexes scan every structurally valid physical partition, including hidden indexes, `-error` twins, and expired-but-undeleted partitions.
+2. The response's `index.version.created` on each concrete backing index drives alias resolution, physical-name discovery, and compatibility detection in that single request. A `reindexed-v{major}-...` physical name is recognized only when its expected canonical alias is attached; registered sibling indexes reject ambiguous structural claims.
+3. `IndexCompatibilityState` distinguishes `Current`, `RequiresReindex` (exactly one major behind), and `Unsupported` (more than one major behind, or otherwise inconsistent).
+4. An index that skipped a sequential major reindex is rejected with snapshot/restore guidance; this workflow never claims to repair a 7-created index directly on Elasticsearch 9.
+
+Normal index configuration, schema discovery, and wildcard deletion issue **zero** compatibility-check requests; this feature only runs when an operator explicitly calls it. Each per-index preflight adds one server-info and one settings-and-aliases request, revalidated after the distributed lock is acquired and again after cutover. This is a Foundatio-owned index preflight, not a cluster-upgrade certificate — it does not discover unmanaged indexes, data streams, system indexes, or every ILM/CCR topology. Run Elastic's Upgrade Assistant and deprecation checks for cluster readiness even when every Foundatio result is `Current`.
+
+**How explicit remediation works**, informed by Elasticsearch Upgrade Assistant's naming and `_create_from` usage, but recovered independently of both Kibana and normal schema reindexing:
+
+1. Validate the complete requested batch — registered identity, throttle, source/destination, duplicate lineage, and schema precedence — before the first mutation, and again after acquiring `reindex:{logical-name}`. Closed, data-stream, system, ILM, CCR, non-standard-mode, `_source`-disabled/filtered, and already-blocked indexes are all rejected, so a pre-existing write block can never be confused with Foundatio recovery evidence.
+2. Add the reserved hidden workflow marker, then call Elasticsearch's dedicated add-index-block API, proceeding only when cluster, shard, and exact-source `blocked` acknowledgements are all true. Unlike ordinary `PutSettings`, Elasticsearch's [block verification](https://github.com/elastic/elasticsearch/blob/v8.19.1/server/src/main/java/org/elasticsearch/action/admin/indices/readonly/TransportVerifyShardIndexBlockAction.java#L40-L45) acquires every shard's operation permits before responding. Refresh the source and reject partial shard failures.
+3. Create `reindexed-v{serverMajor}-{canonicalSourceName}` with [`_create_from`](https://www.elastic.co/docs/api/doc/elasticsearch/v8/operation/operation-indices-create-from) (Technical Preview, introduced in 8.18), which copies settings and mappings without reconstructing them from application configuration. A failed or lost create response is treated as unknown; Foundatio never guesses that a partial destination is safe to delete.
+4. Mark the target, preserve `.foundatio-reindex-error` when migrating an error index, and verify the cloned mapping and settings. `_create_from` temporarily zeroes replicas and the refresh interval and disables both pipelines. Reindex with `op_type=create`, conflict abort, one unsliced task, and destination pipeline `_none`.
+5. Tag `_reindex` with a deterministic `X-Opaque-Id` and require a clean typed task result. Immediately after it finishes, write-block the target before refresh or counting, then require zero failed shards and exact source/task/target document counts, restore the temporarily-changed settings exactly, and wait for primary shards.
+6. Re-read the source's aliases and explicit settings immediately before cutover and fail before deletion if either changed — Elasticsearch has no compare-and-swap token for the final read-to-swap interval, so alias/index-management processes must stay stopped.
+7. Atomically delete the exact source and add every original alias plus one canonical old physical-name alias to the destination, keeping the workflow marker through cutover. Generated compatibility prefixes from earlier majors are replaced, not accumulated as aliases.
+8. Reconcile cutover with an independent bounded token even if the caller was canceled — full alias definitions, not only names, must match. Remove the destination write block, then the workflow marker, then refresh the mapping resolver.
+
+If an interrupted attempt leaves evidence behind, the next run stops. Use `InspectIndexCompatibilityUpgradeAsync()` with the original pre-upgrade concrete source from preflight to get one operator-facing action:
+
+| Action | Observed evidence | Automatic behavior |
+| --- | --- | --- |
+| `None` | No interrupted workflow, or a clean completed cutover | No mutation |
+| `Wait` | Both marked indexes exist and the exact reindex task is active | Wait and inspect again |
+| `Finish` | Source is gone; marked target has the canonical source alias; no exact task is active | Unblock the target and remove its marker last |
+| `ManualIntervention` | Evidence is unmarked, foreign, incomplete, or contradictory (partial/duplicate/unrelated tasks, source-only markers, multi-target aliases, prior-major destinations, uncertain lineage) | No mutation |
+
+`RecoverIndexCompatibilityUpgradeAsync()` acquires the same distributed lock and applies only `Finish` — a complete, empty task listing is a snapshot, not proof a timed-out submission or cutover request cannot still arrive. After a restart or ambiguous request, both marked pre-cutover indexes therefore require `ManualIntervention`: keep maintenance mode enabled, reconcile outstanding requests and exact task IDs, and verify the intact source before manually deleting a partial target or changing write blocks.
+
+::: warning
+The public API has no force-unblock or reset operation.
+:::
+
+```csharp
+public interface IIndexCompatibility : IIndex
+{
+    Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(
+        CancellationToken cancellationToken = default);
+}
+
+public interface IElasticConfigurationCompatibility : IElasticConfiguration
+{
+    Task<IndexCompatibilityUpgradeStatus> InspectIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        CancellationToken cancellationToken = default);
+
+    Task<IndexCompatibilityUpgradeStatus> RecoverIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        CancellationToken cancellationToken = default);
+
+    Task UpgradeIndexCompatibilityAsync(
+        IEnumerable<IIndex>? indexes = null,
+        Func<int, string?, Task>? progressCallbackAsync = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+- **`IIndexCompatibility`** is implemented by the built-in `Index` hierarchy, separate from `IIndex` so custom implementations do not gain new required members. Subclasses using custom physical names must override both `GetCompatibilityIndexPattern()` and `IsNativeIndexName(ReadOnlySpan<char>)`, matching the complete unwrapped native name, not a wildcard.
+- **`IElasticConfigurationCompatibility`** is implemented by `ElasticConfiguration`, separate from `IElasticConfiguration` so custom configurations remain source-compatible. `InspectIndexCompatibilityUpgradeAsync` is read-only; `RecoverIndexCompatibilityUpgradeAsync` mutates only exact, marked evidence and never chooses between two aliased indexes.
+
+Use the compatibility API as an operator-controlled preflight, then run the upgrade only after the rollback window has closed:
+
+```csharp
+var compatibility = await myIndex.GetIndexCompatibilityAsync();
+if (compatibility.Any(c => c.State == IndexCompatibilityState.Unsupported))
+    throw new InvalidOperationException("Restore a supported snapshot and upgrade one major at a time.");
+
+if (compatibility.Any(c => c.State == IndexCompatibilityState.RequiresReindex) &&
+    configuration is IElasticConfigurationCompatibility compatibilityConfiguration)
+{
+    // upgrade manually, on your own schedule
+    await compatibilityConfiguration.UpgradeIndexCompatibilityAsync(new[] { myIndex });
+}
+```
+
+`UpgradeIndexCompatibilityAsync(indexes, progressCallbackAsync, cancellationToken)` upgrades the given indexes (or all configured indexes when `indexes` is `null`), acquiring the same per-index reindex lock used for schema-version upgrades and verifying no incompatible physical indexes remain before returning.
+
+#### Maintenance-window contract
+
+Progress callbacks report 0–100 percent separately for each physical index; a callback exception before cutover follows the same evidence-based cleanup rules as other failures, while an exception from the final 100-percent callback is only logged after a successful cutover. The batch is not transactional — an error or cancellation does not undo indexes already upgraded, and cancellation can be reported by final verification *after* a cutover commits, so inspect the physical source before retrying rather than assuming an exception means nothing changed.
+
+::: warning
+This operation causes a write outage for each physical index while it is copied. Stop application writers, queue consumers, maintenance jobs, and alias/index-management processes before starting it, and restart or drain application instances afterward — the server write block cannot invalidate `IHaveVersion` or sequence-number/primary-term values already held in memory or distributed caches.
+:::
+
+Every mutation in the workflow is fail-closed: cancellation or a pre-cutover failure only cleans up after positively confirming termination through an authoritative task read (never from a task listing alone, and never inferred after a restart), and only when both workflow markers, the intact blocked source, and no unexpected target aliases are also verified. A lost or invalid `_create_from` response is treated the same way — the source stays marked and blocked until creation is confirmed. Once the atomic alias/delete action is dispatched, automatic reset is permanently disabled for that attempt: a marked committed target can be finished, a clean completed target is accepted as success, and every contradictory state stays manual. Cancellation cannot roll a completed cutover back.
+
+Compatibility discovery does not add `reindexed-v*` to normal mapping, maintenance, cleanup, or deletion patterns — upgraded physical indexes are found through their canonical aliases in the existing native lookup, so one daily index can contain upgraded and unupgraded partitions. Ordinary concrete deletion keeps the existing one-request `DELETE /{index}` fast path; only Elasticsearch's rejection of aliases on that API invokes Foundatio's compatibility resolver.
+
+#### Safe major-version rollout and rollback boundary
+
+[Elasticsearch does not support downgrading upgraded nodes](https://www.elastic.co/docs/deploy-manage/upgrade/deployment-or-cluster/elasticsearch). A compatibility reindex creates indexes under the new server major and deletes the older physical indexes, so running it removes any possibility of using the old data path without a snapshot taken before the upgrade.
+
+Recommended sequence:
+
+1. Upgrade to the latest patch of the current Elasticsearch major and run Elastic's Upgrade Assistant.
+2. Deploy and validate the compatible application/client separately when practical — [REST API compatibility spans only one major version](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/compatibility) and is a migration bridge, not a permanent guarantee.
+3. Take a current snapshot and verify it is restorable before changing the Elasticsearch major.
+4. Upgrade Elasticsearch one supported major step and validate reads, writes, aliases, jobs, and deprecation logs.
+5. If rollback is required, rebuild the older cluster and restore the pre-upgrade snapshot.
+6. After the rollback window closes, stop all writers and index-management processes, run `GetIndexCompatibilityAsync()` as the preflight, and call `UpgradeIndexCompatibilityAsync()` while monitoring disk, task progress, document counts, and aliases.
+7. Take and verify a new snapshot before planning the next Elasticsearch major upgrade.
+
+::: warning
+Do not run `UpgradeIndexCompatibilityAsync()` during the rollback window (steps 4–5) — repeat the full sequence one major at a time; direct multi-major remediation (e.g. 7→9) is rejected.
+:::
+
+Physical names change because Elasticsearch cannot reindex in place; repository-facing aliases remain stable:
+
+| Index type | Before | After explicit compatibility reindex | Stable aliases |
+| --- | --- | --- | --- |
+| `Index<T>` | physical `employees` | physical `reindexed-v9-employees` | `employees` |
+| `VersionedIndex<T>` | physical `employees-v2` | physical `reindexed-v9-employees-v2` | `employees`, canonical `employees-v2` |
+| `DailyIndex<T>` | physical `logs-v1-2024.01.15` | physical `reindexed-v9-logs-v1-2024.01.15` | `logs`, canonical `logs-v1-2024.01.15`, `logs-2024.01.15`, windowed aliases |
+| Later server major | physical `reindexed-v9-employees` | physical `reindexed-v10-employees` | unchanged |
+
+On the next major, the generated prefix is replaced, not accumulated, so aliases do not grow once per major. Alias topology alone does not prove data freshness, which is why task completion, refresh results, document counts, and the write fence are separate cutover gates.
+
+#### Kibana coexistence
+
+Foundatio intentionally uses Kibana Upgrade Assistant's `reindexed-v{major}-{canonical-name}` namespace and the same `_create_from` API for supported non-dot indexes — compatibility evidence, not a claim the workflows are identical. A completed Kibana migration can be discovered by Foundatio through its canonical alias, but Foundatio cannot resume Kibana's own Saved Object workflow and never deletes an unmarked Kibana or foreign destination.
+
+Kibana preserves a leading dot when naming a migrated system index (`.foo` becomes `.reindexed-v{major}-foo`); Foundatio rejects dot-prefixed/system indexes before mutation and does not recover that variant — leave those indexes with Kibana or Elastic's system-index tooling. Natural configured names such as `reindexed-v8-events` or `orders-error` are not treated as generated state by substring; the complete prefix/version/native-name structure and canonical alias or error marker must match.
+
+::: warning
+Never run Kibana and Foundatio reindexing against the same source concurrently — they can choose the same deterministic destination name, and a collision stops before mutation or reports `ManualIntervention`.
+:::
+
+See Kibana's pinned [reindex service](https://github.com/elastic/kibana/blob/a4d5d2e4c54d92b50081662de56fef462d720ad2/x-pack/platform/plugins/private/reindex_service/server/src/lib/reindex_service.ts) and [destination naming implementation](https://github.com/elastic/kibana/blob/a4d5d2e4c54d92b50081662de56fef462d720ad2/x-pack/platform/plugins/private/upgrade_assistant/public/application/components/es_deprecations/deprecation_types/indices/index_settings.ts).
+
+#### Running and monitoring maintenance
+
+Run this from a dedicated maintenance command or migration process before an ASP.NET Core instance becomes ready — do not hide a potentially long write outage inside ordinary startup configuration. Wire `progressCallbackAsync` to structured logs or your operation status store; during the source block, writes fail with an Elasticsearch `cluster_block_exception` while reads can continue until cutover.
+
+The compatibility reindex request carries a deterministic `X-Opaque-Id`; operators can inspect Elasticsearch tasks with `GET /_tasks?actions=*reindex&detailed=true` (Foundatio recovery trusts only the exact opaque header, not a description substring). Application health checks should report maintenance/not-ready while writers are intentionally stopped, and readiness should resume only after the operation returns, aliases are verified, clients are restarted or drained, and a post-upgrade write/read smoke test passes.
+
 ## Index Properties
 
 ### IIndex Interface
@@ -1302,7 +1446,7 @@ For indexes with millions of documents that take hours to reindex, the lock is a
 
 ### Crash Recovery
 
-If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is resume-safe — it picks up from the last document using timestamp-based or ID-based range queries.
+If an instance crashes mid-reindex, the lock expires after its last renewal, but the server-side task may continue running. Schema reindexing can resume copying with timestamp-based or ID-based range queries; it is not a durable crash-recovery protocol. Once aliases point to the configured schema version, a retry can skip unfinished catch-up or source deletion. Inspect tasks, physical indexes, aliases, and document consistency before retrying or deleting a retained source. Explicit compatibility upgrades use the separate inspection and recovery APIs described above.
 
 ### Second-Pass Catch-Up Strategy
 

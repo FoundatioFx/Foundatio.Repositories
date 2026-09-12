@@ -1,0 +1,276 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
+using Foundatio.Caching;
+using Foundatio.Lock;
+using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+
+namespace Foundatio.Repositories.Elasticsearch.Tests;
+
+public partial class IndexCompatibilityTests
+{
+    private sealed class TestDailyIndex : Foundatio.Repositories.Elasticsearch.Configuration.DailyIndex
+    {
+        public TestDailyIndex(IElasticConfiguration configuration, string name, int version = 1) : base(configuration, name, version) { }
+
+        public DateTime GetIndexDatePublic(string index) => GetIndexDate(index);
+
+        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
+    }
+
+    private sealed class TestVersionedIndex : VersionedIndex
+    {
+        public TestVersionedIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
+
+        public int GetIndexVersionPublic(string name) => GetIndexVersion(name);
+
+        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
+
+        public async Task<IReadOnlyList<string>> GetDiscoveredIndexNamesAsync() => (await GetIndexesAsync()).Select(i => i.Index).ToList();
+    }
+
+    private sealed class TestPlainIndex : Index<object>
+    {
+        public TestPlainIndex(ElasticConfiguration configuration, string name) : base(configuration, name) { }
+
+        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
+    }
+
+    private sealed class StubCompatibilityIndex : Index<object>
+    {
+        private readonly Func<int, Task<IReadOnlyCollection<IndexCompatibilityInfo>>> _resultFactory;
+
+        public StubCompatibilityIndex(IElasticConfiguration configuration, string name,
+            Func<int, Task<IReadOnlyCollection<IndexCompatibilityInfo>>> resultFactory) : base(configuration, name)
+        {
+            _resultFactory = resultFactory;
+        }
+
+        public int CompatibilityChecks { get; private set; }
+
+        public override Task ConfigureAsync() => Task.CompletedTask;
+
+        public override Task MaintainAsync(bool includeOptionalTasks = true) => Task.CompletedTask;
+
+        public override Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+        {
+            CompatibilityChecks++;
+            return _resultFactory(CompatibilityChecks);
+        }
+    }
+
+    private static StubCompatibilityIndex CreateBecomesCompatibleIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "becomes-compatible", checkCount => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+            checkCount is 1
+                ? [new IndexCompatibilityInfo { Name = "becomes-compatible", CreatedMajor = 8, CreatedVersion = "8.0.0", ServerMajor = 9, ServerVersion = "9.0.0" }]
+                : []));
+    }
+
+    private static StubCompatibilityIndex CreateCanceledCompatibilityIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "canceled-compatibility",
+            _ => Task.FromCanceled<IReadOnlyCollection<IndexCompatibilityInfo>>(new CancellationToken(true)));
+    }
+
+    private static StubCompatibilityIndex CreateConflictingDestinationIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "conflicting-destination-v1", _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+        [
+            new IndexCompatibilityInfo { Name = "conflicting-destination-v1", CreatedMajor = 8, CreatedVersion = "8.0.0", ServerMajor = 9, ServerVersion = "9.0.0" },
+            new IndexCompatibilityInfo { Name = "reindexed-v8-conflicting-destination-v1", CreatedMajor = 8, CreatedVersion = "8.0.0", ServerMajor = 9, ServerVersion = "9.0.0" }
+        ]));
+    }
+
+    private static StubCompatibilityIndex CreateCountingCompatibilityIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "counting-compatibility",
+            _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>([]));
+    }
+
+    private static StubCompatibilityIndex CreateUnsupportedCompatibilityIndex(IElasticConfiguration configuration)
+    {
+        return new StubCompatibilityIndex(configuration, "unsupported-compatibility", _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+        [
+            new IndexCompatibilityInfo { Name = "unsupported-compatibility", CreatedMajor = 7, CreatedVersion = "7.17.29", ServerMajor = 9, ServerVersion = "9.5.0" }
+        ]));
+    }
+
+    private static StubCompatibilityIndex CreateStaticCompatibilityIndex(IElasticConfiguration configuration, string name, string source)
+    {
+        return new StubCompatibilityIndex(configuration, name, _ => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
+        [
+            new IndexCompatibilityInfo { Name = source, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" }
+        ]));
+    }
+
+    private sealed class MinimalIndex : IIndex
+    {
+        private readonly Dictionary<string, ICustomFieldType> _customFieldTypes = [];
+
+        public MinimalIndex(IElasticConfiguration configuration, string name)
+        {
+            Configuration = configuration;
+            Name = name;
+        }
+
+        public string Name { get; }
+        public bool HasMultipleIndexes => false;
+        public IElasticQueryBuilder QueryBuilder => throw new NotSupportedException();
+        public ElasticMappingResolver MappingResolver => throw new NotSupportedException();
+        public ElasticQueryParser QueryParser => throw new NotSupportedException();
+        public IElasticConfiguration Configuration { get; }
+        public IDictionary<string, ICustomFieldType> CustomFieldTypes => _customFieldTypes;
+
+        public void ConfigureSettings(ElasticsearchClientSettings settings) { }
+        public Task ConfigureAsync() => Task.CompletedTask;
+        public Task EnsureIndexAsync(object? target) => Task.CompletedTask;
+        public Task MaintainAsync(bool includeOptionalTasks = true) => Task.CompletedTask;
+        public Task DeleteAsync() => Task.CompletedTask;
+        public Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null) => Task.CompletedTask;
+        public string CreateDocumentId(object document) => throw new NotSupportedException();
+        public string[] GetIndexesByQuery(IRepositoryQuery query) => [Name];
+        public string GetIndex(object target) => Name;
+        public void Dispose() { }
+    }
+
+    private sealed class UnparseableVersionElasticConfiguration : ElasticConfiguration
+    {
+        public int RequestCount { get; private set; }
+
+        protected override ElasticsearchClient CreateElasticClient()
+        {
+            byte[] response = Encoding.UTF8.GetBytes("""
+                {
+                  "name": "test-node",
+                  "cluster_name": "test-cluster",
+                  "cluster_uuid": "test-cluster-id",
+                  "version": {
+                    "number": "not-a-version",
+                    "build_flavor": "default",
+                    "build_type": "unknown",
+                    "build_hash": "unknown",
+                    "build_date": "2026-01-01T00:00:00.000Z",
+                    "build_snapshot": false,
+                    "lucene_version": "10.0.0",
+                    "minimum_wire_compatibility_version": "8.0.0",
+                    "minimum_index_compatibility_version": "8.0.0"
+                  },
+                  "tagline": "You Know, for Search"
+                }
+                """);
+            var headers = new Dictionary<string, IEnumerable<string>>
+            {
+                ["x-elastic-product"] = ["Elasticsearch"]
+            };
+            var requestInvoker = new InMemoryRequestInvoker(response, 200, null, "application/json", headers);
+            var settings = new ElasticsearchClientSettings(requestInvoker)
+                .OnRequestCompleted(_ => RequestCount++);
+
+            return new ElasticsearchClient(settings);
+        }
+    }
+
+    private sealed class RequestInvokerElasticConfiguration : ElasticConfiguration
+    {
+        private readonly IRequestInvoker _requestInvoker;
+
+        public RequestInvokerElasticConfiguration(IRequestInvoker requestInvoker)
+        {
+            _requestInvoker = requestInvoker;
+        }
+
+        public int RequestCount { get; private set; }
+        public Uri? LastRequestUri { get; private set; }
+
+        protected override ElasticsearchClient CreateElasticClient()
+        {
+            var settings = new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), _requestInvoker)
+                .OnRequestCompleted(call =>
+                {
+                    RequestCount++;
+                    LastRequestUri = call.Uri;
+                });
+            return new ElasticsearchClient(settings);
+        }
+    }
+
+    private sealed record StubResponse(int StatusCode, string Content, Exception? Exception = null, string? Request = null);
+
+    private sealed class SequenceRequestInvoker : IRequestInvoker
+    {
+        private static readonly Dictionary<string, IEnumerable<string>> _headers = new()
+        {
+            ["x-elastic-product"] = ["Elasticsearch"]
+        };
+
+        private readonly Queue<StubResponse> _responses;
+        private readonly InMemoryRequestInvoker _responseFactory = new();
+
+        public SequenceRequestInvoker(params StubResponse[] responses)
+        {
+            _responses = new Queue<StubResponse>(responses);
+        }
+
+        public ResponseFactory ResponseFactory => _responseFactory.ResponseFactory;
+        public List<string> Requests { get; } = [];
+        public int RemainingResponses => _responses.Count;
+
+        public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
+            where TResponse : TransportResponse, new()
+        {
+            return GetResponse(endpoint).Request<TResponse>(endpoint, boundConfiguration, postData);
+        }
+
+        public Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
+            where TResponse : TransportResponse, new()
+        {
+            return GetResponse(endpoint).RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken);
+        }
+
+        private InMemoryRequestInvoker GetResponse(Endpoint endpoint)
+        {
+            string request = $"{endpoint.Method} {Uri.UnescapeDataString(endpoint.Uri.AbsolutePath)}";
+            Requests.Add(request);
+            if (_responses.Count is 0)
+                throw new InvalidOperationException("No response configured for request.");
+
+            var response = _responses.Dequeue();
+            if (response.Request is not null)
+                global::Xunit.Assert.Equal(response.Request, request);
+            return new InMemoryRequestInvoker(
+                response.Exception is null ? Encoding.UTF8.GetBytes(response.Content) : [],
+                response.StatusCode,
+                response.Exception,
+                "application/json",
+                _headers);
+        }
+
+        public void Dispose()
+        {
+            ((IDisposable)_responseFactory).Dispose();
+        }
+    }
+
+    private sealed record PreCutoverFailureFixture(SequenceRequestInvoker Invoker, ElasticIndexCompatibilityUpgrader Upgrader,
+        Index<object> Index, IndexCompatibilityInfo Compatibility, ThrottlingLockProvider Locks);
+
+    private static PreCutoverFailureFixture CreatePreCutoverFailureFixture(List<StubResponse> responses)
+    {
+        var invoker = new SequenceRequestInvoker([.. responses]);
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
+        var index = new Index<object>(new ElasticConfiguration(), "employees");
+        var locks = new ThrottlingLockProvider(new InMemoryCacheClient());
+        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
+        var compatibility = new IndexCompatibilityInfo { Name = index.Name, CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
+        return new(invoker, upgrader, index, compatibility, locks);
+    }
+}

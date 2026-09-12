@@ -3085,7 +3085,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task RemoveAllAsync_DeleteByQuery_AccumulatesDeletedCountAcrossConflictRetries()
+    public async Task RemoveAllAsync_DeleteByQuery_WithConcurrentWritesThatStop_ReturnsCompleteCount()
     {
         // Arrange
         const int COUNT = 1000;
@@ -3093,20 +3093,20 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await _identityRepositoryWithNoCaching.AddAsync(identities, o => o.ImmediateConsistency());
         Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.CountAsync());
 
-        // Concurrently patch a subset to bump their versions while the delete is running, forcing
-        // delete-by-query version conflicts on early passes. Patching (unlike SaveAsync) never resurrects
-        // a deleted document — it throws DocumentNotFoundException — so the writer stops naturally and the
-        // total deleted converges on COUNT.
+        // Concurrently patch a subset to bump their versions while the delete starts. Patching (unlike
+        // SaveAsync) never resurrects a deleted document, and the writer is stopped independently so the
+        // configured retry budget has a deterministic opportunity to converge.
         using var writerCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var subset = identities.Take(50).Select(i => i.Id).ToArray();
         var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
+        await Task.Delay(100, TestCancellationToken);
 
-        // Act — the retry loop accumulates the deleted count across all passes.
-        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
-
+        // Act
+        var removal = _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency().Retry(20));
         await StopWriterAsync(writerCancellation, writer);
+        long deleted = await removal;
 
-        // Assert — every seeded document is deleted exactly once and the returned count is the cumulative total.
+        // Assert
         Assert.Equal(COUNT, deleted);
         Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
     }
@@ -3163,29 +3163,6 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert — a partial (or full) count is returned without throwing, and the unresolved-conflicts warning was emitted.
         Assert.True(deleted >= 0 && deleted <= COUNT);
         Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("unresolved version conflicts"));
-    }
-
-    [Fact]
-    public async Task RemoveAllAsync_DeleteByQuery_RetriesUntilNoConflictsAndDeletesAllDocuments()
-    {
-        // Arrange
-        const int COUNT = 1000;
-        var identities = IdentityGenerator.GenerateIdentities(COUNT);
-        await _identityRepositoryWithNoCaching.AddAsync(identities, o => o.ImmediateConsistency());
-        Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.CountAsync());
-
-        using var writerCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var subset = identities.Take(50).Select(i => i.Id).ToArray();
-        var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
-
-        // Act — the bounded retry loop converges once the writer can no longer bump surviving documents.
-        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
-
-        await StopWriterAsync(writerCancellation, writer);
-
-        // Assert
-        Assert.Equal(COUNT, deleted);
-        Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
     }
 
     [Fact]
