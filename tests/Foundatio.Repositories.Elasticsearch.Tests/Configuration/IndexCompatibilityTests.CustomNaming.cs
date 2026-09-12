@@ -20,8 +20,10 @@ public partial class IndexCompatibilityTests
     [Fact]
     public void IsNativeIndexName_CanBeOverriddenByExternalSubclasses()
     {
+        // Arrange
         var method = typeof(Configuration.Index).GetMethod("IsNativeIndexName", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
+        // Act & Assert
         Assert.NotNull(method);
         Assert.True(method.IsVirtual && method.IsFamilyOrAssembly, "Custom index implementations must be able to define their exact native-name structure without bypassing compatibility validation.");
     }
@@ -52,6 +54,7 @@ public partial class IndexCompatibilityTests
     [InlineData("tenant-ab", "tenants", 0)]
     public async Task GetIndexCompatibilityAsync_WithCustomPhysicalNames_UsesOwnershipHook(string physicalName, string alias, int expectedCount)
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(
             new StubResponse(200, """{"version":{"number":"9.0.0"}}"""),
             new StubResponse(200, """
@@ -61,8 +64,10 @@ public partial class IndexCompatibilityTests
         using var index = new TenantIndex(configuration);
         configuration.AddIndex(index);
 
+        // Act
         var compatibility = await index.GetIndexCompatibilityAsync(TestContext.Current.CancellationToken);
 
+        // Assert
         Assert.Equal(expectedCount, compatibility.Count);
         Assert.Equal(2, configuration.RequestCount);
         var aliases = new Dictionary<string, Alias> { [alias] = new() };
@@ -75,12 +80,14 @@ public partial class IndexCompatibilityTests
     [Fact]
     public void CustomPhysicalNames_CannotClaimAnotherRegisteredIndex()
     {
+        // Arrange
         using var configuration = new ElasticConfiguration();
         using var index = new TenantIndex(configuration);
         using var other = new Index<object>(configuration, "tenant-a");
         configuration.AddIndex(index);
         configuration.AddIndex(other);
 
+        // Act & Assert: another registered index already claims "tenant-a", so the custom hook must defer to it
         Assert.False(index.MatchesCompatibilitySource("tenant-a", null));
         Assert.Throws<RepositoryException>(() => index.ValidateCompatibilityUpgradeSource("tenant-a", null));
     }
@@ -131,6 +138,7 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task GetIndexesAsync_WithCustomNaming_UsesVirtualDateAndVersionParsers()
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(new StubResponse(200, """
             {"logs-v1-2024.01.01-archive":{"aliases":{"logs-2024.01.01":{},"logs":{}}}}
             """));
@@ -138,6 +146,7 @@ public partial class IndexCompatibilityTests
         using var index = new CustomDateIndex(configuration);
         configuration.AddIndex(index);
 
+        // Act & Assert
         Assert.Equal(1, await index.CountDiscoveredIndexesAsync());
         Assert.Equal(1, configuration.RequestCount);
     }
@@ -147,15 +156,18 @@ public partial class IndexCompatibilityTests
     [InlineData(true)]
     public async Task NormalDiscovery_RequestsOpenAndHiddenButNotClosedIndexes(bool mapping)
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(new StubResponse(200, "{}"));
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
         using var index = new CustomDateIndex(configuration);
 
+        // Act
         if (mapping)
             Assert.Null(index.GetLatestMapping());
         else
             Assert.Equal(0, await index.CountDiscoveredIndexesAsync());
 
+        // Assert
         Assert.NotNull(configuration.LastRequestUri);
         Assert.Contains("expand_wildcards=open,hidden", Uri.UnescapeDataString(configuration.LastRequestUri.Query));
         Assert.Equal(1, configuration.RequestCount);
@@ -164,12 +176,15 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task DeleteAsync_WithWildcard_DoesNotRequestClosedIndexes()
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(new StubResponse(200, "{}"));
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
         using var index = new DailyIndex<object>(configuration, "employees", 1);
 
+        // Act
         await index.DeleteAsync();
 
+        // Assert
         Assert.NotNull(configuration.LastRequestUri);
         Assert.Contains("expand_wildcards=open,hidden", Uri.UnescapeDataString(configuration.LastRequestUri.Query));
         Assert.Equal(1, configuration.RequestCount);
@@ -178,6 +193,7 @@ public partial class IndexCompatibilityTests
     [Fact]
     public void GetLatestIndexMapping_WithCustomNaming_UsesVirtualDateAndVersionParsers()
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(
             new StubResponse(200, """{"logs-v1-2024.01.01-archive":{"aliases":{"logs-2024.01.01":{},"logs":{}}}}"""),
             new StubResponse(200, """{"logs-v1-2024.01.01-archive":{"mappings":{"properties":{"message":{"type":"keyword"}}}}}"""));
@@ -185,8 +201,10 @@ public partial class IndexCompatibilityTests
         using var index = new CustomDateIndex(configuration);
         configuration.AddIndex(index);
 
+        // Act
         var mapping = index.GetLatestMapping();
 
+        // Assert
         Assert.NotNull(mapping);
         Assert.IsType<KeywordProperty>(mapping.Properties!["message"]);
         Assert.Equal(2, configuration.RequestCount);
@@ -197,6 +215,7 @@ public partial class IndexCompatibilityTests
     [InlineData("{\"logs-v1-2024.01.01\":{}}", 1)]
     public async Task GetIndexesAsync_WithGeneratedName_StillRequiresCanonicalAlias(string aliases, int expectedCount)
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(new StubResponse(200, """
             {"reindexed-v9-logs-v1-2024.01.01":{"aliases":ALIASES}}
             """.Replace("ALIASES", aliases, StringComparison.Ordinal)));
@@ -204,6 +223,7 @@ public partial class IndexCompatibilityTests
         using var index = new CustomDateIndex(configuration);
         configuration.AddIndex(index);
 
+        // Act & Assert
         Assert.Equal(expectedCount, await index.CountDiscoveredIndexesAsync());
         Assert.Equal(1, configuration.RequestCount);
     }
@@ -213,6 +233,7 @@ public partial class IndexCompatibilityTests
     [InlineData(true)]
     public async Task RecoverUnderLockAsync_WithOnlyMarkedSource_LeavesAmbiguousStateUntouched(bool blocked)
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(
             new StubResponse(200, """{"version":{"number":"9.0.0"}}"""),
             new StubResponse(200, """
@@ -226,9 +247,11 @@ public partial class IndexCompatibilityTests
         using var configuration = new ElasticConfiguration();
         using var index = new Index<object>(configuration, "employees");
 
+        // Act: only the source is marked, and its write-block state is ambiguous without a matching target
         var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
             recovery.RecoverUnderLockAsync(index, "employees", TestContext.Current.CancellationToken));
 
+        // Assert
         Assert.Contains("ManualIntervention", exception.Message);
         Assert.Equal(["GET", "GET", "GET"], methods);
     }
@@ -236,6 +259,7 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task UpgradeAsync_WhenCreateOutcomeIsUnknownAndTargetAbsent_PreservesWriteFence()
     {
+        // Arrange
         const string info = """{"version":{"number":"9.0.0"}}""";
         const string markedSource = """{"employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{"blocks":{"write":"true"}}}}}""";
         var invoker = new SequenceRequestInvoker(
@@ -262,8 +286,10 @@ public partial class IndexCompatibilityTests
         var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
         var compatibility = new IndexCompatibilityInfo { Name = "employees", CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" };
 
+        // Act: the _create_from response times out, so the create outcome is unknown and the target may or may not exist
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => upgrader.UpgradeAsync(index, compatibility, reindexLock, (_, _) => Task.CompletedTask, CancellationToken.None));
 
+        // Assert
         Assert.Contains("ManualIntervention", exception.Message);
         Assert.Contains("_create_from response was not received", exception.ToString());
         Assert.DoesNotContain("PUT /employees/_settings", requests);
@@ -275,6 +301,7 @@ public partial class IndexCompatibilityTests
     [InlineData("{\"X-Opaque-Id\":\"operator-retry\"}")]
     public async Task InspectAsync_WithUnidentifiedActiveTask_RequiresManualIntervention(string headers)
     {
+        // Arrange
         var invoker = new SequenceRequestInvoker(
             new StubResponse(200, """{"version":{"number":"9.0.0"}}"""),
             new StubResponse(200, """
@@ -295,8 +322,10 @@ public partial class IndexCompatibilityTests
         using var configuration = new ElasticConfiguration();
         using var index = new Index<object>(configuration, "employees");
 
+        // Act: an active reindex task exists but carries no marker identifying it as ours
         var status = await recovery.InspectAsync(index, "employees", TestContext.Current.CancellationToken);
 
+        // Assert
         Assert.Equal(["GET", "GET", "GET"], methods);
         Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
         Assert.Null(status.ActiveReindexTaskCount);

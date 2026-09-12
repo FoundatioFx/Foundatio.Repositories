@@ -18,10 +18,13 @@ public partial class IndexCompatibilityTests
     [Fact]
     public void ReadCompleted_WithIncompletePayload_ReturnsNull()
     {
+        // Arrange
         using var document = JsonDocument.Parse("""{"total":0,"created":0}""");
 
+        // Act
         var result = ElasticReindexTaskResponseReader.ReadCompleted(document.RootElement);
 
+        // Assert
         Assert.Null(result);
     }
 
@@ -63,6 +66,7 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task RunCompatibilityReindexAsync_RequestDoesNotUseAutomaticSlicing()
     {
+        // Arrange
         var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
         var requestInvoker = new InMemoryRequestInvoker(Encoding.UTF8.GetBytes("{}"), 200, null, "application/json", headers);
         string? requestUri = null;
@@ -71,9 +75,11 @@ public partial class IndexCompatibilityTests
         var client = new ElasticsearchClient(settings);
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
+        // Act
         await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
             "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
+        // Assert
         Assert.NotNull(requestUri);
         Assert.StartsWith("/_reindex", requestUri, StringComparison.Ordinal);
         Assert.DoesNotContain("slices=", requestUri, StringComparison.OrdinalIgnoreCase);
@@ -82,6 +88,7 @@ public partial class IndexCompatibilityTests
     [Fact]
     public async Task RunCompatibilityReindexAsync_WhenTerminalResponseHasVersionConflict_RejectsExactCopy()
     {
+        // Arrange
         var requestInvoker = new SequenceRequestInvoker(
             new StubResponse(200, "{\"task\":\"node:1\"}"),
             new StubResponse(200, """
@@ -121,15 +128,18 @@ public partial class IndexCompatibilityTests
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
+        // Act
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => runner.RunCompatibilityReindexAsync(
             "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
+        // Assert
         Assert.Contains("Version conflicts: 1", exception.Message);
     }
 
     [Fact]
     public async Task RunCompatibilityReindexAsync_WhenTaskHasTerminalError_ReportsWireErrorWithoutBufferedBody()
     {
+        // Arrange
         var requestInvoker = new SequenceRequestInvoker(
             new StubResponse(200, "{\"task\":\"node:1\"}"),
             new StubResponse(200, """
@@ -157,9 +167,11 @@ public partial class IndexCompatibilityTests
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
+        // Act
         var exception = await Assert.ThrowsAnyAsync<RepositoryException>(() => runner.RunCompatibilityReindexAsync(
             "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
 
+        // Assert
         Assert.Contains("search_phase_execution_exception: source failed", exception.Message);
     }
 
@@ -252,11 +264,13 @@ public partial class IndexCompatibilityTests
     [Fact]
     public void GetOpaqueId_IsDeterministicAndLineageSpecific()
     {
+        // Arrange & Act
         string first = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
         string repeated = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
         string differentSource = ElasticReindexTaskRunner.GetOpaqueId("employees-v2", "reindexed-v9-employees");
         string differentTarget = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees-v2");
 
+        // Assert
         Assert.Equal(first, repeated);
         Assert.NotEqual(first, differentSource);
         Assert.NotEqual(first, differentTarget);
@@ -269,6 +283,7 @@ public partial class IndexCompatibilityTests
     [InlineData(2, IndexCompatibilityRecoveryAction.ManualIntervention)]
     public async Task InspectAsync_WithExactTaskIdentities_ReportsTaskCount(int exactTaskCount, IndexCompatibilityRecoveryAction expectedAction)
     {
+        // Arrange
         string opaqueId = ElasticReindexTaskRunner.GetOpaqueId("employees", "reindexed-v9-employees");
         var tasks = new Dictionary<string, object>(exactTaskCount);
         for (int id = 1; id <= exactTaskCount; id++)
@@ -305,8 +320,10 @@ public partial class IndexCompatibilityTests
         using var configuration = new ElasticConfiguration();
         using var index = new Index<object>(configuration, "employees");
 
+        // Act
         var status = await recovery.InspectAsync(index, "employees", TestContext.Current.CancellationToken);
 
+        // Assert
         Assert.Equal(exactTaskCount, status.ActiveReindexTaskCount);
         Assert.Equal(expectedAction, status.Action);
     }
