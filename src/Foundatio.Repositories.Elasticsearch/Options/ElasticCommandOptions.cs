@@ -15,6 +15,21 @@ namespace Foundatio.Repositories
         internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
         internal const string TrackTotalHitsKey = "@TrackTotalHits";
+        internal const string ThrowOnMultiGetErrorsKey = "@ThrowOnMultiGetErrors";
+
+        /// <summary>
+        /// Throws a <see cref="DocumentException"/> from <c>GetByIdsAsync</c> when Elasticsearch returns
+        /// an error for any multi-get item, instead of silently treating it like a missing document.
+        /// </summary>
+        /// <remarks>
+        /// For repositories backed by multiple indexes (time-series or parent/child), the throw is deferred
+        /// until after the fallback query, so an item error is only fatal when the document truly cannot be
+        /// resolved. No results are returned and no not-found cache markers are written when this throws.
+        /// </remarks>
+        public static T ThrowOnMultiGetErrors<T>(this T options, bool enabled = true) where T : ICommandOptions
+        {
+            return options.BuildOption(ThrowOnMultiGetErrorsKey, enabled);
+        }
 
         public static T TrackTotalHits<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -151,6 +166,15 @@ namespace Foundatio.Repositories.Options
         public static bool ShouldUseSnapshotPaging(this ICommandOptions options)
         {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SnapshotPagingKey, false);
+        }
+
+        /// <summary>
+        /// Gets whether <c>GetByIdsAsync</c> should throw when a multi-get item reports an error that
+        /// cannot be resolved by the multi-index fallback query. See <see cref="SetElasticOptionsExtensions.ThrowOnMultiGetErrors{T}"/>.
+        /// </summary>
+        public static bool ShouldThrowOnMultiGetErrors(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.ThrowOnMultiGetErrorsKey, false);
         }
 
         public static bool HasSnapshotScrollId(this ICommandOptions options)

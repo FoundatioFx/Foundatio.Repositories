@@ -234,6 +234,10 @@ await repository.RemoveAllAsync(q => q
 // Batch fetch (returns IReadOnlyCollection<T>)
 var employees = await repository.GetByIdsAsync(ids, o => o.Cache());
 
+// Fail the entire read if any Elasticsearch MGET item reports an error
+var requiredEmployees = await repository.GetByIdsAsync(ids,
+    o => o.ThrowOnMultiGetErrors());
+
 // Existence check
 bool exists = await repository.ExistsAsync(id);
 ```
@@ -242,17 +246,18 @@ bool exists = await repository.ExistsAsync(id);
 
 ## Command Options
 
-| Option                          | Purpose                                      |
-| ------------------------------- | -------------------------------------------- |
-| `o => o.Cache()`                | Enable cache read/write                      |
-| `o => o.Cache("key")`           | Cache with specific key                      |
-| `o => o.ImmediateConsistency()` | ES refresh after write (use in tests only)   |
-| `o => o.SearchAfterPaging()`    | Deep pagination with search_after            |
-| `o => o.PageLimit(N)`           | Page size                                    |
-| `o => o.SoftDeleteMode(mode)`   | `ActiveOnly` (default), `All`, `DeletedOnly` |
-| `o => o.Notifications(false)`   | Suppress change notifications                |
-| `o => o.Originals()`            | Track original values for change detection   |
-| `o => o.IncludeSoftDeletes()`   | Include soft-deleted docs in queries         |
+| Option                           | Purpose                                                                                  |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `o => o.Cache()`                 | Enable cache read/write                                                                  |
+| `o => o.Cache("key")`            | Cache with specific key                                                                  |
+| `o => o.ImmediateConsistency()`  | ES refresh after write (use in tests only)                                               |
+| `o => o.SearchAfterPaging()`     | Deep pagination with search_after                                                        |
+| `o => o.PageLimit(N)`            | Page size                                                                                |
+| `o => o.SoftDeleteMode(mode)`    | `ActiveOnly` (default), `All`, `DeletedOnly`                                             |
+| `o => o.Notifications(false)`    | Suppress change notifications                                                            |
+| `o => o.Originals()`             | Track original values for change detection                                               |
+| `o => o.IncludeSoftDeletes()`    | Include soft-deleted docs in queries                                                     |
+| `o => o.ThrowOnMultiGetErrors()` | Fail `GetByIdsAsync` on unresolved MGET item errors (deferred past multi-index fallback) |
 
 ## Index Mapping
 
