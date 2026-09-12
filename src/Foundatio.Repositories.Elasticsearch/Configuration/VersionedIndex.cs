@@ -465,10 +465,12 @@ public class VersionedIndex : Index, IVersionedIndex
         if (state is null || state.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
             return false;
 
-        // Native names use the existing virtual date/version parsers; only wrappers need ownership checks.
         ReadOnlySpan<char> name = indexName;
-        return (name.StartsWith(Name.AsSpan(), StringComparison.Ordinal) && name[Name.Length..].StartsWith("-v", StringComparison.Ordinal))
-            || MatchesCompatibilitySource(indexName, state.Aliases);
+        bool looksNative = name.StartsWith(Name.AsSpan(), StringComparison.Ordinal) && name[Name.Length..].StartsWith("-v", StringComparison.Ordinal);
+        if (looksNative)
+            return !IsNativelyClaimedByOtherConfiguredIndex(name);
+
+        return MatchesCompatibilitySource(indexName, state.Aliases);
     }
 
     protected virtual DateTime GetIndexDate(string name)

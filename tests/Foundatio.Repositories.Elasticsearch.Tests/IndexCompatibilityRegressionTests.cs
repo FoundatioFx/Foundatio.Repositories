@@ -86,6 +86,49 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task GetIndexesAsync_DoesNotDiscoverPhysicalIndexOwnedByRegisteredSiblingWithPrefixedName()
+    {
+        // Arrange
+        var invoker = new SequenceRequestInvoker(new StubResponse(200, """
+            {"events-v1":{"aliases":{"events":{}}},"events-v2-v1":{"aliases":{"events-v2":{}}}}
+            """));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        var events = new TestVersionedIndex(configuration, "events", 1);
+        using var eventsV2 = new VersionedIndex<object>(configuration, "events-v2", 1);
+        configuration.AddIndex(events);
+        configuration.AddIndex(eventsV2);
+
+        // Act
+        var discovered = await events.GetDiscoveredIndexNamesAsync();
+
+        // Assert
+        Assert.Equal(["events-v1"], discovered);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WithExactNameCollidingWithSiblingAlias_RejectsInsteadOfDeletingSibling()
+    {
+        // Arrange
+        var invoker = new SequenceRequestInvoker(
+            new StubResponse(400, """
+                {"error":{"type":"illegal_argument_exception","reason":"index [events] matches an alias, specify the corresponding concrete indices instead."},"status":400}
+                """),
+            new StubResponse(200, """{"events-v2-v1":{"aliases":{"events":{}}}}"""));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        using var events = new Index<object>(configuration, "events");
+        using var eventsV2 = new VersionedIndex<object>(configuration, "events-v2", 1);
+        configuration.AddIndex(events);
+        configuration.AddIndex(eventsV2);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() => events.DeleteAsync());
+
+        // Assert
+        Assert.Contains("events-v2-v1", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(2, configuration.RequestCount);
+    }
+
+    [Fact]
     public async Task GetIndexesAsync_WithCustomNaming_UsesVirtualDateAndVersionParsers()
     {
         var invoker = new SequenceRequestInvoker(new StubResponse(200, """

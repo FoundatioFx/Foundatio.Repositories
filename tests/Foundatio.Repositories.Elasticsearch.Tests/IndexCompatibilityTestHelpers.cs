@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,6 +31,8 @@ public partial class IndexCompatibilityTests
         public int GetIndexVersionPublic(string name) => GetIndexVersion(name);
 
         public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
+
+        public async Task<IReadOnlyList<string>> GetDiscoveredIndexNamesAsync() => (await GetIndexesAsync()).Select(i => i.Index).ToList();
     }
 
     private sealed class TestPlainIndex : Index<object>

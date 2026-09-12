@@ -336,6 +336,11 @@ public class Index : IIndexCompatibility, IHaveLogger
                 _logger.LogRequest(getResponse);
                 foreach (var resolvedIndex in getResponse.Indices)
                 {
+                    // A broad wildcard can legitimately match physical names owned by another registered
+                    // index; skip those instead of deleting them, rather than treating the whole batch as unsafe.
+                    if (IsNativelyClaimedByOtherConfiguredIndex(resolvedIndex.Key.AsSpan()))
+                        continue;
+
                     ValidateCompatibilityDeleteTarget(resolvedIndex.Key, resolvedIndex.Value?.Aliases);
                     indexNames.Add(resolvedIndex.Key);
                 }
@@ -470,7 +475,12 @@ public class Index : IIndexCompatibility, IHaveLogger
     {
         ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(concreteIndex, Name);
         if (canonicalName.Length == concreteIndex.Length)
+        {
+            if (IsNativelyClaimedByOtherConfiguredIndex(canonicalName))
+                throw new RepositoryException($"Index '{concreteIndex}' belongs to another registered index and cannot be deleted through '{Name}'.");
+
             return canonicalName;
+        }
 
         string canonicalAlias = canonicalName.ToString();
         if (!aliases.HasCanonicalCompatibilityAlias(canonicalAlias))
@@ -650,7 +660,7 @@ public class Index : IIndexCompatibility, IHaveLogger
             && !IsNativelyClaimedByOtherConfiguredIndex(candidate);
     }
 
-    private bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate)
+    private protected bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate)
     {
         bool mineIsExact = candidate.Equals(Name.AsSpan(), StringComparison.Ordinal);
         foreach (IIndex other in Configuration.Indexes)
