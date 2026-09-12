@@ -931,8 +931,3 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         Uncertain
     }
 }
-
-internal sealed class ElasticCompatibilityOperationUncertainException : RepositoryException
-{
-    public ElasticCompatibilityOperationUncertainException(string message, Exception innerException) : base(message, innerException) { }
-}

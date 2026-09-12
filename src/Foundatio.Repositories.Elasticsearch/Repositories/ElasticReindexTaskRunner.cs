@@ -230,8 +230,3 @@ internal sealed class ElasticReindexTaskRunner
 }
 
 internal readonly record struct ElasticReindexTaskResult(long Total, long Created);
-
-internal sealed class ElasticReindexTaskUncertainException : RepositoryException
-{
-    public ElasticReindexTaskUncertainException(string message, Exception innerException) : base(message, innerException) { }
-}
