@@ -354,10 +354,16 @@ public class VersionedIndex : Index, IVersionedIndex
         }
         catch (LockAcquisitionTimeoutException)
         {
-            // How the real providers report contention. Losing the race is the lock working, not a failure:
-            // the holder is migrating this index, so this caller has nothing to do. Left to propagate it would
-            // surface as a failed migration - and ElasticConfiguration.ReindexAsync now aggregates and throws,
-            // so two instances starting together would fail startup on whichever one lost.
+            // How the real providers report contention. They also report caller cancellation this way:
+            // CacheLockProvider swallows the OperationCanceledException raised while waiting, returns null, and
+            // AcquireAsync turns that null into this exception. So the caller's token has to be inspected here -
+            // the OperationCanceledException filter below is never reached for provider-reported denial.
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Losing the race is the lock working, not a failure: the holder is migrating this index, so this
+            // caller has nothing to do. Left to propagate it would surface as a failed migration - and
+            // ElasticConfiguration.ReindexAsync now aggregates and throws, so two instances starting together
+            // would fail startup on whichever one lost.
             _logger.LogInformation("Skipping reindex of {Index}: lock {LockKey} is held, so another migration is in progress.", Name, lockKey);
             return null;
         }
@@ -373,6 +379,9 @@ public class VersionedIndex : Index, IVersionedIndex
         // never to a NullReferenceException at the first RenewAsync.
         if (reindexLock is null)
         {
+            // Same reasoning as above: a null return can mean the caller cancelled, not just that the lock is held.
+            cancellationToken.ThrowIfCancellationRequested();
+
             _logger.LogWarning("Skipping reindex of {Index}: could not acquire lock {LockKey} within the timeout. Another migration is likely in progress.", Name, lockKey);
             return null;
         }

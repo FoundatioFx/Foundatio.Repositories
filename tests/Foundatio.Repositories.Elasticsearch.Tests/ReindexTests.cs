@@ -2342,6 +2342,59 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     /// <summary>
+    /// Cancelling a reindex must surface as cancellation, not as a benign "another migration is in progress" skip.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The acquire timeout is expressed as a token linked to the caller's, so cancellation and timeout arrive as
+    /// the same signal. Foundatio's <c>CacheLockProvider</c> swallows the <see cref="OperationCanceledException"/>
+    /// raised while waiting and returns <c>null</c>, which <c>AcquireAsync</c> then converts into
+    /// <see cref="LockAcquisitionTimeoutException"/>. Catching that as contention therefore also catches host
+    /// cancellation, and <c>ReindexAsync</c> returns normally — the caller cannot distinguish "shutting down"
+    /// from "already migrated", and the log claims a migration is in progress when none is.
+    /// </para>
+    /// <para>
+    /// The lock is held by someone else here so the acquire genuinely has to wait, which is the only state in
+    /// which the caller's cancellation can be observed mid-acquisition.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ReindexAsync_WhenCancelledWhileWaitingForLock_ThrowsInsteadOfSkipping()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await version1Index.DeleteAsync();
+            await version2Index.DeleteAsync();
+        });
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(_configuration);
+        await repository.AddAsync(EmployeeGenerator.GenerateEmployees(5), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        // Hold the lock so the reindex has to wait, giving cancellation a window to be observed.
+        string lockKey = ElasticReindexer.GetLockName(version2Index.Name);
+        await using var externalLock = await _configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(1), TestCancellationToken);
+        Assert.NotNull(externalLock);
+
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.CancelAfter(TimeSpan.FromMilliseconds(250));
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => version2Index.ReindexAsync(cancellationToken: cancellationSource.Token));
+
+        // Assert - cancellation is reported as cancellation, not swallowed as contention
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+    }
+
+    /// <summary>
     /// Alias metadata must survive the cutover.
     /// </summary>
     /// <remarks>
