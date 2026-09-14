@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -182,23 +183,12 @@ public class ElasticReindexer
 
         await progressCallbackAsync(91, $"Total: {firstPassResult.Total:N0} Completed: {firstPassResult.Completed:N0}").AnyContext();
 
-        // Enforced BEFORE any alias changes. When the catch-up pass cannot run, the only way to keep the
-        // promise the cutover implies is to not make it: if the source changed during the copy, those changes
-        // cannot be found again, so promoting the destination would silently serve an incomplete index. This
-        // deliberately runs pre-Switch - turning the old post-cutover warning into a post-cutover exception
-        // would report the failure without preventing it, since the alias has already moved.
-        await EnsureCatchUpPossibleAsync(workItem, catchUpPlan, cancellationToken).AnyContext();
+        bool countsVerified;
 
-        if (workItem.OldIndex != workItem.NewIndex)
-            await SwitchAliasesAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
-
-        if (catchUpPlan.CanCatchUp)
-            await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, cancellationToken).AnyContext();
-
-        // Verify the destination isn't short of the source on every reindex, not only when the old index
-        // happens to be scheduled for deletion - the shortfall gate used to live inside the delete branch, so
-        // a DeleteOld = false reindex was never checked at all.
-        bool countsVerified = await VerifyDocumentCountsAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
+        if (workItem.QuiesceSource && workItem.OldIndex != workItem.NewIndex)
+            countsVerified = await ReconcileThenPromoteAsync(workItem, progressCallbackAsync, catchUpPlan, cancellationToken).AnyContext();
+        else
+            countsVerified = await PromoteThenReconcileAsync(workItem, progressCallbackAsync, catchUpPlan, startTime, cancellationToken).AnyContext();
 
         // Recorded here because every step that can fail the migration has now succeeded, and deliberately
         // before the queue item is acknowledged and before the source is deleted. Writing it any earlier would
@@ -213,6 +203,77 @@ public class ElasticReindexer
             await DeleteOldIndexAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
         await progressCallbackAsync(100, "Reindex complete").AnyContext();
+    }
+
+    /// <summary>
+    /// The historical ordering: promote the alias, then reconcile. Retained as the default because the
+    /// alternative blocks writes to the source.
+    /// </summary>
+    /// <remarks>
+    /// Everything reconciled here happens after traffic has already moved, so live writes and the catch-up pass
+    /// can interfere. See <see cref="ReindexWorkItem.QuiesceSource"/> for what that costs and
+    /// <see cref="VerifyDocumentCountsAsync"/> for why verification cannot fail the migration in this ordering.
+    /// </remarks>
+    private async Task<bool> PromoteThenReconcileAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CatchUpPlan catchUpPlan, DateTime startTime, CancellationToken cancellationToken)
+    {
+        // Enforced BEFORE any alias changes. When the catch-up pass cannot run, the only way to keep the
+        // promise the cutover implies is to not make it: if the source changed during the copy, those changes
+        // cannot be found again, so promoting the destination would silently serve an incomplete index. This
+        // deliberately runs pre-Switch - turning the old post-cutover warning into a post-cutover exception
+        // would report the failure without preventing it, since the alias has already moved.
+        await EnsureCatchUpPossibleAsync(workItem, catchUpPlan, startTime, cancellationToken).AnyContext();
+
+        if (workItem.OldIndex != workItem.NewIndex)
+            await SwitchAliasesAsync(workItem, progressCallbackAsync, 92, cancellationToken).AnyContext();
+
+        if (catchUpPlan.CanCatchUp)
+            await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, 93, 96, cancellationToken).AnyContext();
+
+        // Verify the destination isn't short of the source on every reindex, not only when the old index
+        // happens to be scheduled for deletion - the shortfall gate used to live inside the delete branch, so
+        // a DeleteOld = false reindex was never checked at all.
+        return await VerifyDocumentCountsAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
+    }
+
+    /// <summary>
+    /// Blocks writes to the source, reconciles the copy against a source that can no longer change, verifies the
+    /// result, and only then promotes the alias.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The ordering is the entire point. Because nothing can write to the source once it is blocked, the catch-up
+    /// pass can be repeated until it reports no further changes, and that convergence is proof - independent of
+    /// timestamps or id formats - that the destination has everything the source has. Verification can therefore be
+    /// a hard gate rather than an advisory count comparison, because a shortfall here cannot be explained away by
+    /// live traffic.
+    /// </para>
+    /// <para>
+    /// The block is released in a <c>finally</c> so a failure anywhere in between cannot leave the source
+    /// read-only. Release happens before cleanup, so the source is writable again even if it is about to be
+    /// deleted - deletion is best-effort and may not happen at all.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> ReconcileThenPromoteAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CatchUpPlan catchUpPlan, CancellationToken cancellationToken)
+    {
+        var writeBlock = await IndexWriteBlock.ApplyAsync(_client, workItem.OldIndex, _logger, cancellationToken).AnyContext();
+        try
+        {
+            await progressCallbackAsync(92, $"Blocked writes to {workItem.OldIndex} to reconcile the copy").AnyContext();
+
+            await ConvergeCatchUpAsync(workItem, progressCallbackAsync, catchUpPlan, cancellationToken).AnyContext();
+
+            await ReconcileDeletesAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
+
+            await EnsureDocumentCountsMatchAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
+
+            await SwitchAliasesAsync(workItem, progressCallbackAsync, 99, cancellationToken).AnyContext();
+
+            return true;
+        }
+        finally
+        {
+            await writeBlock.DisposeAsync().AnyContext();
+        }
     }
 
     /// <summary>
@@ -259,8 +320,13 @@ public class ElasticReindexer
                 return new CatchUpPlan(CanCatchUp: false, SourceIsEmpty: true);
 
             case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out _):
+                // A baseline is recorded here too, even though this branch *can* catch up. The ObjectId catch-up
+                // ranges on the id, which encodes only *creation* time, so it finds documents created during the
+                // copy but is blind to an in-place update of an older document, and to a delete. The baseline is
+                // what lets the guard tell those apart afterwards.
+                long? objectIdMaxSeqNo = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
                 _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
-                return new CatchUpPlan(CanCatchUp: true);
+                return new CatchUpPlan(CanCatchUp: true, StartingMaxSequenceNumber: objectIdMaxSeqNo, SequenceNumberReadable: objectIdMaxSeqNo.HasValue, CatchUpIsCreationTimeOnly: true);
 
             case SampleIdStatus.Found:
                 // The one case that genuinely cannot catch up. Record the source's sequence number so the
@@ -302,9 +368,18 @@ public class ElasticReindexer
     /// <exception cref="ReindexIncompleteException">
     /// The source changed during the copy and those changes cannot be found again.
     /// </exception>
-    private async Task EnsureCatchUpPossibleAsync(ReindexWorkItem workItem, CatchUpPlan plan, CancellationToken cancellationToken)
+    private async Task EnsureCatchUpPossibleAsync(ReindexWorkItem workItem, CatchUpPlan plan, DateTime startTime, CancellationToken cancellationToken)
     {
-        if (plan.CanCatchUp || plan.SourceIsEmpty || plan.InPlace)
+        if (plan.SourceIsEmpty || plan.InPlace)
+            return;
+
+        if (plan.CatchUpIsCreationTimeOnly)
+        {
+            await EnsureNoUncatchableChangesAsync(workItem, plan, startTime, cancellationToken).AnyContext();
+            return;
+        }
+
+        if (plan.CanCatchUp)
             return;
 
         if (!plan.SequenceNumberReadable)
@@ -325,26 +400,495 @@ public class ElasticReindexer
     }
 
     /// <summary>
+    /// Refuses to promote an ObjectId-based migration whose source was changed in a way the catch-up pass cannot
+    /// express.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The ObjectId catch-up ranges on <c>_id &gt;= ObjectId(startTime)</c>, and an ObjectId encodes the time the
+    /// document was <em>created</em>. Documents created during the copy are therefore caught up correctly, which is
+    /// the common case for the append-heavy models that use these ids. What it cannot see is a change to a document
+    /// that already existed: an in-place update keeps its old id, so it falls outside the range and is silently lost,
+    /// and a delete cannot be expressed by a copy at all.
+    /// </para>
+    /// <para>
+    /// Rather than refuse on any sequence-number advance - which would fail the ordinary case of documents being
+    /// created during a copy, and make this branch unusable - the changed documents are identified precisely. Every
+    /// document whose sequence number advanced past the baseline is examined, and only the ones whose id predates
+    /// the copy are a problem, because those are exactly the ones the catch-up range will miss. This keeps the
+    /// refusal free of false positives: a source that only received new documents still migrates.
+    /// </para>
+    /// <para>
+    /// A delete cannot be detected this way, since a deleted document has no sequence number left to find. That
+    /// remains a real gap on this path and is the reason the refusal message points at
+    /// <see cref="ReindexWorkItem.QuiesceSource"/>, which closes it structurally.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ReindexIncompleteException">
+    /// A pre-existing document was modified during the copy, so the catch-up pass cannot recover the change.
+    /// </exception>
+    private async Task EnsureNoUncatchableChangesAsync(ReindexWorkItem workItem, CatchUpPlan plan, DateTime startTime, CancellationToken cancellationToken)
+    {
+        if (!plan.SequenceNumberReadable || plan.StartingMaxSequenceNumber is null)
+        {
+            _logger.LogWarning(
+                "Reindex {OldIndex} -> {NewIndex}: Could not read the source's sequence numbers, so an in-place update during the copy cannot be ruled out. The catch-up pass finds documents by creation time only. Set QuiesceSource to block writes and reconcile before promoting if this index is updated in place.",
+                workItem.OldIndex, workItem.NewIndex);
+            return;
+        }
+
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+
+        var changed = await GetIdsChangedSinceAsync(workItem.OldIndex, plan.StartingMaxSequenceNumber.Value, cancellationToken).AnyContext();
+        if (changed is null)
+        {
+            _logger.LogWarning(
+                "Reindex {OldIndex} -> {NewIndex}: Could not determine which documents changed during the copy, so an in-place update cannot be ruled out. Set QuiesceSource if this index is updated in place.",
+                workItem.OldIndex, workItem.NewIndex);
+            return;
+        }
+
+        // The watermark the catch-up pass will use, derived from the same instant so this check and the catch-up
+        // range agree exactly. An id at or above it is reachable by the catch-up; an id below it belongs to a
+        // document that already existed and so will not be found again.
+        string watermark = ObjectId.GenerateNewId(startTime).ToString();
+
+        var unreachable = changed
+            .Where(id => String.Compare(id, watermark, StringComparison.Ordinal) < 0)
+            .ToList();
+
+        if (unreachable.Count is 0)
+        {
+            _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: {Changed:N0} document(s) changed during the copy and all of them are reachable by the catch-up pass.",
+                workItem.OldIndex, workItem.NewIndex, changed.Count);
+            return;
+        }
+
+        throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+            $"{unreachable.Count:N0} document(s) that already existed in {workItem.OldIndex} were modified during the copy (for example {unreachable[0]}). The catch-up pass finds documents by the creation time encoded in their ObjectId ids, so it cannot recover an update to a document created before the migration started, and promoting {workItem.NewIndex} would silently lose those changes. Refusing to promote; {workItem.OldIndex} is unchanged and still serving the alias. Set QuiesceSource on the reindex to block writes to the source and reconcile the copy before promoting, add a timestamp field to the model, or stop writes for the duration of the migration.");
+    }
+
+    /// <summary>
+    /// Returns the ids of documents whose sequence number advanced past <paramref name="baseline"/>, or
+    /// <c>null</c> if that could not be determined.
+    /// </summary>
+    private async Task<List<string>?> GetIdsChangedSinceAsync(string index, long baseline, CancellationToken cancellationToken)
+    {
+        var response = await _client.Transport
+            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, $"/{index}/_search?_source=false",
+                PostData.String($"{{\"size\":{CHANGED_ID_SAMPLE_SIZE},\"query\":{{\"range\":{{\"_seq_no\":{{\"gt\":{baseline}}}}}}}}}"), cancellationToken)
+            .AnyContext();
+
+        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true || String.IsNullOrEmpty(response.Body))
+            return null;
+
+        try
+        {
+            var ids = new List<string>();
+            using var document = JsonDocument.Parse(response.Body);
+
+            if (!document.RootElement.TryGetProperty("hits", out var hits) || !hits.TryGetProperty("hits", out var hitArray))
+                return null;
+
+            foreach (var hit in hitArray.EnumerateArray())
+            {
+                if (hit.TryGetProperty("_id", out var id) && id.GetString() is { } value)
+                    ids.Add(value);
+            }
+
+            return ids;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// How many changed ids are examined. The check only needs to find one unreachable document to refuse, so this
+    /// bounds the work rather than limiting correctness.
+    /// </summary>
+    private const int CHANGED_ID_SAMPLE_SIZE = 1000;
+
+    /// <summary>
     /// Whether a reindex can catch up writes that land during the copy, plus the evidence needed to tell
     /// whether any did.
     /// </summary>
+    /// <remarks>
+    /// <c>CatchUpIsCreationTimeOnly</c> means the catch-up pass can only find documents by <em>creation</em> time,
+    /// so it cannot express an in-place update of a pre-existing document or a delete. It is set for the ObjectId
+    /// branch, where the range is on the id itself.
+    /// </remarks>
     private sealed record CatchUpPlan(
         bool CanCatchUp,
         bool SourceIsEmpty = false,
         long? StartingMaxSequenceNumber = null,
         bool SequenceNumberReadable = false,
-        bool InPlace = false);
+        bool InPlace = false,
+        bool CatchUpIsCreationTimeOnly = false);
 
     /// <summary>
     /// Copies documents written to the source while the first pass was running. Throws if this pass does not
     /// complete, so a reindex that skipped the catch-up is never reported as successful.
     /// </summary>
-    private async Task RunCatchUpPassAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, DateTime startTime, CancellationToken cancellationToken)
+    private async Task<ReindexResult> RunCatchUpPassAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, DateTime? startTime, int startProgress, int endProgress, CancellationToken cancellationToken)
     {
-        var result = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime, cancellationToken).AnyContext();
+        var result = await InternalReindexAsync(workItem, progressCallbackAsync, startProgress, endProgress, startTime, cancellationToken).AnyContext();
         EnsureCopyCompleted(workItem, result);
 
-        await progressCallbackAsync(97, $"Total: {result.Total:N0} Completed: {result.Completed:N0}").AnyContext();
+        await progressCallbackAsync(endProgress + 1, $"Total: {result.Total:N0} Completed: {result.Completed:N0}").AnyContext();
+
+        return result;
+    }
+
+    /// <summary>
+    /// The number of settle checks made against a blocked source before giving up.
+    /// </summary>
+    /// <remarks>
+    /// A blocked source should already be settled on the first check. The allowance exists only so a write accepted
+    /// a moment before the block landed does not fail the migration. Needing more than this means the source is
+    /// still changing, which contradicts the block and must be surfaced rather than looped on.
+    /// </remarks>
+    private const int MAX_SETTLE_CHECKS = 5;
+
+    /// <summary>
+    /// Reconciles the copy against a blocked source by rescanning the whole source once it has stopped changing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Settling is proven by the source's sequence number, not by the copy's own counters. Reindex reports a
+    /// document as <c>updated</c> whenever it rewrites it, even when the content is byte-for-byte identical, so
+    /// "the last pass copied nothing" is not a state a rescan can ever reach - verified against a live cluster.
+    /// The source's max <c>_seq_no</c>, by contrast, advances on every insert, update, and delete and goes still
+    /// the moment writes are blocked, which is exactly the property needed.
+    /// </para>
+    /// <para>
+    /// The reconcile pass then deliberately rescans the <em>whole</em> source rather than a time range. That is what
+    /// catches the changes no range query can express: an in-place update to an old document whose timestamp did
+    /// not move, and an update to a document whose ObjectId id encodes only its creation time. Rescanning is
+    /// affordable here because it happens once, against a source that cannot change while it runs.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ReindexIncompleteException">
+    /// The source kept changing despite the block, so the copy could not be proven complete.
+    /// </exception>
+    private async Task ConvergeCatchUpAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CatchUpPlan catchUpPlan, CancellationToken cancellationToken)
+    {
+        if (catchUpPlan.SourceIsEmpty)
+            _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index was empty when planning; reconciling anyway in case it was written to before the block landed.",
+                workItem.OldIndex, workItem.NewIndex);
+
+        await EnsureSourceHasSettledAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
+
+        // startTime is intentionally not used to narrow this pass. See the remarks above.
+        var result = await RunCatchUpPassAsync(workItem, progressCallbackAsync, null, 92, 95, cancellationToken).AnyContext();
+
+        _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Reconciled the copy against the blocked source ({Created:N0} created, {Updated:N0} rewritten of {Total:N0} matched).",
+            workItem.OldIndex, workItem.NewIndex, result.Created, result.Updated, result.Total);
+    }
+
+    /// <summary>
+    /// Waits until the blocked source's sequence number stops advancing.
+    /// </summary>
+    /// <remarks>
+    /// The block is applied with cross-shard acknowledgement, so in practice the source is already still by the time
+    /// this runs and the first check passes. It exists to close the narrow race where a write was accepted just
+    /// before the block took effect, and to fail loudly rather than silently reconcile against a moving source if
+    /// the block somehow is not holding.
+    /// </remarks>
+    private async Task EnsureSourceHasSettledAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    {
+        long? previous = null;
+
+        for (int check = 1; check <= MAX_SETTLE_CHECKS; check++)
+        {
+            await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+            long? current = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
+
+            if (current is null)
+                throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                    $"Writes to {workItem.OldIndex} are blocked but its sequence numbers could not be read, so it could not be confirmed to have stopped changing. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
+
+            if (current == previous)
+                return;
+
+            if (previous is not null)
+                _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source sequence number moved from {Previous:N0} to {Current:N0} after the write block was applied; re-checking before reconciling.",
+                    workItem.OldIndex, workItem.NewIndex, previous, current);
+
+            previous = current;
+
+            // Keeps the caller's reindex lock renewed across the checks.
+            await progressCallbackAsync(92, $"Waiting for {workItem.OldIndex} to settle before reconciling").AnyContext();
+        }
+
+        throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+            $"{workItem.OldIndex} kept changing across {MAX_SETTLE_CHECKS} checks even though writes to it are blocked, so the copy to {workItem.NewIndex} could not be proven complete. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
+    }
+
+    /// <summary>
+    /// The number of destination documents examined per batch when reconciling deletes.
+    /// </summary>
+    private const int DELETE_RECONCILE_BATCH_SIZE = 1000;
+
+    /// <summary>
+    /// Removes documents from the destination that no longer exist in the blocked source.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The copy cannot express a delete: no reindex slicing mode has a way to say "this document is gone". So a
+    /// document the first pass copied and that was then deleted from the source survives in the destination, and
+    /// promoting it would silently resurrect it. Re-running the copy does not help, because the copy only ever adds
+    /// and overwrites.
+    /// </para>
+    /// <para>
+    /// Once the source is blocked and settled it is authoritative, so the discrepancy can be repaired directly:
+    /// anything in the destination that is absent from the source was deleted during the copy and is deleted here
+    /// too. This only runs when the destination holds more documents than the source, which is the only way a
+    /// delete can manifest, so the ordinary migration pays nothing for it.
+    /// </para>
+    /// <para>
+    /// Deleting is safe specifically because the alias has not moved yet: the destination is not serving traffic and
+    /// holds nothing but what this migration copied into it, so there is no live write here to destroy.
+    /// </para>
+    /// <para>
+    /// Skipped when a script is in play: a script can legitimately drop documents with <c>ctx.op = 'noop'</c>, so
+    /// "in the destination but not the source" stops being reliable evidence of a delete.
+    /// </para>
+    /// </remarks>
+    private async Task ReconcileDeletesAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    {
+        if (!String.IsNullOrEmpty(workItem.Script))
+            return;
+
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+
+        long sourceCount = await GetDocumentCountAsync(workItem.OldIndex, cancellationToken).AnyContext();
+        long destinationCount = await GetDocumentCountAsync(workItem.NewIndex, cancellationToken).AnyContext();
+
+        if (destinationCount <= sourceCount)
+            return;
+
+        _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Destination holds {DestinationCount:N0} document(s) but the blocked source holds {SourceCount:N0}, so documents were deleted during the copy. Reconciling.",
+            workItem.OldIndex, workItem.NewIndex, destinationCount, sourceCount);
+
+        long deleted = 0;
+        long examined = 0;
+        string? scrollId = null;
+
+        try
+        {
+            while (true)
+            {
+                var (ids, nextScrollId) = await GetNextDestinationIdBatchAsync(workItem.NewIndex, scrollId, cancellationToken).AnyContext();
+                scrollId = nextScrollId;
+
+                if (ids.Count is 0)
+                    break;
+
+                examined += ids.Count;
+
+                var missing = await GetIdsMissingFromSourceAsync(workItem.OldIndex, ids, cancellationToken).AnyContext();
+                if (missing.Count > 0)
+                {
+                    await DeleteDocumentsAsync(workItem, missing, cancellationToken).AnyContext();
+                    deleted += missing.Count;
+                }
+
+                // Reported every batch, not just at the end. Callers renew the reindex lock on each progress
+                // report, so a long scan here would otherwise let the lock expire underneath the migration.
+                await progressCallbackAsync(96, $"Reconciling deletes: examined {examined:N0} of {destinationCount:N0}, removed {deleted:N0}").AnyContext();
+            }
+        }
+        finally
+        {
+            await ClearScrollAsync(scrollId, cancellationToken).AnyContext();
+        }
+
+        _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Removed {Deleted:N0} document(s) from the destination that had been deleted from the source during the copy.",
+            workItem.OldIndex, workItem.NewIndex, deleted);
+
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+        await progressCallbackAsync(96, $"Reconciled {deleted:N0} delete(s) that happened during the copy").AnyContext();
+    }
+
+    /// <summary>
+    /// Reads the next page of destination ids.
+    /// </summary>
+    /// <remarks>
+    /// Paged with a scroll rather than <c>search_after</c>. A scroll is a point-in-time snapshot, so it is unaffected
+    /// by the deletes this loop is issuing against the very index it is reading. The obvious alternatives do not
+    /// work here: sorting on <c>_id</c> is rejected outright (<c>Fielddata access on the _id field is disallowed</c>)
+    /// and <c>_doc</c> sort values are only unique within a shard, so they cannot page a multi-shard index.
+    /// </remarks>
+    private async Task<(List<string> Ids, string? ScrollId)> GetNextDestinationIdBatchAsync(string index, string? scrollId, CancellationToken cancellationToken)
+    {
+        StringResponse response;
+        if (scrollId is null)
+        {
+            response = await _client.Transport
+                .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, $"/{index}/_search?scroll={SCROLL_KEEP_ALIVE}",
+                    PostData.String($"{{\"size\":{DELETE_RECONCILE_BATCH_SIZE},\"_source\":false}}"), cancellationToken)
+                .AnyContext();
+        }
+        else
+        {
+            response = await _client.Transport
+                .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, "/_search/scroll",
+                    PostData.String($"{{\"scroll\":\"{SCROLL_KEEP_ALIVE}\",\"scroll_id\":{JsonSerializer.Serialize(scrollId)}}}"), cancellationToken)
+                .AnyContext();
+        }
+
+        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
+            throw new RepositoryException($"Error reading document ids from {index} while reconciling deletes: the request failed with status {response.ApiCallDetails?.HttpStatusCode?.ToString() ?? "unknown"}.");
+
+        var ids = new List<string>(DELETE_RECONCILE_BATCH_SIZE);
+        using var document = JsonDocument.Parse(response.Body!);
+        var root = document.RootElement;
+
+        string? nextScrollId = root.TryGetProperty("_scroll_id", out var scrollIdElement) ? scrollIdElement.GetString() : scrollId;
+
+        if (!root.TryGetProperty("hits", out var hits) || !hits.TryGetProperty("hits", out var hitArray))
+            return (ids, nextScrollId);
+
+        foreach (var hit in hitArray.EnumerateArray())
+        {
+            if (hit.TryGetProperty("_id", out var id) && id.GetString() is { } value)
+                ids.Add(value);
+        }
+
+        return (ids, nextScrollId);
+    }
+
+    private const string SCROLL_KEEP_ALIVE = "2m";
+
+    /// <summary>
+    /// Releases the scroll context. Best effort: it expires on its own, so a failure here is not worth failing a
+    /// migration that has otherwise succeeded.
+    /// </summary>
+    private async Task ClearScrollAsync(string? scrollId, CancellationToken cancellationToken)
+    {
+        if (scrollId is null)
+            return;
+
+        try
+        {
+            await _client.Transport
+                .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.DELETE, "/_search/scroll",
+                    PostData.String($"{{\"scroll_id\":{JsonSerializer.Serialize(scrollId)}}}"), cancellationToken)
+                .AnyContext();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not clear the scroll used to reconcile deletes; it will expire on its own.");
+        }
+    }
+
+    /// <summary>
+    /// Returns the subset of <paramref name="ids"/> that no longer exists in the source.
+    /// </summary>
+    private async Task<List<string>> GetIdsMissingFromSourceAsync(string index, List<string> ids, CancellationToken cancellationToken)
+    {
+        var request = new StringBuilder("{\"ids\":[");
+        for (int i = 0; i < ids.Count; i++)
+        {
+            if (i > 0)
+                request.Append(',');
+
+            request.Append(JsonSerializer.Serialize(ids[i]));
+        }
+        request.Append("]}");
+
+        // _source is a query parameter here, not a body field: _mget rejects it in the body.
+        var response = await _client.Transport
+            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, $"/{index}/_mget?_source=false", PostData.String(request.ToString()), cancellationToken)
+            .AnyContext();
+
+        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
+            throw new RepositoryException($"Error checking which documents still exist in {index} while reconciling deletes: the request failed with status {response.ApiCallDetails?.HttpStatusCode?.ToString() ?? "unknown"}.");
+
+        var missing = new List<string>();
+        using var document = JsonDocument.Parse(response.Body!);
+
+        if (!document.RootElement.TryGetProperty("docs", out var docs))
+            return missing;
+
+        foreach (var doc in docs.EnumerateArray())
+        {
+            bool found = doc.TryGetProperty("found", out var foundElement) && foundElement.ValueKind is JsonValueKind.True;
+            if (!found && doc.TryGetProperty("_id", out var id) && id.GetString() is { } value)
+                missing.Add(value);
+        }
+
+        return missing;
+    }
+
+    private async Task DeleteDocumentsAsync(ReindexWorkItem workItem, List<string> ids, CancellationToken cancellationToken)
+    {
+        var request = new StringBuilder();
+        foreach (string id in ids)
+        {
+            request.Append("{\"delete\":{\"_index\":").Append(JsonSerializer.Serialize(workItem.NewIndex))
+                .Append(",\"_id\":").Append(JsonSerializer.Serialize(id)).Append("}}\n");
+        }
+
+        var response = await _client.Transport
+            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, "/_bulk", PostData.String(request.ToString()), cancellationToken)
+            .AnyContext();
+
+        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"documents deleted from {workItem.OldIndex} during the copy could not be removed from {workItem.NewIndex}, so promoting it would resurrect them. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
+    }
+
+    private async Task<long> GetDocumentCountAsync(string index, CancellationToken cancellationToken)
+    {
+        var response = await _client.CountAsync<object>(d => d.Indices(index), cancellationToken).AnyContext();
+        _logger.LogRequest(response);
+
+        if (!response.IsValidResponse)
+            throw new RepositoryException($"Error reading the document count for {index}: {response.ElasticsearchServerError}");
+
+        return response.Count;
+    }
+
+    /// <summary>
+    /// Fails the reindex unless the destination holds at least as many documents as the blocked source.
+    /// </summary>
+    /// <remarks>
+    /// This is the hard-gate counterpart to <see cref="VerifyDocumentCountsAsync"/>. That method cannot throw
+    /// because it runs after the alias has moved, so a shortfall there is ambiguous - live traffic could explain
+    /// it. Here the source is blocked and nothing has been promoted, so a shortfall has no benign explanation and
+    /// no cost to refusing: the alias still points at the source.
+    /// </remarks>
+    /// <exception cref="ReindexIncompleteException">
+    /// The destination is short of the source, or a count could not be read.
+    /// </exception>
+    private async Task EnsureDocumentCountsMatchAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    {
+        var refreshResponse = await _client.Indices.RefreshAsync(Indices.Index(workItem.OldIndex).And(workItem.NewIndex), d => d.IgnoreUnavailable(), cancellationToken).AnyContext();
+        _logger.LogRequest(refreshResponse);
+
+        var newDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex), cancellationToken).AnyContext();
+        _logger.LogRequest(newDocCountResponse);
+
+        var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex), cancellationToken).AnyContext();
+        _logger.LogRequest(oldDocCountResponse);
+
+        await progressCallbackAsync(97, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
+
+        if (!newDocCountResponse.IsValidResponse || !oldDocCountResponse.IsValidResponse)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"The copy of {workItem.OldIndex} to {workItem.NewIndex} could not be verified because a document count could not be read. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
+
+        // A shortfall is the failure; an exact match is not required. A script may legitimately drop documents via
+        // `ctx.op = 'noop'`, so demanding equality would fail scripted migrations that are working as intended.
+        // Overcount is handled before this by ReconcileDeletesAsync, which throws if it cannot repair it.
+        if (newDocCountResponse.Count < oldDocCountResponse.Count)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                $"{workItem.NewIndex} has {newDocCountResponse.Count:N0} documents but the blocked source {workItem.OldIndex} has {oldDocCountResponse.Count:N0}, so the copy is short. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
+
+        await progressCallbackAsync(98, "Verified the copy matches the source").AnyContext();
     }
 
     /// <summary>
@@ -650,7 +1194,16 @@ public class ElasticReindexer
 
         string message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
         await progressCallbackAsync(CalculateProgress(total, completed, startProgress, endProgress), message).AnyContext();
-        return new ReindexResult { Total = total, Completed = completed, Failures = failures, Outcome = outcome, FailureReason = failureReason };
+        return new ReindexResult
+        {
+            Total = total,
+            Completed = completed,
+            Created = lastReindexResponse?.Created ?? 0,
+            Updated = lastReindexResponse?.Updated ?? 0,
+            Failures = failures,
+            Outcome = outcome,
+            FailureReason = failureReason
+        };
     }
 
     /// <summary>
@@ -902,7 +1455,7 @@ public class ElasticReindexer
     /// <exception cref="ReindexIncompleteException">
     /// The alias update failed, so traffic is still being served by the old index.
     /// </exception>
-    private async Task SwitchAliasesAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    private async Task SwitchAliasesAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int progress, CancellationToken cancellationToken)
     {
         var aliases = await GetIndexAliasesAsync(workItem.OldIndex, cancellationToken).AnyContext();
 
@@ -931,7 +1484,7 @@ public class ElasticReindexer
         }
 
         _logger.LogRequest(bulkResponse);
-        await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases.Keys)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
+        await progressCallbackAsync(progress, $"Updated aliases: {String.Join(", ", aliases.Keys)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
     }
 
     /// <summary>
@@ -1222,6 +1775,26 @@ public class ElasticReindexer
     }
 
     /// <summary>
+    /// Writes the completion record for a quiesced migration whose destination is already promoted.
+    /// </summary>
+    /// <remarks>
+    /// Only meaningful for <see cref="ReindexWorkItem.QuiesceSource"/>, where promotion happens after the copy has
+    /// been reconciled against a blocked source and verified. A promoted destination is therefore evidence the copy
+    /// was complete, and a missing record means only that the process died between the alias switch and the record
+    /// write. Recording it closes that gap instead of leaving the migration permanently ambiguous.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The work item did not opt in to quiesce.</exception>
+    internal Task RecordVerifiedCompletionAsync(ReindexWorkItem workItem, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workItem);
+
+        if (!workItem.QuiesceSource)
+            throw new InvalidOperationException("Completion can only be re-derived from a promoted alias for a quiesced reindex, because that is the only ordering in which promotion implies the copy was verified.");
+
+        return RecordCompletionAsync(workItem, cancellationToken);
+    }
+
+    /// <summary>
     /// Returns whether this migration has trustworthy evidence of completion.
     /// </summary>
     internal async Task<bool> HasCompletionEvidenceAsync(ReindexWorkItem workItem, CancellationToken cancellationToken = default)
@@ -1235,7 +1808,9 @@ public class ElasticReindexer
         return await TryReadCompletionAsync(workItem, destinationUuid, cancellationToken).AnyContext();
     }
 
-    private sealed record SampleIdResult(SampleIdStatus Status, string? Id = null, string? Error = null, Exception? Exception = null); private async Task<SampleIdResult> GetSampleDocumentIdAsync(string index, CancellationToken cancellationToken)
+    private sealed record SampleIdResult(SampleIdStatus Status, string? Id = null, string? Error = null, Exception? Exception = null);
+
+    private async Task<SampleIdResult> GetSampleDocumentIdAsync(string index, CancellationToken cancellationToken)
     {
         var response = await _client.SearchAsync<IDictionary<string, object>>(d => d
             .Indices(index)
@@ -1331,6 +1906,16 @@ public class ElasticReindexer
     {
         public long Total { get; init; }
         public long Completed { get; init; }
+
+        /// <summary>Documents this pass wrote that did not exist in the destination.</summary>
+        public long Created { get; init; }
+
+        /// <summary>
+        /// Documents this pass overwrote in the destination. Together with <see cref="Created"/> this is what
+        /// convergence is measured on: a pass that creates and updates nothing found nothing left to copy.
+        /// </summary>
+        public long Updated { get; init; }
+
         public long Failures { get; init; }
         public ReindexOutcome Outcome { get; init; }
 

@@ -117,6 +117,18 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
                 throw new ReindexCompletionUnknownException(workItem.Alias, workItem.OldIndex, workItem.NewIndex,
                     "the alias already points at the destination but no completion record vouches for this migration");
 
+            case RedeliveryDisposition.PromotedAfterVerification:
+                // Under quiesce the alias only moves after the copy has been reconciled against a blocked source
+                // and verified, so a promoted destination means the copy was complete. The missing record means the
+                // process died between the alias switch and the record write, which is a gap worth closing rather
+                // than an outcome worth escalating. Recopying would be actively wrong here - the destination is
+                // already serving traffic - and refusing forever would strand a migration that did succeed.
+                Log.LogWarning("Queued reindex of {OldIndex} -> {NewIndex} found alias {Alias} already promoted by a quiesced migration with no completion record. The copy was verified before promotion, so recording its completion and acknowledging.",
+                    workItem.OldIndex, workItem.NewIndex, workItem.Alias);
+                await _reindexer.RecordVerifiedCompletionAsync(workItem, context.CancellationToken).AnyContext();
+                await context.ReportProgressAsync(100, "Already reindexed").AnyContext();
+                return;
+
             case RedeliveryDisposition.SafeToStart:
             default:
                 await _reindexer.ReindexAsync(workItem, context.ReportProgressAsync, context.CancellationToken).AnyContext();
@@ -138,7 +150,19 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         /// <summary>
         /// The destination is promoted but nothing vouches for the migration, so the outcome is unknown.
         /// </summary>
-        PromotedButUnconfirmed
+        /// <remarks>
+        /// Only reachable on the default ordering, where the alias moves before the catch-up pass and promotion
+        /// therefore proves nothing about completeness. Under
+        /// <see cref="ReindexWorkItem.QuiesceSource"/> this state becomes
+        /// <see cref="PromotedAfterVerification"/>.
+        /// </remarks>
+        PromotedButUnconfirmed,
+
+        /// <summary>
+        /// The destination is promoted by a quiesced migration, so the copy was verified before promotion even
+        /// though the completion record is missing.
+        /// </summary>
+        PromotedAfterVerification
     }
 
     /// <summary>
@@ -146,11 +170,22 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     /// completion unknown".
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The distinction matters because those two states used to be conflated. An advanced alias was read as
     /// proof the migration had finished, so a first attempt that failed after the cutover - the alias moves
     /// before the catch-up pass - was acknowledged as a completed migration on redelivery. Completion is
     /// therefore established only by a matching completion record, never inferred from alias state, document
     /// counts, or a progress report.
+    /// </para>
+    /// <para>
+    /// <see cref="ReindexWorkItem.QuiesceSource"/> changes what promotion proves, and so changes this decision. In
+    /// that ordering nothing is promoted until the copy has been reconciled against a blocked source and verified,
+    /// so a promoted destination is evidence the copy was complete - the only thing a missing record can mean is
+    /// that the process died in the narrow gap between the alias switch and writing the record. That is worth
+    /// repairing rather than escalating, which is why it gets its own disposition instead of being treated as an
+    /// unknown outcome. The record is still what establishes completion; this only re-derives it from a fact that
+    /// the ordering makes trustworthy.
+    /// </para>
     /// </remarks>
     private async Task<RedeliveryDisposition> GetRedeliveryDispositionAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
     {
@@ -160,7 +195,9 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         if (await _reindexer.HasCompletionEvidenceAsync(workItem, cancellationToken).AnyContext())
             return RedeliveryDisposition.AlreadyCompleted;
 
-        return RedeliveryDisposition.PromotedButUnconfirmed;
+        return workItem.QuiesceSource
+            ? RedeliveryDisposition.PromotedAfterVerification
+            : RedeliveryDisposition.PromotedButUnconfirmed;
     }
 
     /// <summary>

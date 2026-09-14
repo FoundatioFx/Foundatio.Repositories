@@ -268,7 +268,12 @@ public class DailyIndex : VersionedIndex
                 Script = GetReindexScripts(index.CurrentVersion),
                 TimestampField = GetTimeStampField(),
                 ReindexBatchSize = ReindexBatchSize,
-                ReindexRequestsPerSecond = ReindexRequestsPerSecond
+                ReindexRequestsPerSecond = ReindexRequestsPerSecond,
+
+                // Per partition: the block is applied when this work item runs and released before the next
+                // iteration, so the write outage covers one partition at a time instead of spanning the whole
+                // multi-partition migration.
+                QuiesceSource = QuiesceSourceOnReindex
             };
 
             reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;

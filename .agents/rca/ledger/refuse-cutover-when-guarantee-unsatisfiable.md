@@ -2,6 +2,8 @@
 
 Status: **implemented (narrow scope)** — approved 2026-09-11, implemented same day
 Scope gate: clarifies existing plan sections 4c/4d and release blocker B1. Does **not** expand scope.
+Follow-up: the deferred strict protocol landed in
+[quiesce-source-for-verified-cutover.md](quiesce-source-for-verified-cutover.md) on 2026-09-14.
 
 ## What was implemented
 
@@ -194,10 +196,17 @@ overwrite. Candidates whose provenance is unresolved stay excluded pending revie
 
 ## Deferred
 
+Superseded in part by [quiesce-source-for-verified-cutover.md](quiesce-source-for-verified-cutover.md), which
+implements the strict protocol below as an opt-in and corrects the residual-risk description in this entry: what
+remained was **three** defects (missed updates, stale overwrites, resurrected deletes), not one live-write window,
+and two of them affect `IHaveDates` models.
+
 - The full strict protocol (`Prepare → Copy → Quiesce → Reconcile → Verify → Switch → CacheHandoff → Complete`),
   which is what would actually make a migration verified. Separate approved change, per the 4i recommendation,
   and it must account for many daily partitions and 5–500 GB indexes. Any write pause it introduces must not be
-  described as "brief" without measurements.
+  described as "brief" without measurements. **Implemented opt-in as `QuiesceSourceOnReindex`; the pause is
+  still unmeasured and is documented as proportional to index size rather than brief.**
 - The explicitly weaker live mode with its own distinguishable "copied but not verified" result, plus source
-  retention in that path.
-- Live-write races for models that *can* catch up (alias still moves before the catch-up pass).
+  retention in that path. **Still deferred.**
+- Live-write races for models that *can* catch up (alias still moves before the catch-up pass). **Closed under
+  quiesce; unchanged on the default path.**

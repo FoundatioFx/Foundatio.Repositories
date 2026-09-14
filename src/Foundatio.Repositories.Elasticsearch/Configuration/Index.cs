@@ -203,6 +203,22 @@ public class Index : IIndex, IHaveLogger
     /// </summary>
     public float? ReindexRequestsPerSecond { get; set; }
 
+    /// <summary>
+    /// Blocks writes to each source index while <see cref="ReindexAsync"/> reconciles the copy, promoting the alias
+    /// only after the destination is proven to match. Defaults to <c>false</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Enabling this blocks writes for the duration of the reindex</b>, and the duration grows with index size.
+    /// Reads keep working. See <see cref="ReindexWorkItem.QuiesceSource"/> for the full trade-off.
+    /// </para>
+    /// <para>
+    /// For a time-series index the block is applied per partition and released before the next one starts, so the
+    /// write outage covers a single partition at a time rather than the whole migration.
+    /// </para>
+    /// </remarks>
+    public bool QuiesceSourceOnReindex { get; set; }
+
     public virtual async Task DeleteAsync()
     {
         using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())

@@ -19,7 +19,9 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// <para>
 /// When this is thrown after the alias cutover - from the catch-up pass, rather than the first copy - the
 /// destination is already serving reads, and it may be short. Check <see cref="NewIndex"/> before assuming
-/// the old index is still the one being queried.
+/// the old index is still the one being queried. This cannot happen when
+/// <see cref="Jobs.ReindexWorkItem.QuiesceSource"/> is set, because that ordering promotes the alias only after
+/// reconciliation and verification have both succeeded.
 /// </para>
 /// </remarks>
 public class ReindexIncompleteException : RepositoryException

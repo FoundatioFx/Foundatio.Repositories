@@ -14,10 +14,15 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// were found: nothing is replayed, rolled back, or deleted.
 /// </para>
 /// <para>
-/// The usual cause is a first attempt that failed after the alias cutover - the alias switch happens before
-/// the catch-up pass, so a post-cutover failure advances the version without finishing the work. It also
-/// occurs for migrations completed before this library recorded completion evidence, because completion is
-/// never inferred from alias state or document counts.
+/// The usual cause is a first attempt that failed after the alias cutover - with the default ordering the alias
+/// switch happens before the catch-up pass, so a post-cutover failure advances the version without finishing the
+/// work. It also occurs for migrations completed before this library recorded completion evidence, because
+/// completion is never inferred from alias state or document counts.
+/// </para>
+/// <para>
+/// A migration run with <see cref="Jobs.ReindexWorkItem.QuiesceSource"/> does not reach this state. Promotion
+/// there happens only after reconciliation and verification succeeded, so a missing record can be re-derived
+/// rather than escalated.
 /// </para>
 /// <para>
 /// Recovery is a human decision. Compare <see cref="SourceIndex"/> against <see cref="DestinationIndex"/> to
