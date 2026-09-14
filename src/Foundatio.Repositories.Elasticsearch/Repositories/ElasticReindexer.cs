@@ -268,6 +268,11 @@ public class ElasticReindexer
 
             await SwitchAliasesAsync(workItem, progressCallbackAsync, 99, cancellationToken).AnyContext();
 
+            // Released explicitly rather than left to the finally: on the success path an index that stays
+            // read-only is a failed migration, so it must surface. The finally is the backstop for every other
+            // path, where it only logs so it cannot replace the exception that got us there.
+            await writeBlock.ReleaseAsync().AnyContext();
+
             return true;
         }
         finally

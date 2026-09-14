@@ -484,6 +484,39 @@ curl "localhost:9200/employees-v2/_count"
 
 4. **For a pre-existing migration with no record**, this only surfaces on redelivery of a stale work item. Startup is unaffected and nothing is scanned automatically — discard the stale item once you have confirmed the migration did complete.
 
+### An index is stuck read-only after a reindex
+
+**Symptoms:**
+
+- Writes to an index fail with `403` / `cluster_block_exception` and `[FORBIDDEN/8/index write (api)]`, but no reindex is running.
+- A log entry at **Error** level: `Failed to remove the write block from index {Index} ... It will keep rejecting writes until the block is cleared manually by setting index.blocks.write to null on that index.`
+
+**Cause:**
+
+A quiesced reindex (`QuiesceSourceOnReindex`) blocks writes to the source and removes the block when it finishes. If the removal request itself failed — cluster unreachable, node restart, timeout — the block persists, because Elasticsearch blocks are durable index settings rather than session state.
+
+The library does not silently retry this forever or hide it. On the success path a failed removal throws `ReindexIncompleteException`; on a failure path it is logged at Error and the original failure is allowed to propagate, so the reason the migration failed is not replaced by the cleanup problem. Either way the Error log above is written.
+
+**Solutions:**
+
+1. **Confirm the block is present:**
+
+```bash
+curl "localhost:9200/employees-v1/_settings?filter_path=**.blocks"
+```
+
+2. **Clear it.** `null` removes the block; setting it to `false` does not reliably clear one applied through the block API:
+
+```bash
+curl -X PUT "localhost:9200/employees-v1/_settings" \
+  -H 'Content-Type: application/json' \
+  -d '{"index.blocks.write": null}'
+```
+
+3. **Check whether the migration completed** before assuming the index is the live one — the alias may already point at the new version, in which case the stuck block is on a source that is no longer serving reads. See [ReindexIncompleteException](#reindexincompleteexception).
+
+Note that a block the library finds **already applied** when it starts is deliberately left in place on cleanup, on the assumption that something else owns it. If you block an index yourself, you are responsible for clearing it.
+
 ## Notification Issues
 
 ### EntityChanged Not Received
@@ -588,7 +621,7 @@ curl http://localhost:9200/employees/_stats
 | `version_conflict_engine_exception` | Concurrent modification | Implement retry or skip version check |
 | `search_phase_execution_exception` | Query error | Check query syntax |
 | `circuit_breaking_exception` | Memory limit | Reduce batch size |
-| `cluster_block_exception` | Cluster read-only, or the index is write-blocked by an in-progress quiesced reindex | Check disk space; if a reindex is running with `QuiesceSourceOnReindex`, writes to the source are rejected until it completes — see [Quiescing writes](./index-management.md#quiescing-writes-for-a-verified-cutover) |
+| `cluster_block_exception` | Cluster read-only, or the index is write-blocked by an in-progress quiesced reindex | Check disk space; if a reindex is running with `QuiesceSourceOnReindex`, writes to the source are rejected until it completes — see [Quiescing writes](./index-management.md#quiescing-writes-for-a-verified-cutover). If no reindex is running, the block may have been left behind: see [An index is stuck read-only after a reindex](#an-index-is-stuck-read-only-after-a-reindex) |
 | `es_rejected_execution_exception` ("rejected execution of coordinating operation") | Indexing pressure limit exceeded, often during reindex of large documents | Lower `ReindexBatchSize`/`ReindexRequestsPerSecond`, see [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) |
 
 ## Repository Exception Types

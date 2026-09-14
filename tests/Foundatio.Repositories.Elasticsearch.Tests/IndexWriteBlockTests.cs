@@ -132,6 +132,62 @@ public sealed class IndexWriteBlockTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task DisposeAsync_WhenReleaseFails_DoesNotMaskTheCallersException()
+    {
+        var index = await CreateSeededIndexAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        var thrown = await Record.ExceptionAsync(async () =>
+        {
+            var block = await IndexWriteBlock.ApplyAsync(_client, index.VersionedName, Log.CreateLogger<IndexWriteBlockTests>(), TestCancellationToken);
+            try
+            {
+                throw new InvalidOperationException("the reconcile failed");
+            }
+            finally
+            {
+                // Deleting the index makes the release request fail with a 404. A throwing dispose would replace
+                // the caller's exception with that failure, hiding why the migration actually failed.
+                await index.DeleteAsync();
+                await block.DisposeAsync();
+            }
+        });
+
+        Assert.IsType<InvalidOperationException>(thrown);
+        Assert.Equal("the reconcile failed", thrown.Message);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_WhenReleaseFails_Throws()
+    {
+        var index = await CreateSeededIndexAsync();
+
+        var block = await IndexWriteBlock.ApplyAsync(_client, index.VersionedName, Log.CreateLogger<IndexWriteBlockTests>(), TestCancellationToken);
+        await index.DeleteAsync();
+
+        var thrown = await Record.ExceptionAsync(() => block.ReleaseAsync());
+
+        Assert.IsType<RepositoryException>(thrown);
+        Assert.Contains("must be unblocked manually", thrown.Message);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ThenDisposeAsync_RestoresWritesOnlyOnce()
+    {
+        var index = await CreateSeededIndexAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        await using (var block = await IndexWriteBlock.ApplyAsync(_client, index.VersionedName, Log.CreateLogger<IndexWriteBlockTests>(), TestCancellationToken))
+        {
+            Assert.False(await TryWriteAsync(index.VersionedName));
+            await block.ReleaseAsync();
+            Assert.True(await TryWriteAsync(index.VersionedName));
+        }
+
+        Assert.True(await TryWriteAsync(index.VersionedName));
+    }
+
+    [Fact]
     public async Task DisposeAsync_CalledTwice_IsSafe()
     {
         var index = await CreateSeededIndexAsync();
