@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
@@ -107,6 +108,26 @@ public sealed class IndexWriteBlockTests : ElasticRepositoryTestBase
         });
 
         Assert.IsType<InvalidOperationException>(thrown);
+        Assert.True(await TryWriteAsync(index.VersionedName));
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WhenCallerIsCancelled_StillRestoresWrites()
+    {
+        var index = await CreateSeededIndexAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        using var cancellation = new CancellationTokenSource();
+        var thrown = await Record.ExceptionAsync(async () =>
+        {
+            await using var block = await IndexWriteBlock.ApplyAsync(_client, index.VersionedName, Log.CreateLogger<IndexWriteBlockTests>(), cancellation.Token);
+            Assert.False(await TryWriteAsync(index.VersionedName));
+
+            await cancellation.CancelAsync();
+            cancellation.Token.ThrowIfCancellationRequested();
+        });
+
+        Assert.IsAssignableFrom<OperationCanceledException>(thrown);
         Assert.True(await TryWriteAsync(index.VersionedName));
     }
 

@@ -92,9 +92,11 @@ dotnet test tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositor
   --filter "FullyQualifiedName~ReindexTests|FullyQualifiedName~IndexWriteBlockTests"
 ```
 
-- `IndexWriteBlockTests` (8): block applied / writes rejected / reads allowed; dispose restores writes; dispose
-  runs on the exception path; dispose runs on cancellation; double-dispose is safe; a pre-existing block is
-  preserved; a nonexistent index throws; null/empty index throws.
+- `IndexWriteBlockTests` (9): block applied / writes rejected / reads allowed; dispose restores writes; dispose
+  runs on the exception path; dispose runs on the cancellation path (RED-proved: threading the caller's cancelled
+  token into the release request makes `DisposeAsync` throw `RepositoryException` and leaves the index read-only,
+  masking the cancellation — release therefore deliberately passes no token); double-dispose is safe; a
+  pre-existing block is preserved; a nonexistent index throws; null/empty index throws.
 - `QuiescedReindex_WhenDocumentIsUpdatedDuringCopy_PromotesTheNewerValue` — closes **B**.
 - `QuiescedReindex_WhenDocumentIsDeletedDuringCopy_DoesNotResurrectIt` — closes **C**.
 - `QuiescedReindex_WhenPreExistingDocumentIsUpdatedDuringCopy_StillCopiesTheNewValue` — closes **A**.
@@ -119,6 +121,8 @@ Established empirically, not assumed.
    accepts both `JsonValueKind.True` and the string.
 3. **There is no unblock API.** Release is `PUT _settings` with `{"index.blocks.write": null}`, issued via raw
    transport because the typed settings descriptor serializes a `null` block to an empty object, which is a no-op.
+   Release must **not** be passed the caller's token: RED-proved that threading a cancelled token through makes
+   `DisposeAsync` throw and leaves the index read-only, masking the cancellation it was unwinding from.
 4. **`_id` cannot be sorted on** (`Fielddata access on the _id field is disallowed`), so delete reconciliation
    pages with the scroll API. `_source: false` must go on the query string; ES rejects it in an `_mget` body.
 5. **`ObjectId.GenerateNewId(DateTime)` sorts correctly against the watermark**, and ordinal string comparison is

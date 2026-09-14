@@ -218,6 +218,9 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
         // explicit JSON null - `Blocks(b => b.Write(null))` serializes to an empty object, which Elasticsearch
         // rejects with "no settings to update" - and null is the only value that *removes* the block rather than
         // setting it to false. Verified against a live cluster.
+        //
+        // Deliberately passes no cancellation token: dispose usually runs while unwinding from a cancellation,
+        // and a cancelled token here would fail the release and leave the index read-only.
         var response = await _client.Transport
             .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.PUT, $"/{Index}/_settings",
                 PostData.String("""{"index.blocks.write":null}"""))
