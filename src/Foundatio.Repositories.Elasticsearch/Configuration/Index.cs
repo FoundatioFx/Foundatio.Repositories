@@ -203,6 +203,22 @@ public class Index : IIndex, IHaveLogger
     /// </summary>
     public float? ReindexRequestsPerSecond { get; set; }
 
+    /// <summary>
+    /// Blocks writes to each source index while <see cref="ReindexAsync"/> reconciles the copy, promoting the alias
+    /// only after the destination is proven to match. Defaults to <c>false</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Enabling this blocks writes for the duration of the reindex</b>, and the duration grows with index size.
+    /// Reads keep working. See <see cref="ReindexWorkItem.QuiesceSource"/> for the full trade-off.
+    /// </para>
+    /// <para>
+    /// For a time-series index the block is applied per partition and released before the next one starts, so the
+    /// write outage covers a single partition at a time rather than the whole migration.
+    /// </para>
+    /// </remarks>
+    public bool QuiesceSourceOnReindex { get; set; }
+
     public virtual async Task DeleteAsync()
     {
         using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())
@@ -379,7 +395,7 @@ public class Index : IIndex, IHaveLogger
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException());
     }
 
-    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         var reindexWorkItem = new ReindexWorkItem
         {
@@ -392,8 +408,8 @@ public class Index : IIndex, IHaveLogger
             ReindexRequestsPerSecond = ReindexRequestsPerSecond
         };
 
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
-        return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
+        return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync, cancellationToken);
     }
 
     protected virtual string? GetTimeStampField()

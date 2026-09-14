@@ -394,6 +394,129 @@ See [Throttling Reindex Load](./index-management.md#throttling-reindex-load) for
 
 If you configure a low `ReindexRequestsPerSecond` to work around this, note that the reindex's stall-detection timeout (10 minutes by default) automatically extends to accommodate the resulting longer pause between batches, so throttling to avoid indexing pressure rejections won't itself cause the reindex to be cancelled as falsely "stalled."
 
+## Reindex Failures
+
+### ReindexIncompleteException
+
+**Symptoms:**
+
+- `ConfigureIndexesAsync()` or `ReindexAsync()` throws `ReindexIncompleteException`, or `ElasticConfiguration.ReindexAsync()` throws an `AggregateException` containing one. **Startup fails** rather than proceeding.
+- The message names both indexes and a reason: `Reindex of employees-v1 -> employees-v2 did not complete: {reason}`.
+
+**Cause:**
+
+The destination could not be trusted as a complete replica of the source, so the library refused to treat the migration as successful. The `Reason` distinguishes the cases:
+
+| Reason mentions | What happened | What to do |
+|-----------------|---------------|------------|
+| documents failed to copy, or a copy task error | Elasticsearch rejected documents — usually a mapping conflict or indexing pressure | Fix the mapping or lower `ReindexBatchSize`; see [Mapping Conflicts](#mapping-conflicts) and [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) |
+| the source changed and no catch-up pass is possible | The model has no timestamp field and non-ObjectId ids, and the source was written to during the copy | Set `QuiesceSourceOnReindex`, add `IHaveDates`, or migrate when writes are stopped |
+| documents changed that the catch-up pass cannot reach | The model uses ObjectId ids and a **pre-existing** document was updated in place during the copy — the id-range catch-up encodes creation time only | Set `QuiesceSourceOnReindex`; this is the only way to catch in-place updates |
+| the destination is short of the quiesced source | Under `QuiesceSourceOnReindex`, verification found fewer documents in the destination than in the blocked source | Retry; a shortfall against a blocked source is not a race, so investigate the copy logs for rejected documents |
+| the source kept changing while blocked | Under `QuiesceSourceOnReindex`, the source's `_seq_no` kept advancing despite the write block | Something bypassed the block (a direct write to the versioned index name, or another block-clearing process); retry after identifying it |
+
+**Solutions:**
+
+1. **The old index is always retained and the alias is not moved** when this is thrown before cutover, so the refusal is recoverable — nothing was lost. Fix the cause and retry.
+
+2. **If you are refused because of live writes**, the structural fix is to quiesce the source:
+
+```csharp
+public class EmployeeIndex : VersionedIndex<Employee>
+{
+    public EmployeeIndex(IElasticConfiguration configuration)
+        : base(configuration, "employees", 2)
+    {
+        QuiesceSourceOnReindex = true; // blocks writes to the source while it is reconciled
+    }
+}
+```
+
+   This blocks writes for the duration of the copy. See [Quiescing writes for a verified cutover](./index-management.md#quiescing-writes-for-a-verified-cutover) before enabling it.
+
+3. **Do not suppress it globally.** If a specific deployment must proceed anyway, catch it explicitly and alert:
+
+```csharp
+try
+{
+    await configuration.ReindexAsync();
+}
+catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is ReindexIncompleteException))
+{
+    logger.LogCritical(ex, "Index migration incomplete; indexes may be missing documents");
+}
+```
+
+4. **Check whether the alias already moved.** With the default (non-quiesced) ordering, a failure raised by the catch-up pass happens *after* cutover, so the destination is already serving reads and may be short. Compare `NewIndex` against the current alias target before assuming the old index is still being queried. A retry cannot fix this — migrate to a fresh index version instead.
+
+5. **Find what was left behind** using the technique in [Finding the documents that were left behind](./index-management.md#finding-the-documents-that-were-left-behind).
+
+### ReindexCompletionUnknownException
+
+**Symptoms:**
+
+- A queued reindex work item fails with `Reindex of {source} -> {destination} for alias {alias} cannot be confirmed complete: {reason}`.
+- The alias already points at the destination version.
+- The work item is abandoned and eventually dead-letters rather than being acknowledged.
+
+**Cause:**
+
+The destination was already promoted, but no completion record exists in the `foundatio-reindex-completions` index, so there is no trustworthy evidence the migration ever finished. Completion is **never** inferred from alias state or document counts. Two situations produce this:
+
+- A first attempt failed *after* the alias cutover, which advances the version without finishing the work.
+- The migration completed before this library recorded completion evidence, and a stale work item for it was redelivered.
+
+Note that a **quiesced** migration does not land here: promotion under `QuiesceSourceOnReindex` happens only after reconciliation and verification succeeded, so a redelivered work item can safely re-derive the completion record and acknowledge.
+
+**Solutions:**
+
+1. **Nothing was replayed, rolled back, or deleted.** Both indexes are left exactly as found — the library deliberately neither reports success (which would record a possibly short index as finished) nor copies again (which would write into an index already serving live traffic).
+
+2. **Establish whether the destination is actually short:**
+
+```bash
+# Compare counts; the source may still exist
+curl "localhost:9200/employees-v1/_count"
+curl "localhost:9200/employees-v2/_count"
+```
+
+3. **Then decide deliberately:** accept the destination, or migrate to a fresh index version to get a verified copy. If the source has already been cleaned up, the destination is all that remains.
+
+4. **For a pre-existing migration with no record**, this only surfaces on redelivery of a stale work item. Startup is unaffected and nothing is scanned automatically — discard the stale item once you have confirmed the migration did complete.
+
+### An index is stuck read-only after a reindex
+
+**Symptoms:**
+
+- Writes to an index fail with `403` / `cluster_block_exception` and `[FORBIDDEN/8/index write (api)]`, but no reindex is running.
+- A log entry at **Error** level: `Failed to remove the write block from index {Index} ... It will keep rejecting writes until the block is cleared manually by setting index.blocks.write to null on that index.`
+
+**Cause:**
+
+A quiesced reindex (`QuiesceSourceOnReindex`) blocks writes to the source and removes the block when it finishes. If the removal request itself failed — cluster unreachable, node restart, timeout — the block persists, because Elasticsearch blocks are durable index settings rather than session state.
+
+The library does not silently retry this forever or hide it. On the success path a failed removal throws `ReindexIncompleteException`; on a failure path it is logged at Error and the original failure is allowed to propagate, so the reason the migration failed is not replaced by the cleanup problem. Either way the Error log above is written.
+
+**Solutions:**
+
+1. **Confirm the block is present:**
+
+```bash
+curl "localhost:9200/employees-v1/_settings?filter_path=**.blocks"
+```
+
+2. **Clear it.** `null` removes the block; setting it to `false` does not reliably clear one applied through the block API:
+
+```bash
+curl -X PUT "localhost:9200/employees-v1/_settings" \
+  -H 'Content-Type: application/json' \
+  -d '{"index.blocks.write": null}'
+```
+
+3. **Check whether the migration completed** before assuming the index is the live one — the alias may already point at the new version, in which case the stuck block is on a source that is no longer serving reads. See [ReindexIncompleteException](#reindexincompleteexception).
+
+Note that a block the library finds **already applied** when it starts is deliberately left in place on cleanup, on the assumption that something else owns it. If you block an index yourself, you are responsible for clearing it.
+
 ## Notification Issues
 
 ### EntityChanged Not Received
@@ -498,7 +621,7 @@ curl http://localhost:9200/employees/_stats
 | `version_conflict_engine_exception` | Concurrent modification | Implement retry or skip version check |
 | `search_phase_execution_exception` | Query error | Check query syntax |
 | `circuit_breaking_exception` | Memory limit | Reduce batch size |
-| `cluster_block_exception` | Cluster read-only | Check disk space |
+| `cluster_block_exception` | Cluster read-only, or the index is write-blocked by an in-progress quiesced reindex | Check disk space; if a reindex is running with `QuiesceSourceOnReindex`, writes to the source are rejected until it completes — see [Quiescing writes](./index-management.md#quiescing-writes-for-a-verified-cutover). If no reindex is running, the block may have been left behind: see [An index is stuck read-only after a reindex](#an-index-is-stuck-read-only-after-a-reindex) |
 | `es_rejected_execution_exception` ("rejected execution of coordinating operation") | Indexing pressure limit exceeded, often during reindex of large documents | Lower `ReindexBatchSize`/`ReindexRequestsPerSecond`, see [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) |
 
 ## Repository Exception Types
@@ -512,6 +635,13 @@ Foundatio.Repositories uses typed exceptions so callers can handle specific fail
 | `DocumentNotFoundException` | `PatchAsync` when the target document doesn't exist (HTTP 404) | No — verify the document ID |
 | `DocumentValidationException` | Any write operation when document validation fails | No — fix the document data |
 | `DocumentException` | Other Elasticsearch errors not covered above | Depends on the underlying cause |
+
+Index migrations throw the following, which inherit from `RepositoryException` rather than `DocumentException`:
+
+| Exception | When Thrown | Retryable? |
+|-----------|------------|------------|
+| `ReindexIncompleteException` | A reindex did not copy every document, or the copy could not be verified as a complete replica | Yes when raised **before** cutover (the old index is retained) — see [ReindexIncompleteException](#reindexincompleteexception). No when raised after cutover; migrate to a fresh version |
+| `ReindexCompletionUnknownException` | A destination is already promoted but no completion record proves the migration finished | No — this needs a decision, not a retry. See [ReindexCompletionUnknownException](#reindexcompletionunknownexception) |
 
 ### Partial Failures on Bulk Operations
 

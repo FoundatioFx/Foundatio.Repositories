@@ -185,6 +185,81 @@ public sealed class ElasticReindexerTests
         }
     }
 
+    /// <summary>
+    /// Every counter in a reindex task's response must bind from Elasticsearch's snake_case field names.
+    /// </summary>
+    /// <remarks>
+    /// The configured serializer only matches property names case-insensitively, which does not bridge an
+    /// underscore, so these fields need explicit mappings. This is asserted rather than assumed because an
+    /// unbound counter is silent and consequential: <c>version_conflicts</c> reading as 0 made the completeness
+    /// check (<c>created + updated + noops + version_conflicts >= total</c>) conclude that a healthy reindex had
+    /// left documents unaccounted for, which now throws.
+    /// </remarks>
+    [Fact]
+    public void TaskReindexResult_FromElasticsearchSnakeCaseBody_BindsEveryCounter()
+    {
+        // Arrange - the shape Elasticsearch returns from GET _tasks/<id>
+        const string body = """
+            {
+              "completed": true,
+              "response": {
+                "total": 50,
+                "created": 40,
+                "updated": 3,
+                "noops": 0,
+                "version_conflicts": 7,
+                "failures": []
+              }
+            }
+            """;
+
+        var serializer = new SystemTextJsonSerializer();
+
+        // Act
+        var status = serializer.Deserialize<ElasticReindexer.TaskWithReindexResponse>(body);
+
+        // Assert
+        Assert.NotNull(status?.Response);
+        Assert.Equal(50, status.Response.Total);
+        Assert.Equal(40, status.Response.Created);
+        Assert.Equal(3, status.Response.Updated);
+        Assert.Equal(0, status.Response.Noops);
+        Assert.Equal(7, status.Response.VersionConflicts);
+
+        // And the accounting the completeness check performs must balance for this healthy reindex.
+        long completed = status.Response.Created + status.Response.Updated + status.Response.Noops;
+        Assert.Equal(status.Response.Total, completed + status.Response.VersionConflicts);
+    }
+
+    /// <summary>A task-level error must bind its snake_case members so the failure reason is not empty.</summary>
+    [Fact]
+    public void TaskWithReindexResponse_FromErrorBody_BindsScriptStackAndCause()
+    {
+        // Arrange
+        const string body = """
+            {
+              "completed": true,
+              "error": {
+                "type": "script_exception",
+                "reason": "compile error",
+                "script_stack": ["ctx._source.name = ", "                ^---- HERE"],
+                "caused_by": { "type": "illegal_argument_exception", "reason": "cannot resolve symbol" }
+              }
+            }
+            """;
+
+        var serializer = new SystemTextJsonSerializer();
+
+        // Act
+        var status = serializer.Deserialize<ElasticReindexer.TaskWithReindexResponse>(body);
+
+        // Assert
+        Assert.NotNull(status?.Error);
+        Assert.Equal("script_exception", status.Error.Type);
+        Assert.Equal(2, status.Error.ScriptStack?.Count);
+        Assert.Equal("cannot resolve symbol", status.Error.CausedBy?.Reason);
+    }
+
     [Theory]
     [InlineData(float.PositiveInfinity)]
     [InlineData(float.NegativeInfinity)]
@@ -195,7 +270,7 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = requestsPerSecond };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -206,7 +281,7 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = float.NaN };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -217,7 +292,7 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexBatchSize = 0 };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -228,7 +303,20 @@ public sealed class ElasticReindexerTests
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = -1 };
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public Task ReindexAsync_WithNoAlias_ThrowsArgumentNullException()
+    {
+        // Arrange
+        // The alias is what the cutover moves. Without it the copy would run to completion and then silently
+        // skip the promotion, reporting success while traffic stayed on the old index.
+        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "" };
+
+        // Act & Assert
+        return Assert.ThrowsAsync<ArgumentNullException>(() => reindexer.ReindexAsync(workItem, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -238,6 +326,6 @@ public sealed class ElasticReindexerTests
         var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
 
         // Act & Assert
-        return Assert.ThrowsAsync<ArgumentNullException>(() => reindexer.ReindexAsync(null!));
+        return Assert.ThrowsAsync<ArgumentNullException>(() => reindexer.ReindexAsync(null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 }
