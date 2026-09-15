@@ -115,6 +115,7 @@ public class Index : IIndex, IHaveLogger
 
     public string Name { get; init; }
     public bool HasMultipleIndexes { get; init; } = false;
+    public bool HasSortableIdField { get; protected set; } = true;
     public ISet<string> AllowedQueryFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
