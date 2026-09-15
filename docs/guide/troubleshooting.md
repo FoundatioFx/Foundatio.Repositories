@@ -67,6 +67,20 @@ protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 
 ## Index Issues
 
+### GetByIdsAsync Returns Fewer Documents During an Index Error
+
+Elasticsearch can return HTTP 200 for a multi-get request while individual items contain errors such as `index_closed_exception` or `index_not_found_exception`. `GetByIdsAsync` logs and omits those items by default for backward compatibility, so the returned collection can look the same as a normal not-found result.
+
+Use strict item-error handling when missing documents would trigger an irreversible action:
+
+```csharp
+var documents = await repository.GetByIdsAsync(
+    ids,
+    o => o.ThrowOnMultiGetErrors());
+```
+
+For time-series and parent/child repositories, the fallback query across the index's other aliases runs first, so an item error on one dated index does not fail a document that is actually retrievable elsewhere. `DocumentException` is thrown only for ids still unresolved after that fallback, before any partial results or not-found cache markers are returned. An explicit `found: false` response still represents a normal missing document.
+
 ### Index Not Found
 
 **Symptoms:**

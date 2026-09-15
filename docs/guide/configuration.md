@@ -326,6 +326,15 @@ await repository.FindAsync(query, o => o.AsyncQueryId(
     autoDelete: true));
 ```
 
+### Multi-Get Error Options
+
+```csharp
+// Throw DocumentException for GetByIdsAsync items that error instead of missing data silently
+await repository.GetByIdsAsync(ids, o => o.ThrowOnMultiGetErrors());
+```
+
+For time-series and parent/child repositories, the throw is deferred until after the multi-index fallback query, so it only fires for ids that remain unresolved.
+
 ### Combining Options
 
 ```csharp
@@ -384,6 +393,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 | Validation | true | N/A | `.SkipValidation()`, `.Validation()` |
 | Soft Deletes | ActiveOnly | N/A | `.IncludeSoftDeletes()`, `.SoftDeleteMode()` |
 | Version Check | true | N/A | `.SkipVersionCheck()`, `.VersionCheck()` |
+| Multi-Get Errors | false | N/A | `.ThrowOnMultiGetErrors()` |
 
 ## Next Steps
 
