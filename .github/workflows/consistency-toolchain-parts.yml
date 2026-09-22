@@ -1,0 +1,44 @@
+name: Consistency compiler transfer
+on:
+  push:
+    branches: [audit/consistency-307-327-20260922]
+    paths: [.github/workflows/consistency-toolchain-parts.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  split:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: consistency-offline-toolchain
+          run-id: 35784034506
+          github-token: ${{ github.token }}
+          path: source
+      - name: Split public software without changing its bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -C source -cf payload.tar .
+          split -d -b 300M payload.tar part-
+          sha256sum part-*
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consistency-toolchain-00
+          path: part-00
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consistency-toolchain-01
+          path: part-01
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consistency-toolchain-02
+          path: part-02
+          compression-level: 0
+          retention-days: 1
