@@ -6,6 +6,8 @@ using Elastic.Clients.Elasticsearch;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging;
@@ -23,7 +25,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
 
     private readonly ElasticReindexer _reindexer;
     private readonly ILockProvider _lockProvider;
-    private readonly IElasticConfiguration? _configuration;
+    private readonly ElasticsearchClient _client;
 
     /// <summary>
     /// Creates a handler that behaves the same as the direct reindex path: it uses the configuration's
@@ -32,7 +34,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     /// </summary>
     public ReindexWorkItemHandler(IElasticConfiguration configuration) : base(GetLoggerFactory(configuration))
     {
-        _configuration = configuration;
+        _client = configuration.Client;
         _reindexer = new ElasticReindexer(configuration.Client, configuration.Serializer, configuration.TimeProvider, configuration.ResiliencePolicyProvider, configuration.LoggerFactory.CreateLogger<ReindexWorkItemHandler>());
         _lockProvider = configuration.LockProvider;
         AutoRenewLockOnProgress = true;
@@ -42,9 +44,9 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     /// Creates a handler from loose dependencies.
     /// </summary>
     /// <remarks>
-    /// Without the configuration this handler cannot tell that a queued work item's migration has already
-    /// been completed by another process, so a stale or duplicated work item is reindexed again rather than
-    /// skipped. Prefer <see cref="ReindexWorkItemHandler(IElasticConfiguration)"/>.
+    /// Redelivery is checked against the work item's physical destination and durable completion record,
+    /// without requiring a registered index configuration. Prefer
+    /// <see cref="ReindexWorkItemHandler(IElasticConfiguration)"/> to also use its time provider and resilience policies.
     /// </remarks>
     public ReindexWorkItemHandler(ElasticsearchClient client, ITextSerializer serializer, ILockProvider lockProvider, ILoggerFactory? loggerFactory = null)
         : base(loggerFactory)
@@ -52,6 +54,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         ArgumentNullException.ThrowIfNull(lockProvider);
 
         _reindexer = new ElasticReindexer(client, serializer, loggerFactory?.CreateLogger<ReindexWorkItemHandler>());
+        _client = client;
         _lockProvider = lockProvider;
         AutoRenewLockOnProgress = true;
     }
@@ -171,29 +174,22 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The distinction matters because those two states used to be conflated. An advanced alias was read as
-    /// proof the migration had finished, so a first attempt that failed after the cutover - the alias moves
-    /// before the catch-up pass - was acknowledged as a completed migration on redelivery. Completion is
-    /// therefore established only by a matching completion record, never inferred from alias state, document
-    /// counts, or a progress report.
+    /// A matching completion record is checked even when the alias has since moved to another version.
+    /// Neither the worker's configured schema version nor the lowest version of other time-series partitions
+    /// describes whether this particular destination has been promoted.
     /// </para>
     /// <para>
-    /// <see cref="ReindexWorkItem.QuiesceSource"/> changes what promotion proves, and so changes this decision. In
-    /// that ordering nothing is promoted until the copy has been reconciled against a blocked source and verified,
-    /// so a promoted destination is evidence the copy was complete - the only thing a missing record can mean is
-    /// that the process died in the narrow gap between the alias switch and writing the record. That is worth
-    /// repairing rather than escalating, which is why it gets its own disposition instead of being treated as an
-    /// unknown outcome. The record is still what establishes completion; this only re-derives it from a fact that
-    /// the ordering makes trustworthy.
+    /// When no record matches, promotion is checked against the exact destination in the work item. The
+    /// quiesced recovery path below retains its separate completion-record recovery behavior.
     /// </para>
     /// </remarks>
     private async Task<RedeliveryDisposition> GetRedeliveryDispositionAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
     {
-        if (!await IsAlreadyPromotedAsync(workItem).AnyContext())
-            return RedeliveryDisposition.SafeToStart;
-
         if (await _reindexer.HasCompletionEvidenceAsync(workItem, cancellationToken).AnyContext())
             return RedeliveryDisposition.AlreadyCompleted;
+
+        if (!await IsAlreadyPromotedAsync(_client, workItem, cancellationToken).AnyContext())
+            return RedeliveryDisposition.SafeToStart;
 
         return workItem.QuiesceSource
             ? RedeliveryDisposition.PromotedAfterVerification
@@ -201,39 +197,42 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     }
 
     /// <summary>
-    /// Returns whether the alias already points at this migration's target version, which means the cutover has
-    /// happened - but says nothing about whether the migration finished.
+    /// Returns whether the work item's alias is attached to its exact physical destination, including a dated
+    /// partition. Alias state alone does not establish completion.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// This deliberately answers only "has the destination been promoted?". It used to be read as "has this
-    /// already been reindexed?", which conflated a migration another process completed with one that promoted
-    /// the destination and then failed; the alias switch happens before the catch-up pass, so both leave the
-    /// version advanced. Completion is established separately by a completion record.
-    /// </para>
-    /// <para>
-    /// The index is located by the work item's alias rather than by matching <c>VersionedName</c> against
-    /// <see cref="ReindexWorkItem.NewIndex"/>. For a time-series index the work item's destination is a single
-    /// dated partition (<c>employees-v2-2026.09.11</c>) while <c>VersionedName</c> is only
-    /// <c>employees-v2</c>, so matching on the destination silently never fired for daily and monthly indexes.
-    /// </para>
-    /// <para>
-    /// A time-series index reports its <em>lowest</em> partition version, so this only reports promotion once
-    /// every partition has moved.
-    /// </para>
-    /// </remarks>
-    private async Task<bool> IsAlreadyPromotedAsync(ReindexWorkItem workItem)
+    /// <exception cref="RepositoryException">
+    /// The destination's alias state could not be read completely. An unreadable response is not permission
+    /// to copy into a destination that may already be serving traffic.
+    /// </exception>
+    internal static async Task<bool> IsAlreadyPromotedAsync(ElasticsearchClient client, ReindexWorkItem workItem, CancellationToken cancellationToken = default)
     {
-        if (_configuration is null)
-            return false;
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(workItem);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workItem.NewIndex);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workItem.Alias);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var versionedIndex = _configuration.Indexes.OfType<IVersionedIndex>()
-            .FirstOrDefault(i => String.Equals(i.Name, workItem.Alias, StringComparison.OrdinalIgnoreCase));
-        if (versionedIndex is null)
-            return false;
+        var response = await client.Indices.GetAliasAsync(Indices.Index(workItem.NewIndex), cancellationToken).AnyContext();
+        if (!response.IsValidResponse)
+        {
+            if (response.ApiCallDetails.HttpStatusCode is 404)
+                return false;
 
-        int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+            throw new RepositoryException(response.GetErrorMessage($"Could not read aliases for reindex destination {workItem.NewIndex}"), response.OriginalException());
+        }
 
-        return currentVersion >= versionedIndex.Version;
+#if ELASTICSEARCH9
+        var indices = response.Aliases;
+#else
+        var indices = response.Values;
+#endif
+        if (indices is null || indices.Count is not 1)
+            throw new RepositoryException($"The alias response did not identify the exact reindex destination {workItem.NewIndex}");
+
+        var destination = indices.First();
+        if (!String.Equals(destination.Key, workItem.NewIndex) || destination.Value?.Aliases is null)
+            throw new RepositoryException($"The alias response did not describe the exact reindex destination {workItem.NewIndex}");
+
+        return destination.Value.Aliases.ContainsKey(workItem.Alias);
     }
 }
