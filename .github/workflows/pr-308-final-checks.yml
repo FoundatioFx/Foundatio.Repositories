@@ -1,0 +1,54 @@
+name: PR 308 final static checks
+on:
+  push:
+    branches: [audit/pr-308-20260922]
+    paths: [.github/workflows/pr-308-final-checks.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      SolutionName: Foundatio.Repositories
+      ReferenceFoundatioSource: 'false'
+      ReferenceFoundatioRepositoriesSource: 'false'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: e786babd17585db1d3a1ffca4402c5d611972be5
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Verify complete workspace and changed-file formatting
+        run: |
+          set -euo pipefail
+          mkdir -p ../pr308-final-results
+          test "$(git rev-parse HEAD)" = e786babd17585db1d3a1ffca4402c5d611972be5
+          dotnet restore Foundatio.Repositories.slnx
+          mapfile -t changed < <(git diff --name-only 9ed59304eec0a092a58c617c8370e62eab1c5935 HEAD -- '*.cs')
+          printf '%s\n' "${changed[@]}" > ../pr308-final-results/included-files.txt
+          dotnet format Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${changed[@]}" --verbosity diagnostic 2>&1 | tee ../pr308-final-results/format.log
+          if grep -Ei 'Msbuild failed|Project file not found|Warnings were encountered while loading' ../pr308-final-results/format.log; then exit 1; fi
+          git diff --check
+          test -z "$(git status --porcelain)"
+      - name: Build documentation site
+        working-directory: docs
+        run: |
+          set -euo pipefail
+          node --version | tee ../../pr308-final-results/node.txt
+          npm ci 2>&1 | tee ../../pr308-final-results/npm-ci.log
+          npm run build 2>&1 | tee ../../pr308-final-results/docs-build.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pr308-final-static-checks
+          path: ../pr308-final-results
+          retention-days: 3
