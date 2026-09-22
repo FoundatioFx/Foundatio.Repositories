@@ -1,1 +1,0 @@
-﻿[assembly: Xunit.v3.Parallelization(Mode = Xunit.Sdk.ParallelMode.None, MaxThreads = 1)]

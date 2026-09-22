@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Foundatio.Repositories\Foundatio.Repositories.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="6.0.1" />
-    <PackageReference Include="Exceptionless.RandomData" Version="2.0.1" />
-  </ItemGroup>
-</Project>
