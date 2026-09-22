@@ -404,6 +404,21 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             .OrderBy(i => CompatibilityIndexName.GetCanonicalName(i.Name, index.Name), StringComparer.Ordinal)
             .ToArray();
 
+        // Registration reserves names even when an index is absent or outside the requested batch. This check
+        // also runs for refreshed candidates under the lock, before either source or destination is mutated.
+        foreach (var candidate in candidates)
+        {
+            string target = CompatibilityIndexName.Create(candidate.Name, candidate.ServerMajor, index.Name);
+            foreach (var registered in index.Configuration.Indexes)
+            {
+                if (ReferenceEquals(registered, index) || !IsCompatibilityDestinationReserved(registered, target))
+                    continue;
+
+                throw new RepositoryException(
+                    $"Compatibility destination '{target}' for source '{candidate.Name}' is reserved by registered index '{registered.Name}'. Use non-conflicting index names before retrying.");
+            }
+        }
+
         var conflictingTargets = candidates
             .GroupBy(candidate => CompatibilityIndexName.Create(candidate.Name, candidate.ServerMajor, index.Name), StringComparer.Ordinal)
             .Where(group => group.Skip(1).Any())
@@ -416,6 +431,31 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
         }
 
         return candidates;
+    }
+
+    private static bool IsCompatibilityDestinationReserved(IIndex registered, string target)
+    {
+        if (String.Equals(registered.Name, target, StringComparison.Ordinal)
+            || registered is Index index && index.IsPotentialCompatibilitySourceName(target))
+        {
+            return true;
+        }
+
+        if (registered is not DailyIndex dailyIndex)
+            return false;
+
+        if (dailyIndex.Aliases.Any(alias => String.Equals(alias.Name, target, StringComparison.Ordinal)))
+            return true;
+
+        // Dated aliases omit the schema-version segment. Validate their suffix with the virtual native-name
+        // hook so monthly and custom date formats are honored without reserving every similarly prefixed name.
+        ReadOnlySpan<char> suffix = target.AsSpan();
+        if (!suffix.StartsWith(dailyIndex.Name.AsSpan(), StringComparison.Ordinal))
+            return false;
+
+        suffix = suffix[dailyIndex.Name.Length..];
+        return suffix.StartsWith("-", StringComparison.Ordinal)
+            && dailyIndex.IsNativeIndexName(String.Concat(dailyIndex.VersionedName.AsSpan(), suffix));
     }
 
     /// <inheritdoc />
