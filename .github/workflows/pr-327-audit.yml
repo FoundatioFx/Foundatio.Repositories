@@ -5,9 +5,12 @@ on:
     paths: [.github/workflows/pr-327-audit.yml, .audit-327/**]
 permissions:
   contents: read
+concurrency:
+  group: pr-327-source-inspection
+  cancel-in-progress: true
 jobs:
   inspect:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
