@@ -118,11 +118,7 @@ Single-doc read/write routing targets the **unversioned dated alias**, so the ph
 
 ### Picking the index at write time
 
-`GetIndex(target)` derives the destination from the document's date, resolved in order (`_getDocumentDateUtc`):
-
-1. ObjectId creation time embedded in the id (`CreateDocumentId` encodes the date into the id).
-2. `CreatedUtc` if the model implements `IHaveCreatedDate`.
-3. A custom `getDocumentDateUtc` delegate passed to the constructor.
+`GetIndex(target)` derives the destination from the document's date. A custom `getDocumentDateUtc` delegate supplied to the constructor replaces the default resolver. Without that delegate, the default checks the ObjectId's embedded creation time first, then `CreatedUtc` for `IHaveCreatedDate` models.
 
 `EnsureIndexAsync` then creates the physical index for that period if missing and attaches the dated, umbrella, and matching windowed aliases in one call. The `MaxIndexAge` check runs **first** — writing to a date already past `MaxIndexAge` throws `ArgumentException: Index max age exceeded`. Bulk writes are grouped by resolved index (one write per period).
 
@@ -173,11 +169,11 @@ Partitions past `MaxIndexAge` are skipped (left for maintenance). The umbrella a
 
 **What triggers it:** Nothing runs a reindex automatically — no background timer, hosted service, or auto-discovered job. Three ways to trigger one: (1) **call `configuration.ReindexAsync()` / `index.ReindexAsync()` directly** — deterministic, what every reindex test uses, the recommended path. (2) **`ConfigureIndexesAsync(beginReindexingOutdated: true)`** (the default) only *enqueues* a `ReindexWorkItem`; it doesn't run it. Running it requires an `IQueue<WorkItemData>` on `ElasticConfiguration` AND a worker with `ReindexWorkItemHandler` registered to dequeue and process it — neither is wired up by the library. **If no queue is configured, `ConfigureIndexesAsync()` throws `InvalidOperationException` the moment an index is outdated** — this repo's own sample app (`samples/Foundatio.SampleApp/.../ElasticExtensions.cs`) avoids this by passing `beginReindexingOutdated: false`. Even fully wired up, this path is a no-op for time-series (see above). (3) **`ElasticMigrationJobBase`** is an abstract, opt-in helper to derive from and register in your own job runner (it correctly calls `ConfigureIndexesAsync(null, false)` then reindexes outdated indexes in parallel) — it is **not auto-registered, auto-discovered, or referenced anywhere** in this repo or its sample app; treat it as scaffolding, not a default mechanism. `MaintainIndexesJob` never reindexes (aliases/retention only).
 
-**Recovering from a rolling restart mid-upgrade:** the lock (`reindex:audit`, 20 min TTL, renewed on progress) expires on its own if the holder dies — no explicit release needed, a new instance's `AcquireAsync` just waits then proceeds. The ES-side `_reindex` task runs server-side (`wait_for_completion=false`) and is unaffected by the client dying. A retried first pass resumes from the newest doc already in the new partition (`GetResumeStartingPointAsync`, `>=` range query) instead of recopying the whole period. Partitions are discovered by physical index name, not alias membership, so a partition whose alias was swapped but not yet deleted before a crash is still found and finished (resume copy → swap → delete) on the next run. Two instances racing for the same index never double-migrate it: the lock serializes them, and the loser's post-lock version check finds the version already advanced and returns.
+**Recovering from a rolling restart mid-upgrade:** the lock (`reindex:audit`, 20 min TTL, renewed on progress) expires if its holder dies, but the ES-side `_reindex` task may still be running. The first pass can narrow its query using the newest destination document (`GetResumeStartingPointAsync`); that watermark is not evidence that all older documents were copied. After alias promotion, a version check may also skip unfinished catch-up or source deletion. Do not treat a normal schema reindex as crash-safe: inspect tasks, both physical indexes, aliases, and document consistency before retrying or cleaning up. The compatibility recovery API below is a separate protocol, not recovery for schema migrations.
 
-**Write flip / no gap:** writes target the unversioned dated alias (`audit-2024.01`). After the first pass, all aliases on the old partition (dated + umbrella + windowed) are repointed to v2 in a **single atomic `UpdateAliasesAsync`** → no aliasing gap. Docs written to v1 during the first pass are copied by the second-pass catch-up (timestamp/ObjectId `>= now-1s`, `Conflicts=proceed`), so no lost-write gap for append-only data.
+**Write flip / no aliasing gap:** writes target the unversioned dated alias (`audit-2024.01`). After the first pass, all aliases on the old partition (dated + umbrella + windowed) are repointed to v2 in a **single atomic `UpdateAliasesAsync`**. This avoids an aliasing gap, not every consistency gap: the second-pass catch-up is best effort and occurs after promotion. In-place updates and deletes during the copy/catch-up window can be missed, overwritten, or resurrected. Stop writers when strict consistency is required; document counts alone do not prove a lossless copy.
 
-**Why oldest → newest:** time-series writes land in the current period, so old partitions are effectively immutable — migrating them first means near-empty second-pass catch-up and no write contention, while the one volatile (current) partition is done last with the smallest catch-up window. Also frees disk progressively from oldest data, and is deterministic/resumable (each run lists only still-old-version partitions via the min-version `GetCurrentVersionAsync`, so an interrupted run resumes with the remainder in the same order). Introduced as an index-management stability fix (2017).
+**Why oldest → newest:** time-series writes generally land in the current period, so migrating older partitions first usually reduces write contention and frees disk progressively. Ordering is deterministic, but historical updates and interrupted copies still require the consistency checks described above. Introduced as an index-management stability fix (2017).
 
 ### Reindex Scripts
 
@@ -340,23 +336,23 @@ var results = await repository.FindAsync(q => q.Index("logs-last-7-days"));
 | `ElasticMappingResolver` field cache | Auto-refreshes ~60 seconds | `index.MappingResolver.RefreshMapping()` |
 | `_isEnsured` flag (Index/VersionedIndex) | Process lifetime | App restart or index deletion |
 | `_ensuredDates` (DailyIndex) | Process lifetime per-date | `DeleteAsync(name)` or `Dispose()` |
-| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed) | Expires automatically; or `ConfigureIndexesAsync(force: true)` |
+| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed) | Expires automatically; pass explicit indexes to bypass the marker |
 
 ## Index Operations
 
 ### ConfigureIndexesAsync
 
-Creates indexes and updates mappings. Protected by distributed lock + cache marker:
+Creates indexes and updates mappings. The all-index path is protected by a distributed lock and cache marker; passing explicit indexes bypasses both:
 
 ```csharp
 await configuration.ConfigureIndexesAsync();
 
-// Bypass cache marker (after structural changes)
-await configuration.ConfigureIndexesAsync(force: true);
-
-// Configure specific indexes (bypasses lock and cache)
-await configuration.ConfigureIndexesAsync([myIndex]);
+// Configure a specific index immediately, without enqueuing schema migration.
+// Coordinate callers: the explicit-index path bypasses the configuration lock and cache.
+await configuration.ConfigureIndexesAsync([myIndex], beginReindexingOutdated: false);
 ```
+
+There is no `force` parameter on the current API. Compatibility upgrades remain a separate explicit operation.
 
 ### MaintainIndexesAsync
 
@@ -369,9 +365,10 @@ await configuration.MaintainIndexesAsync();
 ### ReindexAsync
 
 ```csharp
-await configuration.ReindexAsync(async (progress, message) =>
+await configuration.ReindexAsync(progressCallbackAsync: (progress, message) =>
 {
     _logger.LogInformation("Reindex {Progress}%: {Message}", progress, message);
+    return Task.CompletedTask;
 });
 ```
 
@@ -389,14 +386,15 @@ Custom physical-name subclasses override both `GetCompatibilityIndexPattern()` a
 
 - **Zero default compatibility requests**: `ConfigureIndexesAsync`, normal mapping/maintenance, and concrete deletion issue no compatibility metadata requests. Normal schema/mapping discovery includes open and hidden indexes, excludes closed partitions, and preserves virtual native date/version parsing. The explicit preflight uses one fresh `InfoAsync` plus one aliases/settings request per logical index, independent of partition count, including closed indexes for validation. Upgraded partitions are discovered through canonical aliases in the native pattern; no normal request adds `reindexed-v*`.
 - **Strict names and aliases**: parse only native index structure. Remove one valid `reindexed-v{major}-` prefix only when the exact canonical alias is attached. Natural `-v`, `-error`, and `reindexed-v` names remain ordinary; Foundatio error indexes also require the exact hidden `.foundatio-reindex-error` marker. Ordinary concrete deletion keeps its one-request, zero-metadata `DELETE` path. An alias rejection or missing-index response invokes the compatibility resolver, which permits one backing index, rejects multiple targets, and requires a generated target to carry its exact canonical alias.
+- **Registered destination reservations**: every other registration reserves its logical name, native physical names (including custom `IsNativeIndexName` hooks and error-index suffixes), and configured or dated daily/monthly aliases. An uncreated index still reserves its names, including when it has no upgrade candidates or is outside the requested batch. For example, upgrading `events` on ES9 must reject a registered `reindexed-v9-events` sibling before any write block or destination creation. Any native claim is sufficient to reject, even if multiple custom registrations overlap. These checks run again for candidates refreshed under the reindex lock. Fix the naming conflict through a planned migration; do not suppress it by temporarily dropping a registration.
 - **Sequential major and schema state**: `IndexCompatibilityInfo.State` is derived as `Current`, `RequiresReindex`, or `Unsupported`. Upgrade ES7-created indexes on ES8 before ES9 even if `VersionedIndex.Version` never changes. If the logical alias still points to an older schema version, run the schema reindex first.
 - **Offline and rollback contract**: stop writers, queue consumers, maintenance jobs, and alias managers. Reject pre-blocked sources. Take and verify a snapshot, close the old-server rollback window, then run compatibility reindexing. Restart or drain clients before writes resume because cached concurrency tokens refer to the deleted physical index.
-- **Evidence sequence**: mark source, use the dedicated add-block API, refresh, `_create_from`, mark target, reindex with exact `X-Opaque-Id`, immediately apply the dedicated target block, verify failures/counts/mappings/explicit settings/aliases/shards, re-read source aliases and explicit settings, atomically delete source and attach original plus canonical aliases, unblock target, remove the workflow marker last. `_create_from` is Elasticsearch Technical Preview and requires 8.18+.
+- **Evidence sequence**: mark source, use the dedicated add-block API, refresh, `_create_from`, mark target, reindex with exact `X-Opaque-Id`, immediately apply the dedicated target block, verify failures/counts/mappings/explicit settings/aliases/shards, re-read source aliases and explicit settings, atomically delete source and attach original plus canonical aliases, unblock target, remove the workflow marker last. `_create_from` requires Elasticsearch 8.18+; consult the [API documentation for the deployed server version](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-create-from).
 - **Recovery actions**: inspection returns `None`, `Wait`, `Finish`, or `ManualIntervention`. Public recovery only finishes a marked committed target with the canonical alias. Both marked pre-cutover artifacts remain manual after restart or an ambiguous request: an empty task listing cannot prove a delayed submission will never arrive. Only the running attempt may clean up after acknowledged setup with no copy dispatched, or positively confirmed termination of its exact task, before any cutover dispatch. It must also verify intact marked topology and no active or unidentified tasks. Error lineage needs `.foundatio-reindex-error` on every surviving artifact. An active task with a missing source or destination is contradictory evidence and reports manual intervention. Uncertain creation, submission, cancellation, or cutover retains artifacts and the source write fence.
-- **Callbacks and cancellation**: Compatibility upgrade progress callbacks are awaited per physical index. Pre-cutover callback failures abort through guarded cleanup; final 100-percent callback failures are logged after success. Batches are not transactional, and cancellation may be reported after a committed cutover. Inspect the original source before retrying.
+- **Callbacks and cancellation**: compatibility progress callbacks are awaited per physical index. Ordinary callback exceptions are logged and do not interrupt the upgrade. `OperationCanceledException` and lock-renewal failures still propagate through evidence-based handling. Batches are not transactional, and cancellation may be reported after a committed cutover. Inspect the original source before retrying.
 - **Lossless preflight**: reject nonempty mapping-level `_source.includes`/`excludes` and generated destination names over 255 UTF-8 bytes before any batch mutation. Empty filter arrays are supported; never truncate generated names.
 - **Names and Kibana**: supported non-dot physical names become `reindexed-v{major}-{canonical}` while repository aliases remain stable; a later major replaces the prior generated prefix. Kibana uses the same namespace and `_create_from`, but has a richer Saved Object state machine. Kibana's `.reindexed-v{major}-...` system-index variant remains unsupported because Foundatio rejects dot/system sources before mutation. Never run both workflows on one index concurrently; Foundatio cannot resume Kibana and never deletes its unmarked destination.
-- **Unsupported sources and validation**: reject Elasticsearch before 8.18, closed/system/data-stream/ILM/CCR/non-standard indexes, `_source` disabled, pre-existing blocks, destination-template drift, duplicate source or target lineage, and unregistered index instances. Validate the whole batch before mutation and repeat source/destination/schema checks under `reindex:{name}`.
+- **Unsupported sources and validation**: reject Elasticsearch before 8.18, closed/system/data-stream/ILM/CCR/non-standard indexes, `_source` disabled, pre-existing blocks, destination-template drift, duplicate source or target lineage, reserved destination names, and unregistered index instances. Validate the whole batch before mutation and repeat source/destination/schema checks under `reindex:{name}`.
 
 ## Concurrency Safety
 
