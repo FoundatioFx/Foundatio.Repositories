@@ -2,7 +2,10 @@ name: PR 307 isolated final audit
 on:
   push:
     branches: [audit/pr-307-final-validation-20260922]
-    paths: ['.audit/pr307/**', '.github/workflows/build.yml']
+    paths: ['.github/workflows/build.yml']
+concurrency:
+  group: pr307-linux-release-rehearsal
+  cancel-in-progress: true
 permissions:
   contents: read
 defaults:
@@ -15,7 +18,7 @@ env:
   ELASTICSEARCH_URL: http://localhost:9200
 jobs:
   matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -30,7 +33,7 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Prepare regression tests
+      - name: Prepare and build unpatched regression baseline
         run: |
           mkdir -p .audit/results
           git rev-parse HEAD origin/main | tee .audit/results/revisions.txt
@@ -40,13 +43,14 @@ jobs:
         run: |
           set +e
           dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' 2>&1 | tee .audit/results/red.log
-          status=${PIPESTATUS[0]}
+          result=${PIPESTATUS[0]}
           set -e
-          test "$status" -ne 0
+          test "$result" -ne 0
           grep -Eq 'failed: [1-9][0-9]*' .audit/results/red.log
-      - name: Apply and build the candidate
+      - name: Apply and build the complete candidate
         run: |
           python .audit/pr307/run.py fix
+          python .audit/pr307/docs.py
           git diff --check
           dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/green-build.log
           dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' | tee .audit/results/green.log
@@ -66,15 +70,17 @@ jobs:
           python -c 'import json,os; d=json.load(open(".audit/results/server.json")); assert d["version"]["number"]==os.environ["ES_VERSION"]; assert d["cluster_name"].startswith("foundatio-pr307-audit-")'
       - name: Full solution tests
         run: dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build | tee .audit/results/full.log
-      - name: Changed-file formatting
+      - name: Verify all changed C# files
         run: |
-          dotnet format whitespace Foundatio.Repositories.slnx --no-restore --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Configuration/Index.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskResponseReader.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.ErrorLineage.cs
+          mapfile -t modified < <(git diff --name-only -- '*.cs')
+          mapfile -t added < <(git ls-files --others --exclude-standard -- '*.cs')
+          dotnet format whitespace Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${modified[@]}" "${added[@]}" --verbosity diagnostic 2>&1 | tee .audit/results/format.log
           git diff --check
           git diff --binary > .audit/results/candidate.patch
-      - name: External packaged consumer
+      - name: External packaged consumers
         if: matrix.elasticsearch == '9.5.0'
         run: bash .audit/pr307/consumer.sh
-      - name: Record related-branch merge conflicts without changing either PR
+      - name: Record current related-branch conflicts
         if: matrix.elasticsearch == '9.5.0'
         run: |
           for branch in fix/reindex-data-loss-phase0 fix/id-tiebreaker-unmapped-id-305; do
@@ -86,7 +92,7 @@ jobs:
             set -e
             test "$result" -le 1
           done
-      - name: Capture server log
+      - name: Capture server logs
         if: always()
         run: docker logs pr307-es > .audit/results/elasticsearch.log 2>&1 || true
       - uses: actions/upload-artifact@v4
@@ -96,7 +102,7 @@ jobs:
           path: .audit/results
           retention-days: 7
   chain:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -107,15 +113,16 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Build candidate for the persistent chain
+      - name: Build the complete candidate
         run: |
           mkdir -p .audit/results
           python .audit/pr307/run.py tests
           python .audit/pr307/run.py fix
+          python .audit/pr307/docs.py
           dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/chain-build.log
-      - name: Persistent 7 to 8 to 9 upgrade and snapshot restore
+      - name: Persistent 7 to 8 to 9 chain and snapshot restores
         run: bash .audit/pr307/chain.sh
-      - name: Capture chain server log
+      - name: Capture chain logs
         if: always()
         run: docker logs pr307-chain > .audit/results/chain-final-server.log 2>&1 || true
       - uses: actions/upload-artifact@v4
@@ -124,9 +131,9 @@ jobs:
           name: pr307-persistent-chain
           path: .audit/results
           retention-days: 7
-  materialize:
+  stage:
     needs: [matrix, chain]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 5
     permissions:
       contents: write
@@ -134,15 +141,18 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Materialize the tested candidate on the audit branch only
+      - name: Stage clean commits only after every release-rehearsal gate passes
         run: |
-          test "$GITHUB_REF_NAME" = 'audit/pr-307-final-validation-20260922'
+          mkdir -p .audit/results
           python .audit/pr307/run.py tests
           python .audit/pr307/run.py fix
+          python .audit/pr307/docs.py
           git diff --check
-          git add src/Foundatio.Repositories.Elasticsearch/Configuration/Index.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskResponseReader.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.ErrorLineage.cs
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'audit: materialize verified PR 307 task-response and ownership candidate'
-          git push origin HEAD:refs/heads/audit/pr-307-final-validation-20260922
-          git rev-parse HEAD | tee -a "$GITHUB_STEP_SUMMARY"
+          sed "s|audit/pr-307-candidate-20260922|audit/pr-307-candidate-${GITHUB_RUN_ID}|g" .audit/pr307/stage.sh > "$RUNNER_TEMP/pr307-stage.sh"
+          bash "$RUNNER_TEMP/pr307-stage.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr307-validated-candidate
+          path: .audit/results
+          retention-days: 7
