@@ -16,6 +16,9 @@ public partial class IndexCompatibilityTests
     [InlineData("versioned", "events-v1-error", "reindexed-v9-events")]
     [InlineData("daily", "events-v1-2024.01.15", "reindexed-v9-events")]
     [InlineData("monthly", "events-v1-2024.01", "reindexed-v9-events")]
+    [InlineData("daily", "events-2024.01.15", "reindexed-v9-events")]
+    [InlineData("monthly", "events-2024.01", "reindexed-v9-events")]
+    [InlineData("compact-date", "events-20240115", "reindexed-v9-events")]
     [InlineData("custom", "events", "custom-reserved")]
     [InlineData("minimal", "events", "reindexed-v9-events")]
     [InlineData("window-alias", "events", "reporting")]
@@ -32,6 +35,7 @@ public partial class IndexCompatibilityTests
             "versioned" => new VersionedIndex<object>(configuration, siblingName, 2),
             "daily" => new DailyIndex<object>(configuration, siblingName, 2),
             "monthly" => new MonthlyIndex<object>(configuration, siblingName, 2),
+            "compact-date" => new CompactDestinationDateIndex(configuration, siblingName),
             "custom" => new ReservedDestinationIndex(configuration, siblingName, target),
             "minimal" => new MinimalIndex(configuration, siblingName),
             "window-alias" => new DailyIndex<object>(configuration, siblingName),
@@ -80,6 +84,28 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WithAmbiguousNativeReservations_RejectsBeforeRequests()
+    {
+        // Arrange
+        const string target = "reindexed-v9-events";
+        var invoker = new SequenceRequestInvoker();
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        var index = CreateStaticCompatibilityIndex(configuration, "events", "events");
+        configuration.AddIndex(index);
+        configuration.AddIndex(new ReservedDestinationIndex(configuration, "first", target));
+        configuration.AddIndex(new ReservedDestinationIndex(configuration, "second", target));
+
+        // Act: both siblings claim the destination, even though neither exclusively owns it.
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Contains("reserved", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(target, exception.Message, StringComparison.Ordinal);
+        Assert.Empty(invoker.Requests);
+    }
+
+    [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WithNewlyConflictingCandidate_RevalidatesUnderLock()
     {
         // Arrange
@@ -90,9 +116,9 @@ public partial class IndexCompatibilityTests
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
         var index = new StubCompatibilityIndex(configuration, "events", check => Task.FromResult<IReadOnlyCollection<IndexCompatibilityInfo>>(
         [
-            new IndexCompatibilityInfo { Name = "events", CreatedMajor = check is 1 ? 8 : 9, ServerMajor = check is 1 ? 9 : 10, ServerVersion = check is 1 ? "9.0.0" : "10.0.0" }
+            new IndexCompatibilityInfo { Name = check is 1 ? "events" : "events-error", CreatedMajor = 8, ServerMajor = 9, ServerVersion = "9.0.0" }
         ]));
-        var sibling = new Index<object>(configuration, "reindexed-v10-events");
+        var sibling = new Index<object>(configuration, "reindexed-v9-events-error");
         configuration.AddIndex(index);
         configuration.AddIndex(sibling);
 
@@ -130,6 +156,14 @@ public partial class IndexCompatibilityTests
         Assert.Equal(2, index.CompatibilityChecks);
         Assert.Equal(3, invoker.Requests.Count);
         Assert.Equal(0, invoker.RemainingResponses);
+    }
+
+    private sealed class CompactDestinationDateIndex : DailyIndex<object>
+    {
+        public CompactDestinationDateIndex(IElasticConfiguration configuration, string name) : base(configuration, name)
+        {
+            DateFormat = "yyyyMMdd";
+        }
     }
 
     private sealed class ReservedDestinationIndex : Index<object>
