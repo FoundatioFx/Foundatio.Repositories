@@ -4,6 +4,9 @@ on:
     branches: [audit/pr-314-final-20260922]
 permissions:
   contents: write
+concurrency:
+  group: pr314-final-audit
+  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -36,6 +39,9 @@ jobs:
           git fetch origin main
           git merge --no-edit origin/main
           python3 ../audit-control/.audit/pr314/apply.py
+          mkdir -p ../audit-results
+          git bundle create ../audit-results/candidate.bundle HEAD
+          git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 > ../audit-results/candidate.diff
           git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 --stat
           git log -5 --oneline
       - name: Release build
@@ -43,16 +49,17 @@ jobs:
       - name: Repeat deterministic regression tests twenty times
         run: |
           set -euo pipefail
+          dotnet tests/Foundatio.Repositories.Elasticsearch.Tests/bin/Release/net10.0/Foundatio.Repositories.Elasticsearch.Tests.dll --help > ../audit-results/runner-help.txt
           for iteration in $(seq 1 20); do
             echo "Deterministic regression iteration $iteration"
-            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests --configuration Release --no-build --filter-class '*DeleteByQueryRetryTests' '*MultiGetResponseValidationTests' --report-trx --results-directory "${{ github.workspace }}/audit-results/repeat-$iteration"
+            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj --configuration Release --no-build --filter-class '*DeleteByQueryRetryTests' '*MultiGetResponseValidationTests' --report-xunit-trx --results-directory "${{ github.workspace }}/audit-results/repeat-$iteration"
           done
       - name: Verify regression tests detect deliberate mutations
         run: python3 ../audit-control/.audit/pr314/verify-mutants.py
       - name: Start Elasticsearch
         run: docker compose up -d --wait elasticsearch
       - name: Full solution tests
-        run: dotnet test --solution Foundatio.Repositories.slnx --configuration Release --no-build --report-trx --results-directory '${{ github.workspace }}/audit-results/full'
+        run: dotnet test --solution Foundatio.Repositories.slnx --configuration Release --no-build --report-xunit-trx --results-directory '${{ github.workspace }}/audit-results/full'
       - name: Check changed C# formatting
         run: |
           dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetResponseValidationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs src/Foundatio.Repositories.Elasticsearch/Extensions/ElasticIndexExtensions.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs src/Foundatio.Repositories.Elasticsearch/Options/ElasticCommandOptions.cs
@@ -71,9 +78,9 @@ jobs:
           git merge-base --is-ancestor origin/main HEAD
           candidate="audit/pr-314-candidate-20260922-${{ github.run_number }}"
           git push origin "HEAD:refs/heads/$candidate"
-          echo "Candidate: $candidate" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "Validated commit: $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "Included main: $(git rev-parse origin/main)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Candidate: $candidate" | tee -a "$GITHUB_STEP_SUMMARY" ../audit-results/validated-revision.txt
+          echo "Validated commit: $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY" ../audit-results/validated-revision.txt
+          echo "Included main: $(git rev-parse origin/main)" | tee -a "$GITHUB_STEP_SUMMARY" ../audit-results/validated-revision.txt
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4

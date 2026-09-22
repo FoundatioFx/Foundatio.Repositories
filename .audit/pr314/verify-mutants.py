@@ -4,7 +4,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 
 root = Path(os.environ['GITHUB_WORKSPACE']) / 'audit-results'
-project = 'tests/Foundatio.Repositories.Elasticsearch.Tests'
+project = 'tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj'
 mutants = [
     ('accumulation', 'src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticRepositoryBase.cs', 'totalDeleted += response.Deleted ?? 0;', 'totalDeleted = response.Deleted ?? 0;', '*DeleteByQueryRetryTests', 'AccumulatesDeletedCountAndNotifiesOnceAcrossRetriesAsync'),
     ('budget', 'src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticRepositoryBase.cs', 'int maxAttempts = options.GetRetryCount() + 1;', 'int maxAttempts = 1;', '*DeleteByQueryRetryTests', 'AccumulatesDeletedCountAndNotifiesOnceAcrossRetriesAsync'),
@@ -19,14 +19,17 @@ for name, filename, old, new, test_class, expected_failure in mutants:
         path.write_bytes(text.replace(old, new).encode('utf-8'))
         subprocess.run(['dotnet', 'build', project, '--configuration', 'Release', '--no-restore'], check=True)
         results = root / ('mutation-' + name)
-        result = subprocess.run(['dotnet', 'test', '--project', project, '--configuration', 'Release', '--no-build', '--filter-class', test_class, '--report-trx', '--results-directory', str(results)])
+        result = subprocess.run(['dotnet', 'test', '--project', project, '--configuration', 'Release', '--no-build', '--filter-class', test_class, '--report-xunit-trx', '--results-directory', str(results)])
         assert result.returncode == 2, f'{name}: expected test-failure exit 2, got {result.returncode}'
         failed = []
         for report in results.rglob('*.trx'):
             tree = ET.parse(report)
             failed.extend(node.get('testName', '') for node in tree.iter() if node.tag.endswith('UnitTestResult') and node.get('outcome') == 'Failed')
         assert any(expected_failure in test for test in failed), f'{name}: intended assertion was not exercised: {failed}'
-        print(f'VERIFIED MUTANT {name}: {len(failed)} failing tests, including {expected_failure}', flush=True)
+        message = f'VERIFIED MUTANT {name}: {len(failed)} failing tests, including {expected_failure}'
+        print(message, flush=True)
+        with (root / 'mutation-summary.txt').open('a') as summary:
+            summary.write(message + '\n')
     finally:
         path.write_bytes(original)
 subprocess.run(['git', 'diff', '--exit-code'], check=True)
