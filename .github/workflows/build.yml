@@ -1,10 +1,36 @@
-name: Build
-on: [push, pull_request]
-
+name: Consistency audit source preparation
+on:
+  push:
+    branches: [audit/consistency-307-327-20260922]
+    paths: [.github/workflows/build.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
-  build:
-    uses: FoundatioFx/Foundatio/.github/workflows/build-workflow.yml@main
-    secrets: inherit
-    with:
-      new-test-runner: true
-      minimum-major-minor: '8.0'
+  sources:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact reviewed source trees
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          git archive --format=tar.gz -o export/pr307.tar.gz 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          git archive --format=tar.gz -o export/pr327.tar.gz 091b2ba0a6c24806568c42897c1078f0b00dae5c
+          git bundle create export/repositories.bundle --all
+          git clone --filter=blob:none https://github.com/FoundatioFx/Foundatio.git /tmp/foundatio-audit
+          git -C /tmp/foundatio-audit rev-parse HEAD > export/foundatio-main-sha.txt
+          git -C /tmp/foundatio-audit archive --format=tar.gz -o "$GITHUB_WORKSPACE/export/foundatio.tar.gz" HEAD
+          git -C /tmp/foundatio-audit bundle create "$GITHUB_WORKSPACE/export/foundatio.bundle" HEAD
+          sha256sum export/* > export/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consistency-source-trees
+          path: export
+          retention-days: 3
