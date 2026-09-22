@@ -59,8 +59,8 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
 
         Serializer = serializer;
         ResiliencePolicyProvider = resiliencePolicyProvider ?? cacheClient?.GetResiliencePolicyProvider() ?? new ResiliencePolicyProvider();
-        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
+        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _shouldDisposeCache = cacheClient is null;
         _configureIndexesCache = new ScopedCacheClient(Cache, ConfigureIndexesResourceName);
         _shouldDisposeMessageBus = messageBus is null;
