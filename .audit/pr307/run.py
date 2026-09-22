@@ -11,7 +11,10 @@ runpy.run_path('.audit/pr307/cancellation.py', run_name='__main__')
 if sys.argv[1] == 'tests':
     path = Path('tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs')
     text = path.read_text()
-    text = text.replace('using System.Collections.Generic;\n', '')
+    text = text.replace('using System.Collections.Generic;\n', '').replace('using Foundatio.Serializer;\n', '')
+    assert text.count('new SystemTextJsonSerializer(') == 2
+    text = text.replace('new SystemTextJsonSerializer(', 'new Foundatio.Serializer.SystemTextJsonSerializer(')
+    text = text.replace('TimeProvider.System, new ResiliencePolicyProvider()', 'TimeProvider.System, resiliencePolicyProvider: new ResiliencePolicyProvider()')
     assert text.count('return $$"""') == 1
     assert text.count('{{timedOut.ToString().ToLowerInvariant()}}') == 1
     text = text.replace('return $$"""', 'return """')

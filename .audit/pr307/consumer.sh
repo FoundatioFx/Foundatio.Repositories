@@ -3,8 +3,9 @@ set -euo pipefail
 feed="$RUNNER_TEMP/pr307-packages"
 consumer="$RUNNER_TEMP/pr307-consumer"
 mkdir -p "$feed" "$consumer"
-dotnet pack src/Foundatio.Repositories/Foundatio.Repositories.csproj -c Release --no-build -o "$feed"
-dotnet pack src/Foundatio.Repositories.Elasticsearch/Foundatio.Repositories.Elasticsearch.csproj -c Release --no-build -o "$feed"
+for project in Foundatio.Repositories Foundatio.Repositories.Elasticsearch; do
+  dotnet pack "src/$project/$project.csproj" -c Release --no-build --no-restore -p:ReferenceFoundatioSource=false -p:ReferenceFoundatioRepositoriesSource=false -o "$feed"
+done
 cat > "$consumer/Consumer.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
