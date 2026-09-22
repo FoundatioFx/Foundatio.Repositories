@@ -3,6 +3,9 @@ on:
   push:
     branches: [audit/pr-307-final-validation-20260922]
     paths: [.audit/consistency/pr307*.py, .github/workflows/consistency-pr307.yml]
+concurrency:
+  group: pr307-consistency-validation
+  cancel-in-progress: true
 permissions:
   contents: write
 defaults:
@@ -11,7 +14,7 @@ defaults:
 jobs:
   validate:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -33,7 +36,8 @@ jobs:
           set -euo pipefail
           mkdir -p ../evidence
           python ../harness/.audit/consistency/pr307.py .
-          if test -f ../harness/.audit/consistency/pr307-followup.py; then python ../harness/.audit/consistency/pr307-followup.py .; fi
+          python ../harness/.audit/consistency/pr307-followup.py .
+          python ../harness/.audit/consistency/pr307-health.py .
           git add -N .
           git diff --check
           dotnet build Foundatio.Repositories.slnx -c Release | tee ../evidence/build.log
@@ -43,18 +47,22 @@ jobs:
           dotnet format whitespace . --folder --include "${paths[@]}" --verbosity diagnostic > ../evidence/format-apply.log 2>&1
           dotnet format whitespace . --folder --verify-no-changes --include "${paths[@]}" --verbosity diagnostic > ../evidence/format-verify.log 2>&1
           git diff --check
-      - name: Full solution on isolated Elasticsearch 8 and 9
+      - name: Full solution on two-node Elasticsearch 8 and 9 clusters
         working-directory: product
         run: |
           set -euo pipefail
           sudo sysctl -w vm.max_map_count=1048576
+          docker network create consistency-net
           for version in 8.19.15 9.5.0; do
-            docker run -d --name consistency-es -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e ingest.geoip.downloader.enabled=false -e ES_JAVA_OPTS='-Xms1g -Xmx1g' docker.elastic.co/elasticsearch/elasticsearch:$version
+            for node in 1 2; do
+              docker run -d --name consistency-es$node --network consistency-net -p 127.0.0.1:$((9199+node)):9200 -e node.name=consistency-es$node -e cluster.name=consistency-${{ github.run_id }}-$version -e discovery.seed_hosts=consistency-es1,consistency-es2 -e cluster.initial_master_nodes=consistency-es1,consistency-es2 -e xpack.security.enabled=false -e ingest.geoip.downloader.enabled=false -e ES_JAVA_OPTS='-Xms768m -Xmx768m' docker.elastic.co/elasticsearch/elasticsearch:$version
+            done
             for n in $(seq 1 90); do curl -fsS http://localhost:9200 > /dev/null && break; sleep 2; done
-            curl -fsS http://localhost:9200
+            curl -fsS 'http://localhost:9200/_cluster/health?wait_for_nodes=2&timeout=60s' > ../evidence/health-$version.json
+            python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["number_of_nodes"] == 2 and not d["timed_out"],d' ../evidence/health-$version.json
             dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build | tee ../evidence/full-$version.log
-            docker logs consistency-es > ../evidence/server-$version.log 2>&1
-            docker rm -f consistency-es
+            docker logs consistency-es1 > ../evidence/server-$version.log 2>&1
+            docker rm -f consistency-es1 consistency-es2
           done
       - name: Stage product commits without audit infrastructure
         working-directory: product
@@ -73,6 +81,14 @@ jobs:
           git log -2 --format='%H %s' | tee ../evidence/commits.txt
           git diff --binary 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD > ../evidence/candidate.patch
           git bundle create ../evidence/candidate.bundle HEAD
+      - name: Capture diagnostics
+        if: always()
+        working-directory: product
+        run: |
+          mkdir -p ../evidence
+          docker logs consistency-es1 > ../evidence/server-final.log 2>&1 || true
+          git add -N .
+          git diff --binary > ../evidence/working.patch
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
