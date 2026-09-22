@@ -248,7 +248,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<bool> ExistsAsync(Id id, ICommandOptions? options = null)
     {
         options = ConfigureOptions(options?.As<T>());
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
+        ValidateScalarPagingOptions(options, nameof(ExistsAsync));
 
         if (String.IsNullOrEmpty(id.Value))
             return false;
@@ -523,12 +523,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                     if (pointInTime is not null && !String.IsNullOrEmpty(response.PitId))
                         pointInTime.Id = response.PitId;
-                    if (response.IsValidResponse && pagingStrategy is PagingStrategy.SearchAfterLive or PagingStrategy.SearchAfterPointInTime &&
-                        (response.TimedOut || response.Shards?.Failed > 0))
-                    {
-                        string failures = String.Join("; ", response.Shards?.Failures?.Select(failure => failure.Reason.Reason) ?? []);
-                        throw new DocumentException($"Incomplete cursor search: timed_out={response.TimedOut}, failed shards={response.Shards?.Failed}. {failures}", response.OriginalException());
-                    }
+                    ThrowIfIncompleteCursorSearch(response, pagingStrategy is PagingStrategy.SearchAfterLive or PagingStrategy.SearchAfterPointInTime);
                     result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
                 }
             }
@@ -636,9 +631,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
         options = ConfigureOptions(options?.As<T>());
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(FindOneAsync));
+        ValidateScalarPagingOptions(options, nameof(FindOneAsync));
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(FindOneAsync));
+        ValidateScalarPagingOptions(options, nameof(FindOneAsync));
 
         bool allowCaching = IsCacheEnabled && !options.ShouldUseSearchAfterPaging();
         if (allowCaching && (options.ShouldUseCache() || options.ShouldReadCache()) && !options.HasCacheKey())
@@ -652,6 +647,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
         searchDescriptor.Size(1);
+        if (options.ShouldUseSearchAfterPaging())
+            searchDescriptor.AllowPartialSearchResults(false);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -663,6 +660,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             throw new DocumentException(response.GetErrorMessage("Error while finding document"), response.OriginalException());
         }
 
+        ThrowIfIncompleteCursorSearch(response, options.ShouldUseSearchAfterPaging());
         result = response.Hits.Select(h => h.ToFindHit()).ToList();
 
         if (allowCaching && options.ShouldUseCache())
@@ -679,9 +677,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
         options = ConfigureOptions(options?.As<T>());
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
+        ValidateScalarPagingOptions(options, nameof(CountAsync));
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(CountAsync));
+        ValidateScalarPagingOptions(options, nameof(CountAsync));
 
         bool allowCaching = IsCacheEnabled && !options.ShouldUseSearchAfterPaging();
         CountResult? result;
@@ -696,6 +694,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
         searchDescriptor.Size(0);
+        if (options.ShouldUseSearchAfterPaging())
+            searchDescriptor.AllowPartialSearchResults(false);
 
         if (options.HasAsyncQueryId())
         {
@@ -731,6 +731,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
+            ThrowIfIncompleteCursorSearch(response, options.ShouldUseSearchAfterPaging());
             result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer, _logger);
         }
 
@@ -753,14 +754,16 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             throw new NotSupportedException("ExistsAsync requires the model type to implement IIdentity.");
 
         options = ConfigureOptions(options?.As<T>());
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
+        ValidateScalarPagingOptions(options, nameof(ExistsAsync));
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
-        ThrowIfPointInTimePagingIsUnsupported(options, nameof(ExistsAsync));
+        ValidateScalarPagingOptions(options, nameof(ExistsAsync));
 
         await RefreshForConsistency(query, options).AnyContext();
 
         var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
         searchDescriptor.DocvalueFields(new FieldAndFormat[] { new() { Field = _idField!.Value } });
+        if (options.ShouldUseSearchAfterPaging())
+            searchDescriptor.AllowPartialSearchResults(false);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -772,6 +775,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             throw new DocumentException(response.GetErrorMessage("Error checking if document exists"), response.OriginalException());
         }
 
+        ThrowIfIncompleteCursorSearch(response, options.ShouldUseSearchAfterPaging());
         return response.Total > 0;
     }
 
@@ -999,9 +1003,18 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    private static void ThrowIfPointInTimePagingIsUnsupported(ICommandOptions options, string operation)
+    private static void ThrowIfIncompleteCursorSearch<TDocument>(SearchResponse<TDocument> response, bool useSearchAfter)
     {
-        if (options.ShouldUseSearchAfterPagingPointInTime())
+        if (!useSearchAfter || !response.IsValidResponse || (!response.TimedOut && response.Shards?.Failed is not > 0))
+            return;
+
+        string failures = String.Join("; ", response.Shards?.Failures?.Select(failure => failure.Reason.Reason) ?? []);
+        throw new DocumentException($"Incomplete cursor search: timed_out={response.TimedOut}, failed shards={response.Shards?.Failed}. {failures}", response.OriginalException());
+    }
+
+    private static void ValidateScalarPagingOptions(ICommandOptions options, string operation)
+    {
+        if (GetPagingStrategy(options) is PagingStrategy.SearchAfterPointInTime)
             throw new QueryValidationException($"{operation} does not support point-in-time search-after paging. Use FindAsync or FindAsAsync so updated cursor and point-in-time state can be returned.");
     }
 
