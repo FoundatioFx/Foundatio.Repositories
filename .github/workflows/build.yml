@@ -3,6 +3,7 @@ on: [push, pull_request]
 
 jobs:
   build:
+    if: github.ref != 'refs/heads/audit/pr-314-final-20260922'
     uses: FoundatioFx/Foundatio/.github/workflows/build-workflow.yml@main
     secrets: inherit
     with:

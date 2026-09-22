@@ -1,4 +1,6 @@
+using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.QueryDsl;
@@ -30,12 +32,12 @@ public sealed class DeleteByQueryRetryIntegrationTests : ElasticRepositoryTestBa
     {
         // Freeze search visibility so a subsequent real-time update reliably conflicts with the
         // search snapshot. No concurrent writer, scheduler delay, or probabilistic conflict is needed.
-        var settings = await _client.Indices.PutSettingsAsync(_configuration.Identities.Name,
-            s => s.Settings(index => index.RefreshInterval(new Duration("-1"))), TestCancellationToken);
-        Assert.True(settings.IsValidResponse, settings.DebugInformation);
-
         try
         {
+            var settings = await _client.Indices.PutSettingsAsync(_configuration.Identities.Name,
+                s => s.Settings(index => index.RefreshInterval(new Duration("-1"))), TestCancellationToken);
+            Assert.True(settings.IsValidResponse, settings.DebugInformation);
+
             var identities = IdentityGenerator.GenerateIdentities(10);
             await _repository.AddAsync(identities, o => o.ImmediateConsistency());
             string[] patchedIds = identities.Take(3).Select(identity => identity.Id).ToArray();
@@ -66,16 +68,17 @@ public sealed class DeleteByQueryRetryIntegrationTests : ElasticRepositoryTestBa
         }
         finally
         {
-            // Cleanup must still run when the test cancellation token has been cancelled.
+            // Cleanup must survive test cancellation but still have its own bounded lifetime.
+            using var cleanupCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var restored = await _client.Indices.PutSettingsAsync(_configuration.Identities.Name,
-                s => s.Settings(index => index.RefreshInterval(new Duration("1s"))));
+                s => s.Settings(index => index.RefreshInterval(new Duration("1s"))), cleanupCancellation.Token);
             Assert.True(restored.IsValidResponse, restored.DebugInformation);
         }
     }
 
-    public override async ValueTask DisposeAsync()
+    public override ValueTask DisposeAsync()
     {
         _repository.Dispose();
-        await base.DisposeAsync();
+        return base.DisposeAsync();
     }
 }

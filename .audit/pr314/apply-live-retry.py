@@ -1,26 +1,11 @@
 from pathlib import Path
+import shutil
 import subprocess
 
 control = Path(__file__).resolve().parent
 path = Path('tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryIntegrationTests.cs')
 assert not path.exists()
-text = (control / path.name).read_text()
-old = '''        var settings = await _client.Indices.PutSettingsAsync(_configuration.Identities.Name,
-            s => s.Settings(index => index.RefreshInterval(new Duration("-1"))), TestCancellationToken);
-        Assert.True(settings.IsValidResponse, settings.DebugInformation);
-
-        try
-        {
-'''
-new = '''        try
-        {
-            var settings = await _client.Indices.PutSettingsAsync(_configuration.Identities.Name,
-                s => s.Settings(index => index.RefreshInterval(new Duration("-1"))), TestCancellationToken);
-            Assert.True(settings.IsValidResponse, settings.DebugInformation);
-
-'''
-assert text.count(old) == 1
-path.write_text(text.replace(old, new))
+shutil.copyfile(control / path.name, path)
 subprocess.run(['git', 'add', str(path)], check=True)
 subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
 subprocess.run(['git', 'commit', '-m', 'test: verify deterministic retry recovery against Elasticsearch'], check=True)
@@ -56,6 +41,11 @@ text = text.replace(old, new)
 assert text.count(': base(cache: cache, loggerFactory: loggerFactory)') == 1
 text = text.replace(': base(cache: cache, loggerFactory: loggerFactory)', ': base(cacheClient: cache, loggerFactory: loggerFactory)')
 path.write_bytes(text.encode('utf-8'))
-subprocess.run(['git', 'add', str(path)], check=True)
+configuration = Path('docs/guide/configuration.md')
+text = configuration.read_bytes().decode('utf-8')
+old = 'mismatched or duplicate response IDs'
+assert text.count(old) == 1
+configuration.write_bytes(text.replace(old, 'mismatched response IDs (including unexpected duplicates)').encode('utf-8'))
+subprocess.run(['git', 'add', str(path), str(configuration)], check=True)
 subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
 subprocess.run(['git', 'commit', '-m', 'docs: align caching examples with independent read controls'], check=True)
