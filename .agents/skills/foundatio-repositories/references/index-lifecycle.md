@@ -380,6 +380,8 @@ A reindex reporting no progress for too long is treated as stalled and abandoned
 
 ### Explicit Index Compatibility Upgrades (ES Major-Version Upgrades)
 
+**Task evidence is fail-closed:** copy counters are parsed independently of application serializer naming policy and must be nonnegative integers. A completed but timed-out copy is rejected. Task HTTP 404 does not prove termination; only a successful task read with `completed: true` authorizes current-attempt cleanup. Missing results retain artifacts for inspection. Native names are checked before removing generated prefixes, including when authenticating error-index provenance.
+
 Independent of schema versioning (`VersionedIndex.Version`), built-in indexes implement `IIndexCompatibility` to report physical indexes created under an **older Elasticsearch major version** than the connected server. Compatibility remediation is intentionally explicit: neither `ConfigureIndexesAsync` nor `ElasticMigrationJobBase` checks or reindexes these indexes.
 
 Custom physical-name subclasses override both `GetCompatibilityIndexPattern()` and `IsNativeIndexName(ReadOnlySpan<char>)` (`protected override` from external assemblies). Match complete native names; canonical-alias, error-marker, registration-conflict, and schema-precedence checks remain enforced. Wildcard deletion excludes closed indexes and includes hidden canonical aliases; explicitly named closed indexes can still be deleted.

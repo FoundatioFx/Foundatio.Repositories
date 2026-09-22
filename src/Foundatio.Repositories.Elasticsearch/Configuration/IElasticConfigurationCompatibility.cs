@@ -51,6 +51,8 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
     /// error-index name, or configured or dated time-series alias, even if that registration has not created an
     /// index or is excluded from <paramref name="indexes"/>. These reservations are checked again under the lock.
     /// Ambiguous requests retain the marked artifacts for manual reconciliation.
+    /// A task HTTP 404 is ambiguous, not positive termination evidence. Timed-out copy results and malformed
+    /// counters are rejected. Cleanup requires a successful task read that explicitly confirms completion.
     /// Restart or drain application instances before resuming writes because cached document concurrency tokens
     /// belong to the deleted physical index.
     /// Progress callbacks are awaited and report each physical index separately. Ordinary callback exceptions
@@ -58,6 +60,8 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
     /// failures still propagate through the same evidence-based handling as other failures. The batch is not
     /// transactional: earlier physical indexes remain upgraded if a later operation fails or is canceled.
     /// Cancellation may be reported after a cutover has committed; inspect the original physical source before retrying.
+    /// Original cancellation is preserved when inspection or reset also fails; secondary errors remain in
+    /// the inner exception. An independent cleanup timeout does not change an unrelated failure into cancellation.
     /// </remarks>
     /// <param name="indexes">The indexes to inspect and upgrade, or <c>null</c> for all configured indexes.</param>
     /// <param name="progressCallbackAsync">An optional callback for per-index progress updates.</param>
