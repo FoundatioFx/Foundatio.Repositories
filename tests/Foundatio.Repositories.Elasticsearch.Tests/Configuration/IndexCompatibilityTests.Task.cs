@@ -200,12 +200,12 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
-    public Task CancelAndConfirmAsync_WhenCancelIsPartialButTaskIsGone_CompletesWithoutUncertainty()
+    public Task CancelAndConfirmAsync_WhenCancelIsPartialButTaskIsCompleted_CompletesWithoutUncertainty()
     {
         // Arrange
         var requestInvoker = new SequenceRequestInvoker(
             new StubResponse(200, """{"nodes":{},"node_failures":[{"type":"failed_node_exception","reason":"task isn't running"}]}"""),
-            new StubResponse(404, """{"error":{"type":"resource_not_found_exception","reason":"task node:1 isn't running and hasn't stored its results"},"status":404}"""));
+            new StubResponse(200, """{"completed":true,"task":{"node":"node","id":1,"status":{}}}"""));
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
 
         // Act & Assert
@@ -248,7 +248,7 @@ public partial class IndexCompatibilityTests
         var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
         var requestInvoker = new SequenceRequestInvoker(
             new StubResponse(200, "{}"),
-            new StubResponse(404, """{"error":{"type":"resource_not_found_exception","reason":"task node:1 isn't running and hasn't stored its results"},"status":404}"""));
+            new StubResponse(200, """{"completed":true,"task":{"node":"node","id":1,"status":{}}}"""));
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
 
         // Act & Assert

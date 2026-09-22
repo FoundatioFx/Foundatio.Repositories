@@ -78,7 +78,7 @@ public partial class IndexCompatibilityTests
             new StubResponse(200, """{"task":"node:1"}""", Request: "POST /_reindex"),
             new StubResponse(200, missingTask ? """{"completed":false}""" : active, Request: "GET /_tasks/node:1"),
             new StubResponse(200, """{"nodes":{}}""", Request: "POST /_tasks/node:1/_cancel"),
-            new StubResponse(terminated ? 404 : 200, terminated ? """{"error":{"type":"resource_not_found_exception"},"status":404}""" : active, Request: "GET /_tasks/node:1"));
+            new StubResponse(200, terminated ? active.Replace("\"completed\":false", "\"completed\":true", StringComparison.Ordinal) : active, Request: "GET /_tasks/node:1"));
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
         var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
@@ -377,7 +377,7 @@ public partial class IndexCompatibilityTests
         }, CancellationToken.None));
 
         // Assert
-        Assert.IsAssignableFrom<RepositoryException>(exception);
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
         Assert.Equal(0, fixture.Invoker.RemainingResponses);
         Assert.Equal(responses.Count, fixture.Invoker.Requests.Count);
         Assert.Contains("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
@@ -424,7 +424,7 @@ public partial class IndexCompatibilityTests
         responses.Add(new(200, """{"task":"node:1"}""", Request: "POST /_reindex"));
         responses.Add(new(200, active, Request: "GET /_tasks/node:1"));
         responses.Add(new(200, """{"nodes":{}}""", Request: "POST /_tasks/node:1/_cancel"));
-        responses.Add(new(404, """{"error":{"type":"resource_not_found_exception"},"status":404}""", Request: "GET /_tasks/node:1"));
+        responses.Add(new(200, active.Replace("\"completed\":false", "\"completed\":true", StringComparison.Ordinal), Request: "GET /_tasks/node:1"));
         responses.AddRange(SafetyInspectionResponses());
         responses.AddRange(SafetyInspectionResponses());
         responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
