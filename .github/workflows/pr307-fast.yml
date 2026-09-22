@@ -14,6 +14,7 @@ defaults:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PYTHONUTF8: '1'
   MINVERVERSIONOVERRIDE: 8.0.2-audit.pr307.${{ github.run_id }}
 jobs:
   stage:
@@ -49,12 +50,8 @@ jobs:
           dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/green-build.log
           dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' | tee .audit/results/green.log
           dotnet test --project tests/Foundatio.Repositories.Tests/Foundatio.Repositories.Tests.csproj -c Release --no-build | tee .audit/results/core.log
-      - name: Verify source formatting
-        run: |
-          mapfile -t modified < <(git diff --name-only -- '*.cs')
-          mapfile -t added < <(git ls-files --others --exclude-standard -- '*.cs')
-          dotnet format whitespace Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${modified[@]}" "${added[@]}" --verbosity diagnostic 2>&1 | tee .audit/results/format.log
-          git diff --check
+      - name: Verify source formatting and preserve the candidate patch
+        run: bash .audit/pr307/format.sh
       - name: Package and execute external consumers
         run: bash .audit/pr307/consumer.sh
       - name: Materialize clean logical commits on a candidate branch only

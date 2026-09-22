@@ -19,6 +19,17 @@ cat > "$consumer/Consumer.csproj" <<EOF
   <ItemGroup><PackageReference Include="Foundatio.Repositories.Elasticsearch" Version="$MINVERVERSIONOVERRIDE" /></ItemGroup>
 </Project>
 EOF
+# Use a configuration file rather than CLI source arguments so Git Bash cannot rewrite an HTTPS URL.
+cat > "$consumer/NuGet.Config" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="audit" value="$feed" />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+</configuration>
+EOF
 cat > "$consumer/Program.cs" <<'CS'
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using var configuration = new ElasticConfiguration();
@@ -33,7 +44,7 @@ sealed class ConsumerIndex(IElasticConfiguration configuration) : Foundatio.Repo
     protected override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex) => sourceIndex.StartsWith("consumer-", StringComparison.Ordinal);
 }
 CS
-dotnet restore "$consumer/Consumer.csproj" --source "$feed" --source https://api.nuget.org/v3/index.json | tee .audit/results/consumer-restore.log
+dotnet restore "$consumer/Consumer.csproj" --configfile "$consumer/NuGet.Config" | tee .audit/results/consumer-restore.log
 dotnet build "$consumer/Consumer.csproj" -c Release --no-restore | tee .audit/results/consumer-build.log
 for framework in net8.0 net10.0; do
   dotnet run --project "$consumer/Consumer.csproj" -c Release -f "$framework" --no-build | tee ".audit/results/consumer-$framework.log"
