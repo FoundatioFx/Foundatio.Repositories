@@ -1,0 +1,53 @@
+name: Consistency offline toolchain
+on:
+  push:
+    branches: [audit/consistency-307-327-20260922]
+    paths: [.github/workflows/consistency-toolchain.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          path: repositories
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: FoundatioFx/Foundatio
+          ref: 394a97fa61418e88b4f94d20cf91410ca4bd011a
+          path: foundatio
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore only public build dependencies
+        run: |
+          set -euo pipefail
+          dotnet restore repositories/Foundatio.Repositories.slnx -p:ReferenceFoundatioSource=false -p:ReferenceFoundatioRepositoriesSource=false
+          dotnet restore foundatio/tests/Foundatio.Tests/Foundatio.Tests.csproj
+      - name: Export compiler and packages without credentials
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          sdk=$(dotnet --version)
+          runtime=$(dotnet --list-runtimes | awk '$1 == "Microsoft.NETCore.App" && $2 ~ /^10\./ {print $2}' | sort -V | tail -1)
+          aspnet=$(dotnet --list-runtimes | awk '$1 == "Microsoft.AspNetCore.App" && $2 ~ /^10\./ {print $2}' | sort -V | tail -1)
+          root=$(dirname "$(readlink -f "$(command -v dotnet)")")
+          printf 'sdk=%s\nruntime=%s\nroot=%s\n' "$sdk" "$runtime" "$root" > export/versions.txt
+          tar -C "$root" -czf export/dotnet.tar.gz dotnet host "sdk/$sdk" "shared/Microsoft.NETCore.App/$runtime" "shared/Microsoft.AspNetCore.App/$aspnet" packs
+          tar -C "$HOME/.nuget" -czf export/packages.tar.gz packages
+          sha256sum export/*.tar.gz > export/SHA256SUMS
+          du -h export/*
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consistency-offline-toolchain
+          path: export
+          compression-level: 0
+          retention-days: 1
