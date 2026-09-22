@@ -39,11 +39,12 @@ jobs:
           git fetch origin main
           git merge --no-edit origin/main
           python3 ../audit-control/.audit/pr314/apply.py
+          python3 ../audit-control/.audit/pr314/apply-live-retry.py
           mkdir -p ../audit-results
           git bundle create ../audit-results/candidate.bundle HEAD
           git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 > ../audit-results/candidate.diff
           git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 --stat
-          git log -5 --oneline
+          git log -6 --oneline
       - name: Release build
         run: dotnet build Foundatio.Repositories.slnx --configuration Release
       - name: Repeat deterministic regression tests twenty times
@@ -58,11 +59,17 @@ jobs:
         run: python3 ../audit-control/.audit/pr314/verify-mutants.py
       - name: Start Elasticsearch
         run: docker compose up -d --wait elasticsearch
+      - name: Repeat deterministic live conflicts five times
+        run: |
+          set -euo pipefail
+          for iteration in $(seq 1 5); do
+            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj --configuration Release --no-build --filter-class '*DeleteByQueryRetryIntegrationTests' --report-xunit-trx --results-directory "${{ github.workspace }}/audit-results/live-$iteration"
+          done
       - name: Full solution tests
         run: dotnet test --solution Foundatio.Repositories.slnx --configuration Release --no-build --report-xunit-trx --results-directory '${{ github.workspace }}/audit-results/full'
       - name: Check changed C# formatting
         run: |
-          dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetResponseValidationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs src/Foundatio.Repositories.Elasticsearch/Extensions/ElasticIndexExtensions.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs src/Foundatio.Repositories.Elasticsearch/Options/ElasticCommandOptions.cs
+          dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryIntegrationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetResponseValidationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs src/Foundatio.Repositories.Elasticsearch/Extensions/ElasticIndexExtensions.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs src/Foundatio.Repositories.Elasticsearch/Options/ElasticCommandOptions.cs
       - name: Build documentation
         working-directory: source/docs
         run: |
