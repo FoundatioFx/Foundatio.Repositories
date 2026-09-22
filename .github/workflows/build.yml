@@ -1,10 +1,133 @@
-name: Build
-on: [push, pull_request]
-
+name: PR 307 isolated final audit
+on:
+  push:
+    branches: [audit/pr-307-final-validation-20260922]
+    paths: ['.audit/pr307/**', '.github/workflows/build.yml']
+permissions:
+  contents: read
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  MINVERVERSIONOVERRIDE: 8.0.2-audit.pr307.${{ github.run_id }}
+  ELASTICSEARCH_URL: http://localhost:9200
 jobs:
-  build:
-    uses: FoundatioFx/Foundatio/.github/workflows/build-workflow.yml@main
-    secrets: inherit
-    with:
-      new-test-runner: true
-      minimum-major-minor: '8.0'
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        elasticsearch: ['8.19.15', '9.5.0']
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Prepare regression tests
+        run: |
+          mkdir -p .audit/results
+          git rev-parse HEAD origin/main | tee .audit/results/revisions.txt
+          python .audit/pr307/prepare.py tests
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/red-build.log
+      - name: Prove regressions fail before the fix
+        shell: bash
+        run: |
+          set +e
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' 2>&1 | tee .audit/results/red.log
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          grep -Eq 'failed: [1-9][0-9]*' .audit/results/red.log
+      - name: Apply and build the candidate
+        run: |
+          python .audit/pr307/prepare.py fix
+          git diff --check
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/green-build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' | tee .audit/results/green.log
+      - name: Provision isolated Elasticsearch
+        shell: bash
+        env:
+          ES_VERSION: ${{ matrix.elasticsearch }}
+        run: |
+          sudo sysctl -w vm.max_map_count=1048576
+          docker run -d --name pr307-es -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e "cluster.name=foundatio-pr307-audit-${GITHUB_RUN_ID}-${ES_VERSION}" -e 'ES_JAVA_OPTS=-Xms1g -Xmx1g' "docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION}"
+          for attempt in $(seq 1 120); do
+            if curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=1s' > .audit/results/health.json; then
+              if python -c 'import json; assert not json.load(open(".audit/results/health.json"))["timed_out"]'; then break; fi
+            fi
+            sleep 2
+          done
+          curl -fsS http://localhost:9200/ > .audit/results/server.json
+          python -c 'import json,os; d=json.load(open(".audit/results/server.json")); assert d["version"]["number"]==os.environ["ES_VERSION"]; assert d["cluster_name"].startswith("foundatio-pr307-audit-")'
+      - name: Full solution tests
+        run: dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build | tee .audit/results/full.log
+      - name: Changed-file formatting
+        run: |
+          dotnet format whitespace Foundatio.Repositories.slnx --no-restore --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskResponseReader.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs
+          git diff --check
+          git diff --binary > .audit/results/candidate.patch
+      - name: External packaged consumer
+        if: matrix.elasticsearch == '9.5.0'
+        run: bash .audit/pr307/consumer.sh
+      - name: Capture server log
+        if: always()
+        run: docker logs pr307-es > .audit/results/elasticsearch.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr307-audit-${{ matrix.elasticsearch }}
+          path: .audit/results
+          retention-days: 7
+  chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build candidate for the persistent chain
+        run: |
+          mkdir -p .audit/results
+          python .audit/pr307/prepare.py tests
+          python .audit/pr307/prepare.py fix
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/chain-build.log
+      - name: Persistent 7 to 8 to 9 upgrade and snapshot restore
+        run: bash .audit/pr307/chain.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr307-persistent-chain
+          path: .audit/results
+          retention-days: 7
+  materialize:
+    needs: [matrix, chain]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Materialize the tested candidate on the audit branch only
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = 'audit/pr-307-final-validation-20260922'
+          python .audit/pr307/prepare.py tests
+          python .audit/pr307/prepare.py fix
+          git diff --check
+          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskResponseReader.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'audit: materialize verified PR 307 task-response candidate'
+          git push origin HEAD:refs/heads/audit/pr-307-final-validation-20260922
+          git rev-parse HEAD | tee -a "$GITHUB_STEP_SUMMARY"
