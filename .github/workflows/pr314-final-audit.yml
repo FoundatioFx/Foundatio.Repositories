@@ -8,13 +8,13 @@ concurrency:
   group: pr314-final-audit-ubuntu2204
   cancel-in-progress: true
 jobs:
-  diagnostics:
+  validate:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: b92b5c8f0dc1d28e1827c4dde94be5ee5fa3ee21
+          ref: 561ff3b26d76221e76891976434444518ace51fa
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-dotnet@v5
@@ -25,32 +25,77 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Capture precise documentation advisory
+      - name: Prove source-reference regression and repair
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p audit-results
-          cd docs
-          npm ci --ignore-scripts --no-audit
+          mkdir -p audit-results/baseline
+          cp build/VerifySourceReferences.proj audit-results/baseline/
+          git show 7febad724997cecc1e8e49624e67779d86ec1f94:build/common.props > audit-results/baseline/common.props
           set +e
-          npm audit --json > ../audit-results/npm-audit.json
-          audit_exit=$?
+          dotnet msbuild audit-results/baseline/VerifySourceReferences.proj -target:Verify -verbosity:minimal > audit-results/baseline-failure.txt 2>&1
+          baseline_exit=$?
           set -e
-          test "$audit_exit" -le 1
-          node -e 'const r=require("../audit-results/npm-audit.json");if(r.error)throw Error(JSON.stringify(r.error));console.log(JSON.stringify(r,null,2));'
-      - name: Build solution for design-time diagnostics
-        run: dotnet build Foundatio.Repositories.slnx --configuration Release
-      - name: Capture formatter diagnostics without modifying source
+          test "$baseline_exit" -ne 0
+          grep -F "Unexpected source-reference settings for Standalone" audit-results/baseline-failure.txt
+          dotnet msbuild build/VerifySourceReferences.proj -target:Verify -verbosity:minimal | tee audit-results/source-reference-tests.txt
+          test "$(grep -c 'Passed source-reference scenario:' audit-results/source-reference-tests.txt)" -eq 12
+      - name: Build standalone provider and test projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build src/Foundatio.Repositories.Elasticsearch/Foundatio.Repositories.Elasticsearch.csproj --configuration Release
+          dotnet build tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj --configuration Release
+      - name: Release solution build
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build Foundatio.Repositories.slnx --configuration Release | tee audit-results/build.txt
+      - name: Verify formatting without missing project references
         shell: bash
         run: |
           set -euo pipefail
           dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --verbosity diagnostic --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryIntegrationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetResponseValidationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs src/Foundatio.Repositories.Elasticsearch/Extensions/ElasticIndexExtensions.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs src/Foundatio.Repositories.Elasticsearch/Options/ElasticCommandOptions.cs src/Foundatio.Repositories/Options/CacheOptions.cs tests/Foundatio.Repositories.Tests/CacheOptionsTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetErrorTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/ReadOnlyRepositoryTests.cs 2>&1 | tee audit-results/format-diagnostic.txt
+          if grep -Ei 'Msbuild failed|Project file not found|Warnings were encountered while loading' audit-results/format-diagnostic.txt; then
+            exit 1
+          fi
           git diff --exit-code
-          git rev-parse HEAD > audit-results/source-revision.txt
-      - name: Upload diagnostics
+      - name: Start Elasticsearch
+        run: docker compose up -d --wait elasticsearch
+      - name: Full solution tests
+        run: dotnet test --solution Foundatio.Repositories.slnx --configuration Release --no-build --report-xunit-trx --results-directory '${{ github.workspace }}/audit-results/full'
+      - name: Validate patched documentation dependency and site
+        working-directory: docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm audit --json > ../audit-results/npm-audit.json
+          node -e 'const r=require("../audit-results/npm-audit.json");if(r.metadata.vulnerabilities.total!==0)throw Error(JSON.stringify(r));'
+          npm run build
+      - name: Create both library packages without publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet pack src/Foundatio.Repositories/Foundatio.Repositories.csproj --configuration Release --no-build --no-restore --output '${{ github.workspace }}/audit-results/packages'
+          dotnet pack src/Foundatio.Repositories.Elasticsearch/Foundatio.Repositories.Elasticsearch.csproj --configuration Release --no-build --no-restore --output '${{ github.workspace }}/audit-results/packages'
+      - name: Record exact verified revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git fetch origin main
+          git merge-base --is-ancestor origin/main HEAD
+          git rev-parse HEAD | tee audit-results/validated-revision.txt
+          git rev-parse origin/main > audit-results/included-main.txt
+          git bundle create audit-results/candidate.bundle HEAD
+      - name: Preserve validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr314-final-diagnostics
+          name: pr314-final-repair-verification
           path: audit-results/
           retention-days: 7
+      - name: Stop test services
+        if: always()
+        run: docker compose down
