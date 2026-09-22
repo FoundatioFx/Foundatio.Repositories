@@ -3,6 +3,9 @@ on:
   push:
     branches: [audit/pr-307-final-validation-20260922]
     paths: [.audit/consistency/pr327*.py, .github/workflows/consistency-pr327.yml]
+concurrency:
+  group: pr327-consistency-validation
+  cancel-in-progress: true
 permissions:
   contents: write
 defaults:
@@ -32,15 +35,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../evidence
-          python ../harness/.audit/consistency/pr327-evidence.py .
-          python ../harness/.audit/consistency/pr327-runtime.py .
-          python ../harness/.audit/consistency/pr327-tests.py .
-          if test -f ../harness/.audit/consistency/pr327-integration.py; then python ../harness/.audit/consistency/pr327-integration.py .; fi
-          if test -f ../harness/.audit/consistency/pr327-followup.py; then python ../harness/.audit/consistency/pr327-followup.py .; fi
+          for script in pr327-evidence pr327-runtime pr327-tests pr327-integration pr327-followup; do python ../harness/.audit/consistency/$script.py .; done
+          python ../harness/.audit/consistency/lease-guard.py . 327
           git add -N .
           git diff --check
           dotnet build Foundatio.Repositories.slnx -c Release | tee ../evidence/build.log
-          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-class '*ReindexConsistencyEvidenceTests' | tee ../evidence/unit.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-class '*ReindexConsistencyEvidenceTests' '*ReindexLeaseGuardTests' | tee ../evidence/unit.log
           dotnet test --project tests/Foundatio.Repositories.Tests/Foundatio.Repositories.Tests.csproj -c Release --no-build | tee ../evidence/core.log
       - name: Full solution on isolated Elasticsearch 8 and 9
         working-directory: product
