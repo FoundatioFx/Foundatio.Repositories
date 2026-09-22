@@ -190,26 +190,26 @@ public class Index : IIndex, IHaveLogger
 
     /// <summary>
     /// The number of documents Elasticsearch reads and writes per internal bulk batch while reindexing via
-    /// <see cref="ReindexAsync"/>. Defaults to null, which uses the Elasticsearch reindex API default of 1000.
+    /// <see cref="ReindexAsync(Func{int, string, Task}, CancellationToken)"/>. Defaults to null, which uses the Elasticsearch reindex API default of 1000.
     /// Lower this if reindexing large documents triggers "rejected execution of coordinating operation" errors
     /// from indexing pressure limits.
     /// </summary>
     public int? ReindexBatchSize { get; set; }
 
     /// <summary>
-    /// Throttles <see cref="ReindexAsync"/> to approximately this many documents per second. Defaults to null,
+    /// Throttles <see cref="ReindexAsync(Func{int, string, Task}, CancellationToken)"/> to approximately this many documents per second. Defaults to null,
     /// which uses the Elasticsearch reindex API default of unlimited. Combine with <see cref="ReindexBatchSize"/>
     /// to reduce load on a cluster that is rejecting reindex requests due to indexing pressure limits.
     /// </summary>
     public float? ReindexRequestsPerSecond { get; set; }
 
     /// <summary>
-    /// Blocks writes to each source index while <see cref="ReindexAsync"/> reconciles the copy, promoting the alias
+    /// Blocks writes to each source index while <see cref="ReindexAsync(Func{int, string, Task}, CancellationToken)"/> reconciles the copy, promoting the alias
     /// only after the destination is proven to match. Defaults to <c>false</c>.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Enabling this blocks writes for the duration of the reindex</b>, and the duration grows with index size.
+    /// <b>The first pass remains writable. Writes are blocked for the full final copy and verification</b>, so the outage grows with index size.
     /// Reads keep working. See <see cref="ReindexWorkItem.QuiesceSource"/> for the full trade-off.
     /// </para>
     /// <para>
@@ -395,8 +395,32 @@ public class Index : IIndex, IHaveLogger
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException());
     }
 
-    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    private readonly AsyncLocal<CancellationToken> _reindexCancellation = new();
+
+    /// <summary>The token for the current cancellation-aware call, scoped to its async execution context.</summary>
+    protected CancellationToken ReindexCancellationToken => _reindexCancellation.Value;
+
+    /// <summary>Dispatches through the original virtual method so existing consumer overrides still run.</summary>
+    /// <remarks>The async-local scope keeps concurrent and nested calls from sharing cancellation state.</remarks>
+    public virtual async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var previous = _reindexCancellation.Value;
+        _reindexCancellation.Value = cancellationToken;
+        try
+        {
+            await ReindexAsync(progressCallbackAsync).AnyContext();
+        }
+        finally
+        {
+            _reindexCancellation.Value = previous;
+        }
+    }
+
+    /// <summary>Reindexes using the original virtual method signature.</summary>
+    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync)
+    {
+        var cancellationToken = ReindexCancellationToken;
         var reindexWorkItem = new ReindexWorkItem
         {
             OldIndex = Name,

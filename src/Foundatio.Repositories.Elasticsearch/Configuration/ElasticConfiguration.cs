@@ -258,15 +258,23 @@ public class ElasticConfiguration : IElasticConfiguration
         }
     }
 
+    /// <summary>Retains the original CLR signature for already-compiled consumers.</summary>
+    public Task ReindexAsync(IEnumerable<IIndex>? indexes, Func<int, string?, Task>? progressCallbackAsync)
+        => ReindexAsync(indexes, progressCallbackAsync, CancellationToken.None);
+
+    /// <summary>Reindexes outdated indexes, stopping before further work when the caller cancels.</summary>
     public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (indexes is null)
             indexes = Indexes;
 
         var outdatedIndexes = new List<IVersionedIndex>();
         foreach (var versionedIndex in indexes.OfType<IVersionedIndex>())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+            cancellationToken.ThrowIfCancellationRequested();
             if (versionedIndex.Version <= currentVersion)
                 continue;
 
@@ -281,40 +289,23 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             foreach (var outdatedIndex in outdatedIndexes)
             {
-                // Do not replay an incomplete migration: the alias may already have moved, and a version
-                // check on retry could turn that incomplete result into an apparent success.
-                ReindexIncompleteException? incomplete = null;
+                // Whole-migration replay is unsafe after an ambiguous cutover, regardless of exception type.
+                // Recovery must inspect durable completion and task/block state, not merely the index version.
                 try
                 {
-                    await ResiliencePolicy.ExecuteAsync(async ct =>
-                    {
-                        try
-                        {
-                            await outdatedIndex.ReindexAsync((progress, message) =>
-                                    progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, ct)
-                                .AnyContext();
-                        }
-                        catch (ReindexIncompleteException ex)
-                        {
-                            incomplete = ex;
-                        }
-                    }, cancellationToken).AnyContext();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await outdatedIndex.ReindexAsync((progress, message) =>
+                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, cancellationToken)
+                        .AnyContext();
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    // Cancellation stops the remaining migrations and remains distinguishable from failure.
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to reindex {IndexName} after retries", outdatedIndex.Name);
+                    _logger.LogError(ex, "Reindex of {IndexName} did not complete; automatic replay was not attempted", outdatedIndex.Name);
                     (failures ??= []).Add(ex);
-                }
-
-                if (incomplete is not null)
-                {
-                    _logger.LogError(incomplete, "Reindex of {IndexName} did not complete", outdatedIndex.Name);
-                    (failures ??= []).Add(incomplete);
                 }
             }
 

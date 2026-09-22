@@ -73,6 +73,25 @@ public sealed class ElasticConfigurationReindexTests
         Assert.Equal(2, index.ConfigureCalls);
     }
 
+    [Fact]
+    public async Task ReindexAsync_WhenAnUnexpectedFailureMayFollowCutover_DoesNotRetryIntoSuccess()
+    {
+        using var configuration = new ElasticConfiguration();
+        int attempts = 0;
+        var failure = new InvalidOperationException("simulated response lost after promotion");
+        var index = new ObservedIndex(configuration, "first", _ =>
+        {
+            if (++attempts is 1)
+                throw failure;
+        });
+        configuration.AddIndex(index);
+
+        var aggregate = await Assert.ThrowsAsync<AggregateException>(() => configuration.ReindexAsync(cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Same(failure, Assert.Single(aggregate.InnerExceptions));
+        Assert.Equal(1, attempts);
+    }
+
     private sealed class ObservedIndex(ElasticConfiguration configuration, string name, Action<CancellationToken>? reindex = null)
         : VersionedIndex(configuration, name, 2)
     {

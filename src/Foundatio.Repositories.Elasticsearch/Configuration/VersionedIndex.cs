@@ -292,8 +292,10 @@ public class VersionedIndex : Index, IVersionedIndex
         return sb.ToString();
     }
 
-    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync)
     {
+        var cancellationToken = ReindexCancellationToken;
         await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
         if (lease is null)
             return;
@@ -336,7 +338,9 @@ public class VersionedIndex : Index, IVersionedIndex
     /// </param>
     protected async Task<ReindexLease?> TryAcquireReindexLeaseAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
         if (currentVersion < 0 || currentVersion >= Version)
             return null;
 
@@ -387,14 +391,22 @@ public class VersionedIndex : Index, IVersionedIndex
             return null;
         }
 
-        currentVersion = await GetCurrentVersionAsync().AnyContext();
-        if (currentVersion < 0 || currentVersion >= Version)
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            currentVersion = await GetCurrentVersionAsync().AnyContext();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (currentVersion >= 0 && currentVersion < Version)
+                return new ReindexLease(reindexLock, currentVersion);
+        }
+        catch
         {
             await reindexLock.DisposeAsync().AnyContext();
-            return null;
+            throw;
         }
 
-        return new ReindexLease(reindexLock, currentVersion);
+        await reindexLock.DisposeAsync().AnyContext();
+        return null;
     }
 
     /// <summary>

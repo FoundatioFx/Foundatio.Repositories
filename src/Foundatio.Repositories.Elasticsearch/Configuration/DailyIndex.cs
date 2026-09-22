@@ -240,8 +240,10 @@ public class DailyIndex : VersionedIndex
         return DeleteIndexAsync($"{Name}-v*");
     }
 
-    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync)
     {
+        var cancellationToken = ReindexCancellationToken;
         await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
         if (lease is null)
             return;
@@ -299,10 +301,9 @@ public class DailyIndex : VersionedIndex
     /// reintroduce exactly the staleness the lock prevents. When a reindex holds the lock the alias update is
     /// skipped rather than waited on: maintenance is periodic and idempotent, so the next run picks it up.
     /// <para>
-    /// Deleting expired partitions is deliberately <em>not</em> gated on the lock. It is unbounded, so holding
-    /// the un-renewed lock across it would be unsafe, and it cannot collide with a reindex because a reindex
-    /// already skips partitions past their expiration date. Skipping it during a reindex would also stall
-    /// retention at the exact moment a reindex has the source and destination on disk at once.
+    /// Expired-partition deletion is not gated on this alias-maintenance lock. Reindexing skips partitions
+    /// already expired when enumerated, but a partition can expire during a long copy. Coordinate retention
+    /// with migrations near an expiration boundary; the alias lock alone does not protect against deletion.
     /// </para>
     /// </remarks>
     public override async Task MaintainAsync(bool includeOptionalTasks = true)

@@ -80,5 +80,12 @@ public interface IElasticConfiguration : IDisposable
     Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null);
 
     /// <summary>Reindexes outdated versioned indexes to their latest version.</summary>
-    Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default);
+    Task ReindexAsync(IEnumerable<IIndex>? indexes, Func<int, string?, Task>? progressCallbackAsync);
+
+    /// <summary>Reindexes with cancellation while retaining compatibility with legacy implementations.</summary>
+    Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ReindexAsync(indexes, progressCallbackAsync);
+    }
 }
