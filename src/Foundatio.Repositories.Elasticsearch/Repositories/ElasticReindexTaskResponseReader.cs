@@ -14,12 +14,31 @@ internal static class ElasticReindexTaskResponseReader
     {
         if (response is JsonElement element)
         {
-            if (!HasCompletedResponseShape(element))
+            if (!TryReadStatus(element, out var status)
+                || !TryReadTimedOut(element, out bool elementTimedOut)
+                || !element.TryGetProperty("failures", out var elementFailures)
+                || elementFailures.ValueKind is not JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            var parsedFailures = serializer is null
+                ? elementFailures.Deserialize<IReadOnlyCollection<ElasticReindexTaskFailure>>(SerializerOptions)
+                : serializer.Deserialize<IReadOnlyCollection<ElasticReindexTaskFailure>>(elementFailures.GetRawText());
+            if (parsedFailures is null)
                 return null;
 
-            return serializer is null
-                ? element.Deserialize<ElasticReindexTaskResponse>(SerializerOptions)
-                : serializer.Deserialize<ElasticReindexTaskResponse>(element.GetRawText());
+            return new ElasticReindexTaskResponse
+            {
+                Total = status.Total,
+                Created = status.Created,
+                Updated = status.Updated,
+                Deleted = status.Deleted,
+                Noops = status.Noops,
+                VersionConflicts = status.VersionConflicts,
+                TimedOut = elementTimedOut,
+                Failures = parsedFailures
+            };
         }
 
         if (response is not IDictionary<string, object> values)
@@ -31,6 +50,7 @@ internal static class ElasticReindexTaskResponseReader
             || !TryReadInt64(values, "deleted", out long deleted)
             || !TryReadInt64(values, "noops", out long noops)
             || !TryReadInt64(values, "version_conflicts", out long versionConflicts)
+            || !TryReadTimedOut(values, out bool timedOut)
             || !TryReadFailures(values, serializer, out var failures))
         {
             return null;
@@ -44,6 +64,7 @@ internal static class ElasticReindexTaskResponseReader
             Deleted = deleted,
             Noops = noops,
             VersionConflicts = versionConflicts,
+            TimedOut = timedOut,
             Failures = failures
         };
     }
@@ -70,14 +91,6 @@ internal static class ElasticReindexTaskResponseReader
         }
 
         return new ElasticReindexTaskStatus(total, created, updated, deleted, noops, versionConflicts);
-    }
-
-    private static bool HasCompletedResponseShape(JsonElement element)
-    {
-        return element.ValueKind is JsonValueKind.Object
-            && TryReadStatus(element, out _)
-            && element.TryGetProperty("failures", out var failures)
-            && failures.ValueKind is JsonValueKind.Array;
     }
 
     private static bool TryReadStatus(JsonElement element, out ElasticReindexTaskStatus status)
@@ -188,7 +201,10 @@ internal static class ElasticReindexTaskResponseReader
     private static bool TryReadInt64(JsonElement element, string propertyName, out long number)
     {
         number = 0;
-        return element.TryGetProperty(propertyName, out var value) && value.TryGetInt64(out number);
+        return element.TryGetProperty(propertyName, out var value)
+            && value.ValueKind is JsonValueKind.Number
+            && value.TryGetInt64(out number)
+            && number >= 0;
     }
 
     private static bool TryReadInt64(IDictionary<string, object> values, string key, out long number)
@@ -198,17 +214,54 @@ internal static class ElasticReindexTaskResponseReader
             return false;
 
         if (value is JsonElement element)
-            return element.TryGetInt64(out number);
+            return element.ValueKind is JsonValueKind.Number && element.TryGetInt64(out number) && number >= 0;
 
-        try
+        // Wire counters are integers, not values that happen to convert or round to integers.
+        switch (value)
         {
-            number = Convert.ToInt64(value);
+            case byte or sbyte or short or ushort or int or uint or long:
+                number = Convert.ToInt64(value);
+                return number >= 0;
+            case ulong unsigned when unsigned <= Int64.MaxValue:
+                number = (long)unsigned;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryReadTimedOut(JsonElement element, out bool timedOut)
+    {
+        timedOut = false;
+        if (!element.TryGetProperty("timed_out", out var value))
+            return true;
+
+        if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return false;
+
+        timedOut = value.GetBoolean();
+        return true;
+    }
+
+    private static bool TryReadTimedOut(IDictionary<string, object> values, out bool timedOut)
+    {
+        timedOut = false;
+        if (!values.TryGetValue("timed_out", out object? value))
+            return true;
+
+        if (value is bool boolean)
+        {
+            timedOut = boolean;
             return true;
         }
-        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+
+        if (value is JsonElement element && element.ValueKind is JsonValueKind.True or JsonValueKind.False)
         {
-            return false;
+            timedOut = element.GetBoolean();
+            return true;
         }
+
+        return false;
     }
 
     private static string? ReadString(IDictionary<string, object> values, string key)
@@ -232,6 +285,9 @@ internal sealed record ElasticReindexTaskResponse
 
     [JsonPropertyName("version_conflicts")]
     public long VersionConflicts { get; init; }
+
+    [JsonPropertyName("timed_out")]
+    public bool TimedOut { get; init; }
 
     public IReadOnlyCollection<ElasticReindexTaskFailure>? Failures { get; init; }
 }

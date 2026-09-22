@@ -420,6 +420,13 @@ public class ElasticReindexer
                         break;
                     }
 
+                    if (lastReindexResponse.TimedOut)
+                    {
+                        _logger.LogError("Reindex task {ReindexTaskId} timed out while reindexing {OldIndex} -> {NewIndex}",
+                            result.Task.FullyQualifiedId, workItem.OldIndex, workItem.NewIndex);
+                        break;
+                    }
+
                     taskSuccess = true;
                     break;
                 }

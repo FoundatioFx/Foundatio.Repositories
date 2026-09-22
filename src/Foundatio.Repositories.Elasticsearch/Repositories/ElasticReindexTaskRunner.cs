@@ -207,12 +207,12 @@ internal sealed class ElasticReindexTaskRunner
     private static void ValidateResult(ElasticReindexTaskResponse result, ReindexWorkItem workItem)
     {
         int failures = result.Failures?.Count ?? 0;
-        if (failures > 0 || result.VersionConflicts > 0 || result.Created != result.Total || result.Updated > 0 || result.Deleted > 0 || result.Noops > 0)
+        if (result.TimedOut || failures > 0 || result.VersionConflicts > 0 || result.Created != result.Total || result.Updated > 0 || result.Deleted > 0 || result.Noops > 0)
         {
             throw new RepositoryException(
                 $"""
                 Compatibility reindex from '{workItem.OldIndex}' to '{workItem.NewIndex}' was not an exact copy.
-                Total: {result.Total}, Created: {result.Created}, Updated: {result.Updated}, Deleted: {result.Deleted}, Noops: {result.Noops}, Version conflicts: {result.VersionConflicts}, Failures: {failures}.
+                Total: {result.Total}, Created: {result.Created}, Updated: {result.Updated}, Deleted: {result.Deleted}, Noops: {result.Noops}, Version conflicts: {result.VersionConflicts}, Failures: {failures}, Timed out: {result.TimedOut}.
                 """);
         }
     }
