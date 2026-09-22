@@ -1,0 +1,113 @@
+name: Consistency ownership and durability proof
+on:
+  push:
+    branches: [audit/consistency-307-327-20260922]
+    paths: [.github/workflows/consistency-fixes.yml, .audit/consistency/**]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+jobs:
+  lock:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: FoundatioFx/Foundatio
+          ref: 394a97fa61418e88b4f94d20cf91410ca4bd011a
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Prove lost-ownership regressions
+        working-directory: source
+        run: |
+          set -euo pipefail
+          mkdir -p ../results
+          echo '6464bf14129c5cdd20392f6c9d21cdb8e79b9066b141de00444ae7a6002d3d80  ../harness/.audit/consistency/lock.bundle' | sha256sum -c -
+          git fetch ../harness/.audit/consistency/lock.bundle HEAD
+          test "$(git rev-parse FETCH_HEAD)" = 616b40d85d752ceb334b5d2fed21a71e2cd4fdde
+          git checkout --detach FETCH_HEAD^
+          dotnet build tests/Foundatio.Tests/Foundatio.Tests.csproj -c Release | tee ../results/lock-red-build.log
+          set +e
+          dotnet test --project tests/Foundatio.Tests/Foundatio.Tests.csproj -c Release --no-build --filter-method 'RenewAsync_*' 2>&1 | tee ../results/lock-red.log
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -ne 0
+          grep -Eq 'failed: [1-9][0-9]*' ../results/lock-red.log
+          git checkout --detach 616b40d85d752ceb334b5d2fed21a71e2cd4fdde
+          dotnet build tests/Foundatio.Tests/Foundatio.Tests.csproj -c Release | tee ../results/lock-green-build.log
+          dotnet test --project tests/Foundatio.Tests/Foundatio.Tests.csproj -c Release --no-build --filter-class '*InMemoryLockTests' | tee ../results/lock-green.log
+          git diff --check
+          git log -2 --format='%H %s' > ../results/lock-commits.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: lock-ownership-proof
+          path: results
+          retention-days: 7
+  compatibility:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          path: source
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Prove launch and durability regressions
+        working-directory: source
+        run: |
+          set -euo pipefail
+          mkdir -p ../results
+          echo 'e728c0d3ad7c6bf12320cd81ea2a2a29adc7c5440f6aa9ab0795313ebcdccc9a  ../harness/.audit/consistency/pr307.bundle' | sha256sum -c -
+          git fetch ../harness/.audit/consistency/pr307.bundle HEAD
+          test "$(git rev-parse FETCH_HEAD)" = 2e3eaccc720e84a369f93b5b6c14158ac573d5be
+          git checkout --detach FETCH_HEAD^
+          dotnet build Foundatio.Repositories.slnx -c Release | tee ../results/compat-red-build.log
+          set +e
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*WithRetryingTransport*' 'WaitForTargetHealthAsync_*' 2>&1 | tee ../results/compat-red.log
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -ne 0
+          grep -Eq 'failed: [1-9][0-9]*' ../results/compat-red.log
+          git checkout --detach 2e3eaccc720e84a369f93b5b6c14158ac573d5be
+          dotnet build Foundatio.Repositories.slnx -c Release | tee ../results/compat-green-build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-class '*IndexCompatibilityTests' | tee ../results/compat-green.log
+          dotnet test --project tests/Foundatio.Repositories.Tests/Foundatio.Repositories.Tests.csproj -c Release --no-build | tee ../results/core.log
+          git diff --check
+          git diff --exit-code 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD -- .github
+          test -z "$(git ls-tree -r --name-only HEAD -- .audit)"
+          test -z "$(git status --porcelain)"
+          git push origin HEAD:refs/heads/audit/consistency-pr307-stage-${GITHUB_RUN_ID}
+          git log -2 --format='%H %s' > ../results/compat-commits.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: compatibility-consistency-proof
+          path: results
+          retention-days: 7
