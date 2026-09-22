@@ -1,0 +1,70 @@
+name: PR 307 isolated persistent upgrade rehearsal
+on:
+  push:
+    branches: [audit/pr-307-final-validation-20260922]
+    paths: ['.github/workflows/pr307-chain-isolated.yml']
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PYTHONUTF8: '1'
+  MINVERVERSIONOVERRIDE: 8.0.2-audit.pr307.${{ github.run_id }}
+  ELASTICSEARCH_URL: http://localhost:9200
+jobs:
+  chain:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build exactly the audited source candidate
+        run: |
+          mkdir -p .audit/results
+          python .audit/pr307/run.py tests
+          python .audit/pr307/run.py fix
+          python .audit/pr307/docs.py
+          git diff --check
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/chain-build.log
+          bash .audit/pr307/format.sh
+      - name: Rehearse persistent upgrade and per-major snapshot restores
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.audit/pr307/chain.sh')
+          text = path.read_text()
+          old = '-e xpack.security.enabled=false'
+          assert text.count(old) == 1
+          text = text.replace(old, old + ' -e ingest.geoip.downloader.enabled=false')
+          old = '    sleep 2\n'
+          new = '''    if [ "$(docker inspect -f '{{.State.Running}}' pr307-chain)" != true ]; then
+                docker logs pr307-chain
+                echo 'Elasticsearch exited before readiness' >&2
+                return 1
+              fi
+              sleep 2
+          '''
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, new))
+          PY
+          bash .audit/pr307/chain.sh
+      - name: Pack and run external .NET 8 and .NET 10 consumers
+        run: bash .audit/pr307/consumer.sh
+      - name: Capture final server log
+        if: always()
+        run: docker logs pr307-chain > .audit/results/chain-final-server.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr307-isolated-persistent-chain
+          path: .audit/results
+          retention-days: 7
