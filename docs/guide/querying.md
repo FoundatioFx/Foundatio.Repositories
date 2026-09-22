@@ -418,8 +418,11 @@ PIT using the latest returned ID; cleanup never replaces the original exception.
 the session is cleared and retrying `NextPageAsync()` throws `QueryValidationException` before sending
 another request. Start over with a new `FindAsync` call. If the session remains open, continuation uses
 the latest PIT ID stored in the options, including an ID returned before an `AfterQuery` failure.
-A continuation belongs to its original PIT session: resetting or replacing that session invalidates
-its results even if a new `FindAsync` call opens another PIT with the same options. This is checked
+A continuation belongs to its original Live or PIT session: disabling search-after, switching modes,
+or disabling and re-enabling the same mode invalidates the old results, even if a new `FindAsync`
+call starts a replacement traversal with the same options. Reapplying the current mode without a
+reset preserves the active session. Resetting from `AfterQuery` also invalidates the returned page's
+continuation. This is checked
 after `BeforeQuery` as well as before continuation. Clearing a repository-owned session inside an
 event handler still allows the active request to close its PIT; explicitly calling `PointInTimeId(...)`
 transfers ownership to the caller instead, including when supplying the same ID.
@@ -427,7 +430,14 @@ transfers ownership to the caller instead, including when supplying the same ID.
 Both Live and PIT cursor searches request `allow_partial_search_results=false`. A response that
 reports a timeout or failed shards still throws `DocumentException` before returning hits or advancing
 the cursor, even when Elasticsearch returns HTTP 200. This prevents incomplete pages from silently
-ending a traversal or skipping documents.
+ending a traversal or skipping documents. Live cursor queries through `FindOneAsync`, `CountAsync`,
+and query-based `ExistsAsync` enforce the same complete-response requirement and reject combinations
+with snapshot/scroll or async paging before submitting a search.
+
+A paging session is not a concurrency primitive. Use separate command options and results for each
+independent traversal, and await each `NextPageAsync()` before requesting another page. Keep the query,
+sort definitions, and target indexes unchanged while continuing. Live paging is not a snapshot: changes
+to the matching set or sort values can still affect later pages; use PIT for a consistent view.
 
 Backward paging reverses request-owned copies of field, score, document, geographic-distance, and
 script sorts. Reusing a query leaves the caller's sort objects and settings unchanged, including
@@ -438,7 +448,7 @@ Changing between `Live` and `PointInTime` starts a new paging session at page on
 PIT ownership/id, and warning state. Reapplying the current mode preserves the active session and page.
 The repository evaluates the final paging mode after `BeforeQuery` handlers run, so a handler can
 enable or disable paging for a new search without leaving request setup, validation, or caching on the
-previous mode. A PIT continuation cannot switch modes or replace its session in that handler.
+previous mode. Neither a Live nor a PIT continuation can switch modes or replace its session in that handler.
 Calling `PointInTimeId(...)` establishes a caller-owned PIT, even when the options previously held
 a repository-owned PIT; close the active repository-owned PIT before replacing its ID so the old
 PIT is not retained until expiry. Snapshot/scroll paging cannot be combined with search-after
@@ -469,7 +479,7 @@ with `QueryValidationException` before Elasticsearch receives a request.
 > as a tiebreaker whenever the model's id field is mapped and sortable in the target index, so a
 > query with no explicit sort is safe in that case.
 > The id tiebreaker is skipped entirely for models that don't implement `IIdentity` (there is no id
-> to sort by) and for indexes managed outside this library (see
+> to sort by) and for indexes that explicitly set `HasSortableIdField = false` (see
 > [Externally-Managed Indexes](index-management.md#externally-managed-indexes)). In both cases,
 > Live mode requires your own stable, unique sort field and throws `QueryValidationException` if
 > none is available. [Elasticsearch automatically adds `_shard_doc` to PIT searches](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after);

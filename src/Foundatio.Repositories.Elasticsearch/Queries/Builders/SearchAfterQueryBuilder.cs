@@ -70,7 +70,9 @@ namespace Foundatio.Repositories
         /// The repository attempts to close snapshots it owns on failure without masking the original exception.
         /// After cleanup clears the session, NextPageAsync throws QueryValidationException; restart with FindAsync.
         /// Retained sessions continue with the latest point-in-time ID stored in the options.
-        /// Resetting or replacing a session invalidates its existing continuations, including changes in BeforeQuery.
+        /// Resetting or replacing a Live or point-in-time session invalidates its existing continuations,
+        /// including changes in BeforeQuery or AfterQuery. Reapplying the current mode preserves the session.
+        /// Command options and result objects must not be shared by concurrent traversals.
         /// Live and point-in-time cursor searches reject timeouts and partial shard failures before returning results.
         /// </remarks>
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
