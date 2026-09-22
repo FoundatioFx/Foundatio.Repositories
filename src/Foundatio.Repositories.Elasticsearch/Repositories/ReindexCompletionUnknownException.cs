@@ -20,9 +20,9 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// completion is never inferred from alias state or document counts.
 /// </para>
 /// <para>
-/// A migration run with <see cref="Jobs.ReindexWorkItem.QuiesceSource"/> does not reach this state. Promotion
-/// there happens only after reconciliation and verification succeeded, so a missing record can be re-derived
-/// rather than escalated.
+/// This also applies to <see cref="Jobs.ReindexWorkItem.QuiesceSource"/> migrations. A redelivered work-item
+/// flag cannot prove which attempt verified the promoted physical generation. Missing durable evidence is
+/// never reconstructed from that flag alone.
 /// </para>
 /// <para>
 /// Recovery is a human decision. Compare <see cref="SourceIndex"/> against <see cref="DestinationIndex"/> to
