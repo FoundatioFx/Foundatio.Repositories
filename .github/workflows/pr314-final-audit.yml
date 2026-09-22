@@ -3,105 +3,54 @@ on:
   push:
     branches: [audit/pr-314-final-20260922]
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: pr314-final-audit-ubuntu2204
   cancel-in-progress: true
 jobs:
-  validate:
+  diagnostics:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: bash
-        working-directory: source
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
-          path: audit-control
-          persist-credentials: false
-      - uses: actions/checkout@v6
-        with:
-          ref: feature/strict-mget-item-errors
+          ref: b92b5c8f0dc1d28e1827c4dde94be5ee5fa3ee21
           fetch-depth: 0
-          path: source
+          persist-credentials: false
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Apply reviewed changes on current main
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = 30f6ec4249aff665fd33e8e6ba7602d10d128566
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin main
-          git merge --no-edit origin/main
-          python3 ../audit-control/.audit/pr314/apply.py
-          python3 ../audit-control/.audit/pr314/apply-live-retry.py
-          python3 ../audit-control/.audit/pr314/finalize.py
-          mkdir -p ../audit-results
-          git bundle create ../audit-results/candidate.bundle HEAD
-          git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 > ../audit-results/candidate.diff
-          git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 --stat
-          git log -8 --oneline
-      - name: Release build
-        run: dotnet build Foundatio.Repositories.slnx --configuration Release
-      - name: Preserve candidate for inspection
-        run: |
-          set -euo pipefail
-          candidate="audit/pr-314-candidate-${{ github.run_id }}"
-          git push origin "HEAD:refs/heads/$candidate"
-          echo "Prepared candidate: $candidate" | tee -a "$GITHUB_STEP_SUMMARY" ../audit-results/prepared-revision.txt
-          git rev-parse HEAD | tee -a ../audit-results/prepared-revision.txt
-      - name: Repeat deterministic regression tests twenty times
-        run: |
-          set -euo pipefail
-          for iteration in $(seq 1 20); do
-            echo "Deterministic regression iteration $iteration"
-            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj --configuration Release --no-build --filter-class '*DeleteByQueryRetryTests' '*MultiGetResponseValidationTests' --report-xunit-trx --results-directory "${{ github.workspace }}/audit-results/repeat-$iteration"
-          done
-      - name: Verify regression tests detect deliberate mutations
-        run: python3 ../audit-control/.audit/pr314/verify-mutants.py
-      - name: Start Elasticsearch
-        run: docker compose up -d --wait elasticsearch
-      - name: Repeat deterministic live conflicts five times
-        run: |
-          set -euo pipefail
-          for iteration in $(seq 1 5); do
-            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj --configuration Release --no-build --filter-class '*DeleteByQueryRetryIntegrationTests' --report-xunit-trx --results-directory "${{ github.workspace }}/audit-results/live-$iteration"
-          done
-      - name: Full solution tests
-        run: dotnet test --solution Foundatio.Repositories.slnx --configuration Release --no-build --report-xunit-trx --results-directory '${{ github.workspace }}/audit-results/full'
-      - name: Check changed C# formatting
-        run: |
-          dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryIntegrationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetResponseValidationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs src/Foundatio.Repositories.Elasticsearch/Extensions/ElasticIndexExtensions.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs src/Foundatio.Repositories.Elasticsearch/Options/ElasticCommandOptions.cs src/Foundatio.Repositories/Options/CacheOptions.cs tests/Foundatio.Repositories.Tests/CacheOptionsTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetErrorTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/ReadOnlyRepositoryTests.cs
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build documentation
-        working-directory: source/docs
-        run: |
-          npm ci
-          npm run build
-      - name: Verify package creation without publishing
-        run: dotnet pack Foundatio.Repositories.slnx --configuration Release --no-build --no-restore --output '${{ github.workspace }}/audit-results/packages'
-      - name: Record validated candidate revision
+      - name: Capture precise documentation advisory
+        shell: bash
         run: |
           set -euo pipefail
+          mkdir -p audit-results
+          cd docs
+          npm ci --ignore-scripts --no-audit
+          set +e
+          npm audit --json > ../audit-results/npm-audit.json
+          audit_exit=$?
+          set -e
+          test "$audit_exit" -le 1
+          node -e 'const r=require("../audit-results/npm-audit.json");if(r.error)throw Error(JSON.stringify(r.error));console.log(JSON.stringify(r,null,2));'
+      - name: Build solution for design-time diagnostics
+        run: dotnet build Foundatio.Repositories.slnx --configuration Release
+      - name: Capture formatter diagnostics without modifying source
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --verbosity diagnostic --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryIntegrationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetResponseValidationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs src/Foundatio.Repositories.Elasticsearch/Extensions/ElasticIndexExtensions.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs src/Foundatio.Repositories.Elasticsearch/Options/ElasticCommandOptions.cs src/Foundatio.Repositories/Options/CacheOptions.cs tests/Foundatio.Repositories.Tests/CacheOptionsTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetErrorTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/ReadOnlyRepositoryTests.cs 2>&1 | tee audit-results/format-diagnostic.txt
           git diff --exit-code
-          git fetch origin main
-          git merge-base --is-ancestor origin/main HEAD
-          echo "Validated commit: $(git rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY" ../audit-results/validated-revision.txt
-          echo "Included main: $(git rev-parse origin/main)" | tee -a "$GITHUB_STEP_SUMMARY" ../audit-results/validated-revision.txt
-      - name: Upload validation evidence
+          git rev-parse HEAD > audit-results/source-revision.txt
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr314-final-audit-results
+          name: pr314-final-diagnostics
           path: audit-results/
           retention-days: 7
-      - name: Stop test services
-        if: always()
-        run: docker compose down
