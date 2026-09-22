@@ -66,7 +66,7 @@ public sealed class MultiGetErrorTests : ElasticRepositoryTestBase
         Assert.Equal(!readOnly, options.ShouldUseCache());
         Assert.True(options.ShouldReadCache());
         Assert.Equal(cacheKey, options.GetCacheKey());
-        Assert.Empty(_cache.Keys.Where(key => key.StartsWith("LogEvent:", StringComparison.Ordinal)));
+        Assert.DoesNotContain(_cache.Keys, key => key.StartsWith("LogEvent:", StringComparison.Ordinal));
     }
 
     [Theory]
