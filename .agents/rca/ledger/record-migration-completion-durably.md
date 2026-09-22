@@ -1,6 +1,7 @@
 # Ledger: record migration completion durably so a redelivery cannot ack an unconfirmed migration
 
-Status: **implemented (bounded scope expansion)** — approved 2026-09-11, implemented same day
+Status: **implemented (bounded scope expansion)** — approved 2026-09-11, implemented same day. See the
+2026-09-22 review below for changes and unresolved recovery limitations; the original validation is historical.
 Scope gate: bounded addition to the reindex safety work. Explicitly **not** authorization for the full
 strict-migration protocol.
 
@@ -28,9 +29,10 @@ defect fixed in `2d77dd00`; both came from the same root assumption that alias s
 - `HasCompletionEvidenceAsync` / `TryReadCompletionAsync` validate a record against this migration's identity,
   the destination's **current** UUID, and the transformation fingerprint. Any mismatch is treated as no
   evidence.
-- `ReindexWorkItemHandler` now makes a three-way decision (`RedeliveryDisposition`): `SafeToStart`,
-  `AlreadyCompleted`, `PromotedButUnconfirmed`. The old boolean skip became `IsAlreadyPromotedAsync`, which now
-  answers only "has the cutover happened?".
+- `ReindexWorkItemHandler` originally made a three-way decision (`RedeliveryDisposition`): `SafeToStart`,
+  `AlreadyCompleted`, `PromotedButUnconfirmed`. The old boolean skip became `IsAlreadyPromotedAsync`, which
+  answers only "has the cutover happened?". A later quiesce change added `PromotedAfterVerification`; see the
+  review below for why the current request's quiesce flag is insufficient provenance.
 - `ReindexCompletionUnknownException` for the unconfirmed case — neither success nor permission to copy again.
   Both indexes are preserved; no replay, rollback, or deletion. Throwing routes it into the queue's own
   abandon/retry/dead-letter handling with the work identity intact.
@@ -91,31 +93,56 @@ successful ack from a silent one.
 The three refusal tests assert the exact exception type, and a **mutation probe** (returning `SafeToStart`
 instead of `PromotedButUnconfirmed`) failed all three — confirming they are load-bearing rather than vacuous.
 
-Regression: 188/189 across reindex, migration, and index suites. The one failure is the known Docker
-port-forwarder stall on an unrelated test, which passes in isolation. Build clean, 0 warnings.
+Historical regression result from the original implementation: 188/189 across reindex, migration, and index
+suites. That run attributed one failure to a Docker port-forwarder stall that passed in isolation. This is
+not a validation result for subsequent revisions.
+
+## 2026-09-22 review: exact destination and recovery provenance
+
+`f9e02ec` replaces the configuration-version shortcut with an alias lookup for the work item's exact physical
+`NewIndex`. An old v1-to-v2 item must not become replayable merely because its worker now configures v3, and a
+promoted daily/monthly partition must not become replayable because another partition is still on v1. Both
+handler constructors now use the same check. Unavailable or incomplete alias metadata fails closed.
+
+Completion evidence is checked before alias state so a recorded migration can still be recognized after its
+alias moves on. Fifteen offline cases in `ReindexWorkItemHandlerTests` cover exact and dated destinations,
+case-sensitive alias matching, missing indexes, failed/incomplete responses, and pre-cancelled requests.
+`40a3249` supplies the shared error-formatting import required by both target frameworks. Test results must be
+read from the corresponding CI revision; the presence of these tests is not a claim that they have passed.
+
+**Unresolved:** `PromotedAfterVerification` still infers the earlier attempt's protocol from the current work
+item's `QuiesceSource` flag. A default-order attempt may have promoted and failed before a different item is
+submitted with that flag enabled. Neither the new flag nor the alias proves that the earlier copy was
+verified. Recovery must require durable prior-attempt evidence or remain `PromotedButUnconfirmed`. The exact
+index lookup does not resolve this separate review finding.
+
+The script-only fingerprint also does not bind `StartUtc`, `TimestampField`, or `QuiesceSource`, and the
+concatenated completion id is not length-bounded. Those identity concerns remain separate from destination
+lookup and require regression coverage before claiming completion records attest the full migration contract.
 
 ## Compatibility impact (to carry into release notes)
 
 - **New index**: `foundatio-reindex-completions`, one single-shard index, one small document per physical
   migration. Not matched by `{name}-v*` enumeration or deletion patterns.
-- **Migrations completed before this release have no record.** This only surfaces if a stale work item for one
-  is redelivered, which then reports `ReindexCompletionUnknownException` instead of acknowledging it. Completion
-  is never fabricated from counts or alias state. Ordinary startup is unaffected: nothing verifies existing
-  indexes and no scan is introduced.
+- **Migrations completed before this release have no record.** For default-order work items, a promoted target
+  without a record produces `ReindexCompletionUnknownException` instead of acknowledgment. The current
+  quiesced recovery exception is subject to the unresolved provenance finding above. Ordinary startup is
+  unaffected: nothing verifies existing indexes and no scan is introduced.
 - **New exception type** `ReindexCompletionUnknownException` on the queued path.
-- No new `ReindexWorkItem` fields; work items remain wire-compatible.
+- No new `ReindexWorkItem` fields in the original completion-record change; work items remain wire-compatible.
 - No per-document records, no new scans, no new storage framework, no generic workflow engine.
 
 ## Not claimed
 
 A completion record attests that the copy met the contract this branch implements — the copy task accounted for
 every document it matched, the catch-up pass completed or was proven unnecessary, and the aliases moved. It is
-**not** proof of strict or lossless consistency, and is documented as such in code XML docs, `index-lifecycle.md`,
-and the guide's "Remaining limitations".
+**not** proof of strict or lossless consistency. In particular, the unresolved recovery-provenance and
+fingerprint limitations above prevent treating every currently accepted record as proof of that full contract.
 
-## Deferred (unchanged by this entry)
+## Deferred (unchanged by the original entry)
 
-- Write blocking / the full Quiesce protocol.
+- Write blocking / the full Quiesce protocol. Later changes added opt-in quiescence; its recovery limitations
+  are recorded above.
 - Phase reordering so the alias moves after the catch-up pass.
 - Automatic repair, task-resume orchestration, and broader cache changes.
 - Automatic verification of existing large indexes on startup. Any such recovery must stay an explicit,

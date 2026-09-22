@@ -232,6 +232,7 @@ public class ReindexWorkItem
     public string Alias { get; set; }
     public string Script { get; set; }        // Painless script for data transformation
     public bool DeleteOld { get; set; }       // Delete old index after successful reindex
+    public bool QuiesceSource { get; set; }   // Opt in to blocking source writes before reconciliation
     public string TimestampField { get; set; } // Field for incremental reindex
     public DateTime? StartUtc { get; set; }   // Start time for incremental reindex
     public int? ReindexBatchSize { get; set; }          // Documents per internal bulk batch (default: 1000)
@@ -240,20 +241,24 @@ public class ReindexWorkItem
 ```
 
 **Features:**
-- **Same behavior as the direct path**: Construct it with your `IElasticConfiguration` (`new ReindexWorkItemHandler(configuration)`) so a queued reindex uses the same `TimeProvider`, resilience policies, and alias lock the direct `index.ReindexAsync()` path uses. The looser `(client, serializer, lockProvider, loggerFactory)` constructor still works but cannot tell that a work item's migration was already completed, so a stale or duplicated work item is copied again instead of skipped.
-- **Skips already-completed migrations**: Once the lock is held, the destination index's version is re-read. A work item whose migration another process finished while it sat in the queue is completed as a no-op rather than reindexed a second time.
+- **Configuration-aware execution**: Construct it with your `IElasticConfiguration` (`new ReindexWorkItemHandler(configuration)`) to use its `TimeProvider`, resilience policies, and alias lock. The `(client, serializer, lockProvider, loggerFactory)` constructor also checks durable completion and exact destination aliases; it does not require a registered index configuration to recognize a duplicate.
+- **Exact-destination redelivery checks**: Under the alias lock, a matching completion record is checked first, even if the alias has since moved to a newer index. Without matching evidence, the handler reads aliases for the exact `NewIndex`, including a dated daily or monthly partition. It does not compare against the worker's current configured schema version or the lowest version across other partitions. An unavailable or incomplete alias response fails the work item rather than authorizing a potentially unsafe copy.
 - **Bounded lock wait**: Waiting for the alias lock gives up after 30 minutes (matching the direct path) and abandons the work item for redelivery, so a queue worker is never parked indefinitely behind another reindex.
 - **Automatic Lock Renewal**: The handler sets `AutoRenewLockOnProgress = true`, which automatically renews the distributed lock whenever progress is reported
 - **Progress Reporting**: Reports progress percentage and status messages during reindex
-- **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format. If neither is available a second pass is impossible, so the reindex refuses to promote the copy (throwing `ReindexIncompleteException` and retaining the old index) unless the source went unchanged for the whole copy
+- **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format. If neither is available, the default path checks for source changes and can refuse promotion with `ReindexIncompleteException`. These checks are not write barriers and are not a guarantee of an online, lossless migration; see [Index Management](/guide/index-management) for the remaining consistency limitations.
 - **Error Handling**: Failed documents are stored in an error index (`{newIndex}-error`)
-- **Durable completion records**: A finished migration writes a record to the `foundatio-reindex-completions` index before the queue item is acknowledged and before the source is deleted. A redelivered work item is acknowledged as already done only when a matching record exists; if the alias is already promoted but no record vouches for the migration, the handler throws `ReindexCompletionUnknownException` rather than acknowledging it or recopying into the live destination. An advanced alias is never treated as proof of completion, because the alias moves before the catch-up pass and so a post-cutover failure leaves the same state a success does
+- **Durable completion records**: A finished migration writes a record to `foundatio-reindex-completions` before the queue item is acknowledged and before the source is deleted. For the default ordering, a promoted destination without a matching record produces `ReindexCompletionUnknownException` rather than acknowledgment or replay into the live destination. The quiesced recovery exception to this rule is described below.
 - **Resilient Status Polling**: Progress is tracked by repeatedly polling the Elasticsearch task status API; failures back off exponentially with jitter (1 second, doubling up to a 30 second cap, +/-25% jitter) instead of retrying immediately, so a struggling cluster isn't hammered with repeated requests, and multiple work items failing at once don't retry in lockstep
 - **Stall Detection Scales With Throttle**: A reindex making no progress for too long is treated as stalled and abandoned. The threshold defaults to 10 minutes, but when `ReindexRequestsPerSecond` is set low enough that Elasticsearch's own inter-batch pause (`ReindexBatchSize` ÷ `ReindexRequestsPerSecond`, with a 3x safety margin) would exceed 10 minutes, the threshold extends to cover it - so a healthy, intentionally throttled reindex isn't mistaken for a stalled one
 - **Validated Throttle Settings**: `ReindexBatchSize`/`ReindexRequestsPerSecond` must be positive, finite numbers when set - `ReindexAsync` throws `ArgumentOutOfRangeException` immediately for a zero, negative, `NaN`, or infinite value
 
+::: warning Quiesced redelivery does not establish the earlier attempt's provenance
+The current implementation can write a missing completion record and acknowledge a promoted work item when that work item has `QuiesceSource = true`. The flag describes the current request; it does not prove that the attempt which moved the alias blocked writes and verified its copy. Do not change the flag to clear an unknown completion result. Recovery requires evidence about the earlier attempt and inspection of both indexes, not an inference from the new work item's settings. The exact-destination guard does not close this separate recovery gap.
+:::
+
 ::: warning Enqueuing a work item is not enough on its own
-For this to run, something has to actually dequeue `ReindexWorkItem`s and dispatch them to `ReindexWorkItemHandler` — you need your own queue worker with the handler registered (e.g. via a `JobManager`/`WorkItemHandlers` setup). Simply calling `queue.EnqueueAsync(...)` below, with nothing processing the queue, leaves the work item sitting there indefinitely. Also, **this path does not work for `DailyIndex`/`MonthlyIndex`** — the old/new index names must be exact, existing index (or alias) names, so a dated partition's real name (`audit-v1-2024.01`) has to be used, not the unversioned base name. See [What actually triggers a reindex](/guide/index-management#what-actually-triggers-a-reindex) for the recommended direct alternative for time-series indexes.
+A queue worker must dequeue `ReindexWorkItem`s and dispatch them to a registered `ReindexWorkItemHandler` (for example, through `JobManager`/`WorkItemHandlers`). Enqueuing alone does not start a migration. A work item also does not enumerate daily or monthly partitions: supply the exact physical `OldIndex` and `NewIndex` for each partition, such as `audit-v1-2024.01` and `audit-v2-2024.01`, rather than an undated version prefix. Prefer the direct time-series reindex path when partition enumeration and ordering should be managed for you; see [What actually triggers a reindex](/guide/index-management#what-actually-triggers-a-reindex).
 :::
 
 **Usage:**
@@ -296,7 +301,7 @@ await configuration.ReindexAsync(async (progress, message) =>
 
 ### Progress Stages
 
-The reindex process reports progress through several stages:
+The default, non-quiesced ordering reports the following stages. With `QuiesceSource = true`, reconciliation and verification run before alias promotion; do not use a percentage alone as evidence that a migration has completed.
 
 | Progress | Stage |
 |----------|-------|
