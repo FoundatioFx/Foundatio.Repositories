@@ -1,9 +1,12 @@
 from pathlib import Path
+import os
 import runpy
+import subprocess
 import sys
 
 runpy.run_path('.audit/pr307/prepare.py', run_name='__main__')
 runpy.run_path('.audit/pr307/ownership.py', run_name='__main__')
+runpy.run_path('.audit/pr307/cancellation.py', run_name='__main__')
 
 if sys.argv[1] == 'tests':
     path = Path('tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs')
@@ -14,6 +17,10 @@ if sys.argv[1] == 'tests':
     text = text.replace('return $$"""', 'return """')
     text = text.replace('{{timedOut.ToString().ToLowerInvariant()}}', 'TIMED_OUT')
     text = text.replace('            """;', '            """.Replace("TIMED_OUT", timedOut ? "true" : "false", StringComparison.Ordinal);')
+    for kind, value in [('byte','(byte)1'), ('sbyte','(sbyte)1'), ('short','(short)1'), ('ushort','(ushort)1'), ('int','1'), ('uint','1U'), ('long','1L'), ('ulong','1UL')]:
+        old = f'"{kind}" => {value},'
+        assert text.count(old) == 1
+        text = text.replace(old, f'"{kind}" => (object){value},')
     path.write_text(text)
     path = Path('tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.ErrorLineage.cs')
     text = path.read_text()
@@ -27,3 +34,11 @@ if sys.argv[1] == 'tests':
             new StubResponse(200, """{"nodes":{}}"""));'''
     assert text.count(old) == 1
     path.write_text(text.replace(old, new))
+
+if sys.argv[1] == 'fix' and os.environ.get('GITHUB_JOB') == 'materialize':
+    subprocess.run(['git', 'add',
+        'src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskCancellation.cs',
+        'src/Foundatio.Repositories.Elasticsearch/Configuration/ElasticIndexCompatibilityUpgrader.cs',
+        'tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CancellationEvidence.cs',
+        'tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.Task.cs',
+        'tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CutoverSafety.cs'], check=True)
