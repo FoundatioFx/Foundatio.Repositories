@@ -18,13 +18,16 @@ namespace Foundatio.Repositories
         internal const string ThrowOnMultiGetErrorsKey = "@ThrowOnMultiGetErrors";
 
         /// <summary>
-        /// Throws a <see cref="DocumentException"/> from <c>GetByIdsAsync</c> when Elasticsearch returns
-        /// an error for any multi-get item, instead of silently treating it like a missing document.
+        /// Makes <c>GetByIdsAsync</c> throw a <see cref="DocumentException"/> for Elasticsearch
+        /// multi-get item errors that remain unresolved after any applicable fallback query.
+        /// Disabled by default; ordinary <c>found: false</c> results are not item errors.
         /// </summary>
         /// <remarks>
-        /// For repositories backed by multiple indexes (time-series or parent/child), the throw is deferred
-        /// until after the fallback query, so an item error is only fatal when the document truly cannot be
-        /// resolved. No results are returned and no not-found cache markers are written when this throws.
+        /// Time-series and parent/child repositories may recover documents through a search fallback.
+        /// Unresolved item errors are aggregated before returning results or writing document and
+        /// not-found cache entries. The fallback does not read or write query-result cache entries.
+        /// Existing document cache reads, consistency settings, and soft-delete filters still apply;
+        /// this option does not guarantee fresh results, an atomic snapshot, or proof of absence.
         /// </remarks>
         public static T ThrowOnMultiGetErrors<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -169,8 +172,8 @@ namespace Foundatio.Repositories.Options
         }
 
         /// <summary>
-        /// Gets whether <c>GetByIdsAsync</c> should throw when a multi-get item reports an error that
-        /// cannot be resolved by the multi-index fallback query. See <see cref="SetElasticOptionsExtensions.ThrowOnMultiGetErrors{T}"/>.
+        /// Gets whether <c>GetByIdsAsync</c> should throw for unresolved multi-get item errors.
+        /// Returns <c>false</c> by default. See <see cref="SetElasticOptionsExtensions.ThrowOnMultiGetErrors{T}"/>.
         /// </summary>
         public static bool ShouldThrowOnMultiGetErrors(this ICommandOptions options)
         {

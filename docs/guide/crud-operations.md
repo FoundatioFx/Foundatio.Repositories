@@ -75,7 +75,7 @@ var employees = await repository.GetByIdsAsync(ids);
 Console.WriteLine($"Found {employees.Count} employees");
 ```
 
-By default, the Elasticsearch provider logs and omits individual MGET items that report an error. This preserves compatibility for time-series repositories where an unavailable physical index may be treated like missing data. If a missing result drives deletion, authorization, or another irreversible decision, require an all-or-error read:
+By default, the Elasticsearch provider logs individual MGET item errors and omits any affected documents that cannot be recovered by its fallback search. This preserves compatibility for time-series repositories where an unavailable physical index may be treated like missing data. To avoid interpreting unresolved item errors as missing documents, enable strict error handling:
 
 ```csharp
 var employees = await repository.GetByIdsAsync(
@@ -83,7 +83,11 @@ var employees = await repository.GetByIdsAsync(
     o => o.ThrowOnMultiGetErrors());
 ```
 
-For repositories backed by multiple indexes (time-series or parent/child), `ThrowOnMultiGetErrors()` defers the throw until after the multi-index fallback query runs, so a document that errors on its primary index but is still found elsewhere returns normally. `DocumentException` is only thrown for ids that remain unresolved after the fallback, and it is thrown before returning results or caching not-found markers. Documents explicitly returned with `found: false` remain ordinary missing documents.
+For time-series and parent/child repositories, any applicable search fallback runs before strict error validation. An errored ID recovered by the fallback returns normally. Remaining item errors produce one `DocumentException`, including the affected IDs, indexes, error types, and reasons, before returning results or writing document/not-found cache entries. Ordinary `found: false` responses remain missing documents, not errors.
+
+::: warning Error Handling Is Not a Freshness Guarantee
+Strict mode does not bypass existing document cache hits, change soft-delete filtering, make fallback searches real-time, or provide an atomic snapshot across a read and subsequent deletion. Use `Cache(false).ReadCache(false)` to bypass document/result cache entries when required, and account separately for refresh visibility and concurrent writes. Never convert a `DocumentException` into an empty batch for an irreversible decision. See [Multi-Get Error Options](/guide/configuration#multi-get-error-options) for the complete cache and fallback contract.
+:::
 
 ### Get All Documents
 
@@ -384,8 +388,10 @@ do
 | `.ImmediateConsistency()` | Wait for index refresh |
 | `.Consistency(mode)` | Set consistency mode |
 | `.Cache()` | Enable caching |
+| `.ReadCache(bool)` | Explicitly enable/disable cache reads without changing writes |
 | `.CacheKey(key)` | Set cache key |
 | `.CacheExpiresIn(duration)` | Set cache expiration |
+| `.ThrowOnMultiGetErrors()` | Throw for unresolved Elasticsearch multi-get item errors |
 | `.Notifications(bool)` | Enable/disable notifications |
 | `.SkipValidation()` | Skip document validation |
 | `.SkipVersionCheck()` | Skip optimistic concurrency |
