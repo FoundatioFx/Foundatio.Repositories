@@ -44,7 +44,8 @@ internal static class ElasticReindexTaskCancellation
             if (status.ApiCallDetails.HttpStatusCode is 404)
             {
                 logger.LogRequest(status);
-                return;
+                throw new RepositoryException(
+                    $"Reindex task '{taskId.FullyQualifiedId}' returned HTTP 404 after cancellation; an unavailable owner node or missing stored result does not prove that the task terminated.");
             }
 
             if (status.IsValidResponse)

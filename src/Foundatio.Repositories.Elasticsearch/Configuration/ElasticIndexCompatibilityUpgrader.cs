@@ -236,6 +236,14 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             if (!workflowAttempted)
                 throw;
 
+            var originalCancellation = GetOriginalCancellation(upgradeException);
+            Exception CreateRecoveryFailure(string message, Exception cause)
+            {
+                return originalCancellation is null
+                    ? new RepositoryException(message, cause)
+                    : new OperationCanceledException(message, cause, originalCancellation.CancellationToken);
+            }
+
             using var recoveryCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             IndexCompatibilityUpgradeStatus status;
             try
@@ -244,7 +252,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             }
             catch (Exception inspectionException)
             {
-                throw new RepositoryException(
+                throw CreateRecoveryFailure(
                     $"Compatibility upgrade for '{sourceIndex}' failed and its recovery evidence could not be inspected.",
                     new AggregateException(upgradeException, inspectionException));
             }
@@ -257,7 +265,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 }
                 catch (Exception recoveryException)
                 {
-                    throw new RepositoryException(
+                    throw CreateRecoveryFailure(
                         $"Compatibility upgrade for '{sourceIndex}' failed and evidence-based reset did not complete.",
                         new AggregateException(upgradeException, recoveryException));
                 }
@@ -270,7 +278,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 if (expectedCutoverAliases is null
                     || await GetTopologyIndependentlyAsync(sourceIndex, targetIndex, expectedCutoverAliases).AnyContext() is not CutoverTopology.Completed)
                 {
-                    throw new RepositoryException(
+                    throw CreateRecoveryFailure(
                         $"Compatibility cutover for '{sourceIndex}' committed with aliases that do not match the pre-cutover source.",
                         upgradeException);
                 }
@@ -288,19 +296,36 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 return;
             }
 
+            if (originalCancellation is not null)
+            {
+                _logger.LogWarning(upgradeException, "Compatibility upgrade {SourceIndex} -> {TargetIndex} was canceled and now requires recovery action '{Action}'", sourceIndex, targetIndex, status.Action);
+                throw new OperationCanceledException(upgradeException.Message, upgradeException, originalCancellation.CancellationToken);
+            }
+
             if (status.Action is IndexCompatibilityRecoveryAction.None)
                 throw;
 
-            if (upgradeException.GetBaseException() is OperationCanceledException)
-            {
-                _logger.LogWarning(upgradeException, "Compatibility upgrade {SourceIndex} -> {TargetIndex} was canceled and now requires recovery action '{Action}'", sourceIndex, targetIndex, status.Action);
-                throw new OperationCanceledException(upgradeException.Message, upgradeException, cancellationToken);
-            }
-
-            throw new RepositoryException(
+            throw CreateRecoveryFailure(
                 $"Compatibility upgrade for '{sourceIndex}' failed and now requires recovery action '{status.Action}'.",
                 upgradeException);
         }
+    }
+
+    private static OperationCanceledException? GetOriginalCancellation(Exception exception)
+    {
+        // Cleanup aggregates preserve the operation failure first. A later cleanup-token timeout must not
+        // turn a non-cancellation failure into apparent operator cancellation.
+        while (exception is not OperationCanceledException)
+        {
+            if (exception is AggregateException { InnerExceptions.Count: > 0 } aggregate)
+                exception = aggregate.InnerExceptions[0];
+            else if (exception.InnerException is { } inner)
+                exception = inner;
+            else
+                return null;
+        }
+
+        return (OperationCanceledException)exception;
     }
 
     internal static bool IsCompletedCutover(IndexCompatibilityUpgradeStatus status)
