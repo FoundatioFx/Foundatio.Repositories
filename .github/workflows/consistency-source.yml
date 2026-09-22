@@ -1,0 +1,32 @@
+name: Consistency source export
+on:
+  push:
+    branches: [audit/consistency-307-327-20260922]
+    paths: [.github/workflows/consistency-source.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  export:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact reviewed sources
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          git bundle create export/repositories.bundle --all
+          git clone https://github.com/FoundatioFx/Foundatio.git foundatio-source
+          git -C foundatio-source rev-parse HEAD > export/foundatio-main-sha.txt
+          git -C foundatio-source bundle create "$GITHUB_WORKSPACE/export/foundatio.bundle" HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consistency-source-trees
+          path: export
+          retention-days: 3
