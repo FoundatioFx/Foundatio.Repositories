@@ -5,6 +5,9 @@ on:
     paths: ['.audit/pr307/**', '.github/workflows/build.yml']
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -34,10 +37,9 @@ jobs:
           python .audit/pr307/run.py tests
           dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/red-build.log
       - name: Prove regressions fail before the fix
-        shell: bash
         run: |
           set +e
-          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' 2>&1 | tee .audit/results/red.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' 2>&1 | tee .audit/results/red.log
           status=${PIPESTATUS[0]}
           set -e
           test "$status" -ne 0
@@ -47,9 +49,8 @@ jobs:
           python .audit/pr307/run.py fix
           git diff --check
           dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/green-build.log
-          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' | tee .audit/results/green.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' | tee .audit/results/green.log
       - name: Provision isolated Elasticsearch
-        shell: bash
         env:
           ES_VERSION: ${{ matrix.elasticsearch }}
         run: |
@@ -73,6 +74,18 @@ jobs:
       - name: External packaged consumer
         if: matrix.elasticsearch == '9.5.0'
         run: bash .audit/pr307/consumer.sh
+      - name: Record related-branch merge conflicts without changing either PR
+        if: matrix.elasticsearch == '9.5.0'
+        run: |
+          for branch in fix/reindex-data-loss-phase0 fix/id-tiebreaker-unmapped-id-305; do
+            label=${branch##*/}
+            git rev-parse "origin/$branch" > ".audit/results/related-$label.sha"
+            set +e
+            git merge-tree --write-tree --name-only 13f069f60af1b406ee4dafa4874c1793b5caafba "origin/$branch" > ".audit/results/merge-$label.txt"
+            result=$?
+            set -e
+            test "$result" -le 1
+          done
       - name: Capture server log
         if: always()
         run: docker logs pr307-es > .audit/results/elasticsearch.log 2>&1 || true
@@ -102,6 +115,9 @@ jobs:
           dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/chain-build.log
       - name: Persistent 7 to 8 to 9 upgrade and snapshot restore
         run: bash .audit/pr307/chain.sh
+      - name: Capture chain server log
+        if: always()
+        run: docker logs pr307-chain > .audit/results/chain-final-server.log 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -119,7 +135,6 @@ jobs:
         with:
           fetch-depth: 0
       - name: Materialize the tested candidate on the audit branch only
-        shell: bash
         run: |
           test "$GITHUB_REF_NAME" = 'audit/pr-307-final-validation-20260922'
           python .audit/pr307/run.py tests
