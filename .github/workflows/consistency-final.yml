@@ -1,0 +1,111 @@
+name: Final consistency candidates
+on:
+  push:
+    branches: [audit/pr-307-final-validation-20260922]
+    paths: [.github/workflows/consistency-final.yml]
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pr: '307'
+            base: 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          - pr: '327'
+            base: 091b2ba0a6c24806568c42897c1078f0b00dae5c
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: harness
+          ref: 840881454333c0e045064e3dba5fff408c352c87
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: product
+          ref: ${{ matrix.base }}
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Construct candidate and verify build
+        working-directory: product
+        run: |
+          set -euo pipefail
+          mkdir -p ../evidence
+          if test '${{ matrix.pr }}' = 307; then
+            for script in pr307 pr307-followup pr307-health; do python ../harness/.audit/consistency/$script.py .; done
+          else
+            for script in pr327-evidence pr327-runtime pr327-tests pr327-integration pr327-followup; do python ../harness/.audit/consistency/$script.py .; done
+            python ../harness/.audit/consistency/lease-guard.py . 327
+          fi
+          python ../harness/.audit/consistency/finalize.py . '${{ matrix.pr }}'
+          git add -N .
+          mapfile -t paths < <(git diff --name-only -- '*.cs')
+          dotnet format whitespace . --folder --include "${paths[@]}" > ../evidence/format-apply.log 2>&1
+          dotnet format whitespace . --folder --verify-no-changes --include "${paths[@]}" > ../evidence/format-verify.log 2>&1
+          git diff --check
+          dotnet build Foundatio.Repositories.slnx -c Release | tee ../evidence/build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-class '*ReindexLeaseGuardTests' | tee ../evidence/heartbeat.log
+      - name: Full suites on isolated two-node ES8 and ES9
+        working-directory: product
+        run: |
+          set -euo pipefail
+          sudo sysctl -w vm.max_map_count=1048576
+          docker network create consistency-net
+          for version in 8.19.15 9.5.0; do
+            export FOUNDATIO_TEST_CLUSTER="consistency-${{ matrix.pr }}-${{ github.run_id }}-$version"
+            for node in 1 2; do
+              docker run -d --name consistency-es$node --network consistency-net -p 127.0.0.1:$((9199+node)):9200 -e node.name=consistency-es$node -e cluster.name=$FOUNDATIO_TEST_CLUSTER -e discovery.seed_hosts=consistency-es1,consistency-es2 -e cluster.initial_master_nodes=consistency-es1,consistency-es2 -e xpack.security.enabled=false -e ingest.geoip.downloader.enabled=false -e ES_JAVA_OPTS='-Xms768m -Xmx768m' docker.elastic.co/elasticsearch/elasticsearch:$version
+            done
+            for n in $(seq 1 90); do curl -fsS http://localhost:9200 > /dev/null && break; sleep 2; done
+            curl -fsS 'http://localhost:9200/_cluster/health?wait_for_nodes=2&timeout=60s' > ../evidence/health-$version.json
+            python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["number_of_nodes"] == 2 and not d["timed_out"],d' ../evidence/health-$version.json
+            dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build | tee ../evidence/full-$version.log
+            docker logs consistency-es1 > ../evidence/server-$version.log 2>&1
+            docker rm -f consistency-es1 consistency-es2
+          done
+      - name: Stage clean logical commits
+        working-directory: product
+        run: |
+          set -euo pipefail
+          git config user.name 'Blake Niemyjski'
+          git config user.email 'bniemyjski@gmail.com'
+          git add src tests
+          git reset -- tests/Foundatio.Repositories.Elasticsearch.Tests/ReadOnlyRepositoryTests.cs
+          if test '${{ matrix.pr }}' = 327; then git reset -- tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs; fi
+          git diff --cached --check
+          git commit -m 'fix: harden migration consistency and lease-loss handling'
+          git add tests
+          git commit -m 'test: remove node-order and unbounded-writer assumptions'
+          git add docs .agents
+          git commit -m 'docs: reconcile migration recovery and outstanding protocol gates'
+          test -z "$(git status --porcelain)"
+          git diff --exit-code '${{ matrix.base }}' HEAD -- .github
+          test -z "$(git ls-tree -r --name-only HEAD -- .audit)"
+          git push origin HEAD:refs/heads/audit/pr${{ matrix.pr }}-final-consistency-${{ github.run_id }}
+          git log -3 --format='%H %s' | tee ../evidence/commits.txt
+          git diff --binary '${{ matrix.base }}' HEAD > ../evidence/candidate.patch
+          git bundle create ../evidence/candidate.bundle HEAD
+      - name: Capture evidence
+        if: always()
+        working-directory: product
+        run: |
+          mkdir -p ../evidence
+          docker logs consistency-es1 > ../evidence/server-final.log 2>&1 || true
+          git add -N .
+          git diff --binary > ../evidence/working.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pr${{ matrix.pr }}-final-consistency
+          path: evidence
+          retention-days: 7
