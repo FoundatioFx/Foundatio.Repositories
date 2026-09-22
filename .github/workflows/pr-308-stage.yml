@@ -3,27 +3,35 @@ on:
   push:
     branches: [audit/pr-308-20260922]
     paths: [.github/workflows/pr-308-stage.yml]
+concurrency:
+  group: pr-308-candidate-staging
+  cancel-in-progress: true
 permissions:
   contents: write
   actions: read
+defaults:
+  run:
+    shell: bash
 jobs:
   stage:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: 9ed59304eec0a092a58c617c8370e62eab1c5935
+          path: repo
           fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: pr308-candidate-source
-          path: /tmp/pr308-candidate
+          path: source
           run-id: 35765843225
           github-token: ${{ github.token }}
       - name: Stage exactly the previously built and regression-tested commit
+        working-directory: repo
         run: |
-          git fetch /tmp/pr308-candidate/candidate.bundle HEAD
+          git fetch ../source/candidate.bundle HEAD
           test "$(git rev-parse FETCH_HEAD)" = e786babd17585db1d3a1ffca4402c5d611972be5
           git merge-base --is-ancestor 9ed59304eec0a092a58c617c8370e62eab1c5935 FETCH_HEAD
           git diff --exit-code 9ed59304eec0a092a58c617c8370e62eab1c5935 FETCH_HEAD -- .github
@@ -36,17 +44,18 @@ jobs:
             8.0.x
             10.0.x
       - name: Verify formatting with full workspace diagnostics
+        working-directory: repo
         run: |
-          mkdir -p /tmp/pr308-format
+          mkdir -p ../format-results
           dotnet restore Foundatio.Repositories.slnx
           mapfile -t changed < <(git diff --name-only 9ed59304eec0a092a58c617c8370e62eab1c5935 HEAD -- '*.cs')
-          printf '%s\n' "${changed[@]}" > /tmp/pr308-format/included-files.txt
-          dotnet format Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${changed[@]}" --verbosity diagnostic 2>&1 | tee /tmp/pr308-format/diagnostics.log
+          printf '%s\n' "${changed[@]}" > ../format-results/included-files.txt
+          dotnet format Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${changed[@]}" --verbosity diagnostic 2>&1 | tee ../format-results/diagnostics.log
           git diff --check
           test -z "$(git status --porcelain)"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: pr308-format-diagnostics
-          path: /tmp/pr308-format
+          path: format-results
           retention-days: 3
