@@ -45,9 +45,5 @@ internal sealed class SequenceRequestInvoker : IRequestInvoker
         where TResponse : TransportResponse, new()
         => Next().RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken);
 
-    public void Dispose()
-    {
-        foreach (var response in _responses)
-            response.Dispose();
-    }
+    public void Dispose() { }
 }

@@ -27,7 +27,7 @@ public sealed class IndexWriteBlockResponseTests
             .MaximumRetries(0)
             .OnRequestCompleted(details =>
             {
-                string path = details.Uri.AbsolutePath;
+                string path = details.Uri?.AbsolutePath ?? "(no uri)";
                 requests.Enqueue($"{details.HttpMethod} {path}");
                 requestCompleted?.Invoke(path);
             });
@@ -105,8 +105,10 @@ public sealed class IndexWriteBlockResponseTests
                 cancellation.Cancel();
         });
 
-        var exception = await Record.ExceptionAsync(() => IndexWriteBlock.ApplyAsync(
-            client, "source", NullLogger.Instance, cancellation.Token));
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            await using var block = await IndexWriteBlock.ApplyAsync(client, "source", NullLogger.Instance, cancellation.Token);
+        });
 
         Assert.NotNull(exception);
         Assert.Equal(["GET /source/_settings", "PUT /source/_block/write", "PUT /source/_settings"], requests);
