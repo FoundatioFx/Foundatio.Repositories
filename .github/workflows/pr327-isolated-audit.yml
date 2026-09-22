@@ -5,18 +5,58 @@ on:
 permissions:
   contents: read
 jobs:
-  source:
+  toolchain:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
           ref: 091b2ba0a6c24806568c42897c1078f0b00dae5c
           persist-credentials: false
-      - name: Export pinned source
-        run: git archive --format=tar.gz HEAD -o source.tar.gz
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Restore pinned dependencies
+        run: dotnet restore Foundatio.Repositories.slnx -p:NuGetAudit=false
+      - name: Export compiler and cached public dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p exports
+          sdk=$(dotnet --version)
+          tar -czf exports/dotnet.tar.gz -C /usr/share/dotnet dotnet host "sdk/$sdk" packs shared
+          tar -czf exports/nuget.tar.gz -C "$HOME/.nuget" packages
+          dotnet --info > exports/toolchain.txt
+          sha256sum exports/*.tar.gz > exports/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: pr327-pinned-source
-          path: source.tar.gz
+          name: pr327-offline-toolchain
+          path: exports/
+          compression-level: 0
+          retention-days: 3
+  elasticsearch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        version: ['8.19.0', '9.5.0']
+    steps:
+      - name: Fetch isolated Elasticsearch distribution
+        env:
+          ELASTICSEARCH_VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p exports
+          archive="elasticsearch-${ELASTICSEARCH_VERSION}-linux-x86_64.tar.gz"
+          curl --fail --silent --show-error --location --retry 2 "https://artifacts.elastic.co/downloads/elasticsearch/$archive" -o "exports/$archive"
+          curl --fail --silent --show-error --location --retry 2 "https://artifacts.elastic.co/downloads/elasticsearch/$archive.sha512" -o "exports/$archive.sha512"
+          cd exports
+          sha512sum -c "$archive.sha512"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr327-elasticsearch-${{ matrix.version }}
+          path: exports/
+          compression-level: 0
           retention-days: 3
