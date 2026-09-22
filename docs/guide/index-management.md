@@ -500,7 +500,7 @@ Neither of the following reindexes time-series data: `MaintainIndexesJob` (alias
 **Across different indexes** it depends on how you trigger it: `configuration.ReindexAsync()` processes indexes **sequentially** (one index fully finishes before the next starts), while `ElasticMigrationJob` reindexes them **in parallel** (`Task.WhenAll`, one task per outdated index). Either way each index is internally sequential, and a **distributed lock keyed on the alias** (`reindex:audit`) guarantees a given index is never reindexed by two runners at once — even across multiple application instances (pods, workers). The lock is held for 20 minutes and auto-renewed on every progress callback, so long partition copies keep it alive.
 
 ::: tip Predictable, bounded disk usage per index
-Within one index the upgrade only ever duplicates **one partition at a time**, so bumping a single index (e.g. `audit`) needs roughly one extra partition of headroom regardless of how many partitions it has. If several indexes reindex in parallel (via `ElasticMigrationJob`), peak extra disk is about the sum of one in-flight partition per concurrently-migrating index. Wall-clock time scales with partition count; run during off-peak hours if needed.
+Within one index the upgrade only ever duplicates **one partition** at a time, so bumping a single index (e.g. `audit`) needs roughly one extra partition of headroom regardless of how many partitions it has. If several indexes reindex in parallel (via `ElasticMigrationJob`), peak extra disk is about the sum of one in-flight partition per concurrently-migrating index. Wall-clock time scales with partition count; run during off-peak hours if needed.
 :::
 
 #### Multiple versions and interrupted upgrades
@@ -677,7 +677,7 @@ When a single script applies, it is sent directly to Elasticsearch. When multipl
 
 ```javascript
 void f000(def ctx) { /* v2 rename script */ }
-void f001(def ctx) { /* v2 remove script */ }
+void f001(def ctx) { /* v3 remove script */ }
 void f002(def ctx) { /* v3 custom script */ }
 f000(ctx); f001(ctx); f002(ctx);
 ```
@@ -887,6 +887,9 @@ query paths. Concurrent lookups share one load through the index's long-lived re
 calls remain supported, but block while the asynchronous load completes. Disposing an index disposes its
 initialized resolver and cancels outstanding mapping I/O without creating an unused resolver.
 
+A caller's cancellation token cancels its wait without canceling a shared load needed by other callers.
+Failed or empty reloads retain the last usable snapshot; explicit invalidation clears it.
+
 Each reload discovers the latest partition again so newly created partitions are visible without restarting
 the application. This does not merge mappings across historical partitions. Keep indexes and their resolvers
 long-lived; creating one per request bypasses their caches and multiplies metadata requests. Automatic reload
@@ -913,7 +916,7 @@ This clears the cached server mapping and forces the next `GetMapping()` call to
 | `ElasticMappingResolver` field cache | Snapshot lifetime; unresolved fields trigger reloads with a five-second cooldown | `index.MappingResolver.RefreshMapping()` |
 | `_isEnsured` flag (`Index<T>` / `VersionedIndex<T>`) | Process lifetime (one-time flag) | Deleting the index resets it; otherwise persists until app restart |
 | `_ensuredDates` (`DailyIndex<T>`) | Process lifetime per-date | Cleared on `DeleteAsync(name)` or `Dispose()`; otherwise persists until app restart |
-| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed via `ICacheClient`) | Automatically expires; or call `ConfigureIndexesAsync(force: true)` |
+| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed via `ICacheClient`) | Automatically expires; pass explicit indexes to bypass the configuration-level lock and cache marker |
 
 #### No cluster-side action needed
 
@@ -1141,9 +1144,16 @@ await configuration.ConfigureIndexesAsync();
 // Subsequent calls within 5 minutes skip (fast path)
 await configuration.ConfigureIndexesAsync();
 
-// Passing explicit indexes bypasses the lock and cache marker
-await configuration.ConfigureIndexesAsync([myIndex]);
+// Passing explicit indexes bypasses the configuration-level lock and cache marker.
+await configuration.ConfigureIndexesAsync([myIndex], beginReindexingOutdated: false);
+
+// Or explicitly configure all registered indexes without enqueueing reindex work.
+await configuration.ConfigureIndexesAsync(configuration.Indexes, beginReindexingOutdated: false);
 ```
+
+There is no `force` parameter. Explicit selection does not change daily/monthly mapping behavior:
+existing partitions still require a manual PUT Mapping. Run `ReindexAsync()` separately when a version
+upgrade is required and no reindex queue worker is configured.
 
 ### Maintain Indexes
 
