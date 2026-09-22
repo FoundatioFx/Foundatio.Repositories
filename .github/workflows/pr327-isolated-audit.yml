@@ -4,59 +4,49 @@ on:
     branches: [audit/pr327-final-20260922]
 permissions:
   contents: read
+  actions: read
 jobs:
-  toolchain:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: 091b2ba0a6c24806568c42897c1078f0b00dae5c
-          persist-credentials: false
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
-      - name: Restore pinned dependencies
-        run: dotnet restore Foundatio.Repositories.slnx -p:NuGetAudit=false
-      - name: Export compiler and cached public dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p exports
-          sdk=$(dotnet --version)
-          tar -czf exports/dotnet.tar.gz -C /usr/share/dotnet dotnet host "sdk/$sdk" packs shared
-          tar -czf exports/nuget.tar.gz -C "$HOME/.nuget" packages
-          dotnet --info > exports/toolchain.txt
-          sha256sum exports/*.tar.gz > exports/SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pr327-offline-toolchain
-          path: exports/
-          compression-level: 0
-          retention-days: 3
-  elasticsearch:
+  transfer:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       matrix:
-        version: ['8.19.0', '9.5.0']
+        artifact: [pr327-offline-toolchain, pr327-elasticsearch-8.19.0, pr327-elasticsearch-9.5.0]
     steps:
-      - name: Fetch isolated Elasticsearch distribution
-        env:
-          ELASTICSEARCH_VERSION: ${{ matrix.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          run-id: 35766291673
+          github-token: ${{ github.token }}
+          path: incoming
+      - name: Split public validation dependencies into bounded artifacts
         run: |
           set -euo pipefail
-          mkdir -p exports
-          archive="elasticsearch-${ELASTICSEARCH_VERSION}-linux-x86_64.tar.gz"
-          curl --fail --silent --show-error --location --retry 2 "https://artifacts.elastic.co/downloads/elasticsearch/$archive" -o "exports/$archive"
-          curl --fail --silent --show-error --location --retry 2 "https://artifacts.elastic.co/downloads/elasticsearch/$archive.sha512" -o "exports/$archive.sha512"
-          cd exports
-          sha512sum -c "$archive.sha512"
+          mkdir -p chunks
+          tar -cf - -C incoming . | split --bytes=450M --numeric-suffixes=0 - chunks/part-
+          sha256sum chunks/part-* > chunks/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: pr327-elasticsearch-${{ matrix.version }}
-          path: exports/
+          name: ${{ matrix.artifact }}-part-00
+          path: chunks/part-00
           compression-level: 0
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-part-01
+          path: chunks/part-01
+          compression-level: 0
+          if-no-files-found: ignore
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-part-02
+          path: chunks/part-02
+          compression-level: 0
+          if-no-files-found: ignore
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-checksums
+          path: chunks/SHA256SUMS
           retention-days: 3
