@@ -538,7 +538,7 @@ Neither of the following reindexes time-series data: `MaintainIndexesJob` (alias
 | **Partitions within an index** | `ReindexAsync` iterates partitions in a single `await`ed `foreach`; the next partition never starts until the current one finishes (including its delete). | `DailyIndex.ReindexAsync` |
 | **The Elasticsearch reindex itself** | Each partition is copied with a **single, unsliced** `_reindex` task. The library does not set `slices`, so there is no parallel sub-task fan-out; it submits the task and polls until it completes. | `ElasticReindexer.InternalReindexAsync` |
 
-**Across different indexes** it depends on how you trigger it: `configuration.ReindexAsync()` processes indexes **sequentially** (one index fully finishes before the next starts), while `ElasticMigrationJob` reindexes them **in parallel** (`Task.WhenAll`, one task per outdated index). Either way each index is internally sequential, and a **distributed lock keyed on the alias** (`reindex:audit`) guarantees a given index is never reindexed by two runners at once — even across multiple application instances (pods, workers). The lock is held for 20 minutes and auto-renewed on every progress callback, so long partition copies keep it alive.
+**Across different indexes** it depends on how you trigger it: `configuration.ReindexAsync()` processes indexes **sequentially** (one index fully finishes before the next starts), while `ElasticMigrationJob` reindexes them **in parallel** (`Task.WhenAll`, one task per outdated index). Either way each index is internally sequential, and a **distributed lock keyed on the alias** (`reindex:audit`) serializes cooperating runners when they share the same distributed lock provider. Durable task state additionally prevents a retry from overlapping a known or ambiguous earlier server task. The lock is held for 20 minutes and auto-renewed on every progress callback, so long partition copies keep it alive.
 
 ::: tip Predictable, bounded disk usage per index
 Within one index the upgrade only ever duplicates **one partition at a time**, so bumping a single index (e.g. `audit`) needs roughly one extra partition of headroom regardless of how many partitions it has. If several indexes reindex in parallel (via `ElasticMigrationJob`), peak extra disk is about the sum of one in-flight partition per concurrently-migrating index. Wall-clock time scales with partition count; run during off-peak hours if needed.
@@ -553,21 +553,21 @@ In normal operation only **two** versions of a period ever coexist, and only tra
 - Reindex scripts **compose across skipped versions**: going straight from v1 to v3 applies the v2 and v3 scripts in order, so transformations are never skipped.
 - If partitions end up at genuinely mixed versions (for example a v1→v2 upgrade was interrupted and you have since bumped to v3), each run advances the oldest cohort one step; run the reindex until `GetCurrentVersionAsync()` equals the target `Version`. The migration job converges this over repeated runs.
 
-Throughout, the umbrella alias spans whatever the current partitions are, so reads and writes keep working even while the index is a mix of versions.
+Throughout, the umbrella alias spans the current partitions, so reads keep working while the index is a mix of versions. In quiesced mode, writes to the partition undergoing its final pass are rejected until cutover.
 
 #### Recovering from a rolling restart mid-upgrade
 
-A reindex can be interrupted at any point — a deploy recycles the pod running it, a node is drained, the process crashes. Re-running `configuration.ReindexAsync()` (or `index.ReindexAsync()`) afterward recovers cleanly, without manual cleanup, for the following reasons:
+A terminated process can leave an Elasticsearch task running or a persistent write block in place. Expiry of the 20-minute alias lease is not proof that the old server task stopped.
 
-- **The lock expires; nobody has to release it.** The distributed lock (`reindex:audit`) is held for 20 minutes and renewed on every progress callback. If the process holding it dies, the lock is never explicitly released — it simply expires 20 minutes after the last renewal. A new instance's call to `ReindexAsync()` waits for the lock (up to 30 minutes) and then proceeds.
-- **The Elasticsearch-side copy isn't tied to the calling process.** Each partition's copy runs as an asynchronous Elasticsearch task (`wait_for_completion=false`); the library only polls it for progress. That task lives in the cluster's task manager, so if the .NET process dies while polling, the copy already running in Elasticsearch is unaffected and keeps going independently.
-- **A retried first pass copies only the delta.** On retry, the first pass queries the new partition for the most recent document it already contains and reindexes only source documents at or after that point, rather than recopying the whole period. If the new partition is empty (nothing had landed before the interruption), the retry does a full copy, same as an initial run.
-- **A partition whose alias was already swapped is still found and finished.** Partitions to migrate are discovered by matching physical index names, not by current alias membership. If the process died after the alias swap but before the old partition's delete, the next run still finds that now-orphaned old partition, recopies it, reruns its alias swap, and deletes it — reaching the same end state as an uninterrupted run.
-- **Two instances never migrate the same index at once.** The alias-keyed lock caps a given index to one active reindex cluster-wide. If a rolling restart briefly leaves two instances both calling `ReindexAsync()` for the same index, one holds the lock while the other waits; once the first finishes, the current version has already advanced, so the second call's version check finds nothing left to do and returns immediately.
+The reindexer records task dispatch intent before starting a copy. A retry confirms termination of a known task before starting another. Dispatch whose task ID was never recorded remains fenced for operator inspection. Confirmed migration-owned write blocks can be recovered only for the same source UUID and migration; operator-owned and ambiguous blocks are not cleared automatically.
+
+A permitted retry recopies the full source unless the caller explicitly supplied `StartUtc`; it never infers a resume watermark from the destination's newest document. A promoted destination requires matching durable completion evidence. Neither an advanced schema version nor a new `QuiesceSource` flag proves completion, and neither authorizes replay into a live destination.
+
+Higher-level index APIs may skip a version that is already current; that version check is not an integrity audit or a way to repair an unconfirmed migration. Inspect its completion and safety records using the [reindex recovery runbook](/guide/reindex-safety#recovery-procedure).
 
 #### When do writes flip to the new partition — and is there a gap?
 
-Writes for a period target the **unversioned dated alias** (e.g. `audit-2024.01`), so they flip when that alias is repointed:
+With the default non-quiesced ordering, writes for a period target the **unversioned dated alias** (e.g. `audit-2024.01`), so they flip when that alias is repointed:
 
 1. During the **first pass**, the dated alias still points to the old partition, so any concurrent writes for that period land in **v1**.
 2. When the first pass finishes (~91–92%), **every alias pointing at the old partition — the dated alias, the umbrella alias, and any windowed aliases — is repointed to the new partition in a single `UpdateAliases` call**. From that instant, new writes for that period land in **v2**.
@@ -766,7 +766,7 @@ public EmployeeIndex(IElasticConfiguration configuration)
 }
 ```
 
-Even with `DiscardIndexesOnReindex = true`, the old index is only deleted when the new index's document count is **greater than or equal to** the old index's count and both counts could be read. If that check fails, the old index is kept so you can inspect or retry. A reindex that failed outright never reaches this point — it throws `ReindexIncompleteException` and always keeps the old index. For time-series indexes this evaluation happens independently per dated partition — see [When the old partition is deleted](#when-the-old-partition-is-deleted).
+With `DiscardIndexesOnReindex = true`, source cleanup requires a matching completed migration and a successful count gate: advisory non-short counts in default mode, or exact expected scripted/unscripted output counts in quiesced mode. If that check fails, the old index is kept so you can inspect or retry. A reindex that failed outright never reaches this point — it throws `ReindexIncompleteException` and always keeps the old index. For time-series indexes this evaluation happens independently per dated partition — see [When the old partition is deleted](#when-the-old-partition-is-deleted).
 
 ### Reindex Progress Monitoring
 
@@ -848,45 +848,29 @@ catch (ReindexIncompleteException ex)
 
 #### Completion is recorded durably, and never inferred
 
-A finished migration writes a `ReindexCompletion` record to the `foundatio-reindex-completions` index before the queue item is acknowledged and before the source index is deleted. That record is the only thing that establishes a migration completed.
+A finished physical migration writes to `foundatio-reindex-completions` before queue acknowledgement or source cleanup. A matching record is checked even after the alias has advanced to a newer version. Unreadable evidence fails the operation; it is not treated as permission to replay.
 
-This exists because an advanced alias proves nothing. The alias switch happens before the catch-up pass, so a promoted destination is equally consistent with "the migration finished" and "the migration promoted the destination and then failed" — the same cluster state either way. A redelivered work item previously read the advanced version as proof of completion and acknowledged the item, which recorded a known-short migration as complete.
-
-A redelivered work item is therefore resolved three ways:
-
-| Observed state | Disposition |
+| Evidence | Action |
 | --- | --- |
-| Alias not yet promoted | The copy runs normally |
-| Promoted, with a matching completion record | Acknowledged as already done, nothing is recopied |
-| Promoted, with no matching record | `ReindexCompletionUnknownException` — not acknowledged, and not recopied |
+| Matching identity, destination UUID, and copy-contract fingerprint | Acknowledge without copying |
+| Destination promoted without matching evidence | `ReindexCompletionUnknownException`, in **either** mode |
+| No promotion, source still owns the alias or alias does not exist, and safety state permits execution | Copy may start |
 
-The record is keyed by the logical migration (alias plus source and destination index names), not by an attempt or delivery id, so the same migration is recognized across redelivery, process restart, and direct-versus-queued execution. It is additionally bound to the destination index's UUID and to a fingerprint of the reindex script, so a record left by an earlier index of the same name, or by a different transformation, does not satisfy the check.
+The document ID is a versioned SHA-256 hash of the JSON-encoded alias/source/destination tuple, bounded independently of name lengths. The fingerprint includes script, timestamp field, explicit start time, and quiesce mode. Throughput and source-cleanup settings are excluded because they do not change copied content. Identity fields are also checked on read.
 
-::: warning What a completion record does not attest
-It records that the reindex met the contract this library implements: the copy task reported it matched and wrote everything it set out to, the catch-up pass completed or was proven unnecessary, and the aliases moved. It is **not** proof of strict or lossless consistency — see [Remaining limitations](#remaining-limitations-not-fixed-by-the-above).
-:::
+A current work item's `QuiesceSource` flag never authenticates the attempt that moved an alias. A partial-range completion cannot satisfy a full-range request; a default-mode completion cannot satisfy a quiesced request. Older records using the previous key/fingerprint are not silently upgraded into evidence. Retain records outside ordinary index retention policies.
 
-::: warning Migrations completed before this release have no record
-Completion is never fabricated from alias state or document counts, so an already-migrated index whose migration predates this release reports `ReindexCompletionUnknownException` if a stale work item for it is ever redelivered. Ordinary startup is unaffected: nothing verifies existing indexes, and no scan is performed. If you hit this, confirm the destination is sound and discard the stale work item.
-:::
-
-::: warning Cancellation throws too
-Cancelling via the `CancellationToken` throws `OperationCanceledException`. See [Cancelling a reindex](#cancelling-a-reindex).
-:::
+Completion attests to the selected mode's contract, not universal online consistency. Non-blocking mode retains the [documented concurrency limitations](#remaining-limitations-not-fixed-by-the-above). Missing records on already-promoted pre-upgrade migrations require inspection, not automatic recreation.
 
 #### Document counts are compared, but they are only a safety net
 
-After both copy passes, the source and destination document counts are compared — on every reindex, not only when `DiscardIndexesOnReindex` is set. A short destination is **logged as a warning and keeps the old index**; it is deliberately not an error, because by that point the aliases have already been switched:
+**Non-blocking mode:** counts are advisory because traffic has already moved. A short destination or unreadable count keeps the source rather than requesting an unsafe replay. Equal counts can conceal different IDs, stale content, or resurrected documents; task accounting likewise proves only completion of the documents the task matched.
 
-- Documents hard-deleted through the alias after the cutover are gone from the destination but still counted in the frozen source, so a complete reindex can legitimately end up short. Throwing here would ask you to retry a reindex that would resurrect those deleted documents.
-- Reindex scripts can drop documents on purpose (`ctx.op = 'noop'` or `'delete'`).
-- In the other direction, documents written to the destination after the cutover can offset documents that genuinely failed to copy, masking a real shortfall.
-
-Completeness is therefore established by the per-pass accounting described above — the copy task's own report of what it matched versus what it did, which cannot race with live traffic. Treat the count comparison as a hint for deciding whether to keep the old index, not as proof.
+**Quiesced mode:** counts are a hard pre-promotion gate after a full final copy and membership reconciliation. Expected output is `final total - final noops - final deleted`. Both missing and extra output documents fail verification. Scripted output is rebuilt from an empty, unpromoted destination before this gate. Required refreshes and incomplete shard responses fail closed.
 
 #### Unreadable status is a failure, not a success
 
-The per-document failure list and the created/updated/noop counters that completeness is judged on are not part of the Elasticsearch client's typed task-status model — they have to be read out of the raw JSON body, which the transport only retains when direct streaming is disabled. Reindex therefore asks for the body on that one request, and if it still cannot be read, the pass is reported as incomplete rather than assumed clean. You do not need `DisableDirectStreaming()` on your client for reindex failure detection to work.
+The per-document failure list and the created/updated/deleted/noop counters that completeness is judged on are not part of the Elasticsearch client's typed task-status model — they have to be read out of the raw JSON body, which the transport only retains when direct streaming is disabled. Reindex therefore asks for the body on that one request, and if it still cannot be read, the pass is reported as incomplete rather than assumed clean. You do not need `DisableDirectStreaming()` on your client for reindex failure detection to work.
 
 #### Finding the documents that were left behind
 
@@ -1361,14 +1345,13 @@ public class DailyIndex<T>
 
 ## Breaking Changes
 
-The reindex reliability work introduced the following source- and behavior-breaking changes.
+The reindex reliability work preserves original CLR signatures and introduces the following behavioral changes.
 
 ### `ReindexAsync` gained a `CancellationToken` parameter
 
-`IIndex.ReindexAsync` and `IElasticConfiguration.ReindexAsync` both take a trailing
-`CancellationToken cancellationToken = default`. Existing **call sites** compile unchanged because the
-parameter is optional. Any external type that **implements** `IIndex` or `IElasticConfiguration` directly must
-add the parameter to its override.
+Cancellation-aware overloads are additive. The original `IIndex`, `IElasticConfiguration`, concrete `ReindexAsync` methods, and seven-parameter configuration constructor remain available to already-compiled consumers. Legacy interface implementations and virtual overrides continue to dispatch through their original signatures. Legacy custom implementations can only observe cancellation before invocation unless they implement cancellation-aware behavior themselves.
+
+Before cutover, cancellation propagates as `OperationCanceledException`; task cleanup uses an independent timeout and durable replay fence. Once the non-blocking path begins alias promotion, required catch-up is not cancelled by the caller's token. A successful return after that boundary means the migration completed its contract, not that cancellation rolled it back. See [Reindex safety and recovery](/guide/reindex-safety).
 
 ### An incomplete reindex now throws instead of returning
 
@@ -1408,7 +1391,7 @@ rather than an incremental one. Pass `ReindexWorkItem.StartUtc` if you need to b
 
 When a model has no timestamp field **and** its document ids are not ObjectIds, no second pass is possible. Such
 a reindex now throws `ReindexIncompleteException` instead of promoting a destination that is silently short — but
-only when the source actually changed during the copy, detected via the source's highest `_seq_no`. A source that
+only when the source actually changed during the copy, detected via the source's generation-bound **per-primary-shard checkpoint vector**. A source that
 is not being written to still copies and promotes normally, so **custom ids and date-free models remain
 supported**; the trigger is the missed catch-up, not the id format.
 
@@ -1434,7 +1417,7 @@ append-only workloads are unaffected. If your documents are updated in place, se
 
 Two related changes affect how failures and retries behave:
 
-`IElasticConfiguration.ReindexAsync` no longer retries a `ReindexIncompleteException`. It previously ran inside a
+`IElasticConfiguration.ReindexAsync` no longer retries an entire migration after any exception. It previously ran inside a
 resilience policy that retried on any exception, which silently converted a post-cutover failure into a reported
 success: the alias was already moved, so the retry found the version at its target, skipped, and returned
 normally. The failure is now recorded on the first attempt and surfaced in the `AggregateException`. A
@@ -1463,7 +1446,7 @@ recommended setup**:
 
 | # | Defect | Who it affects | Why nothing detects it |
 | - | ------ | -------------- | ---------------------- |
-| A | **Missed updates.** With no timestamp field, catch-up ranges on `_id >= ObjectId(startTime)`, which encodes *creation* time. An in-place update to a pre-existing document is never caught up. | Models with no `TimestampField` (ObjectId ids) | Now detected and refused — see below |
+| A | **Missed updates.** With no timestamp field, catch-up ranges on `id >= ObjectId(startTime)`, which encodes *creation* time. An in-place update to a pre-existing document is never caught up. | Models with no `TimestampField` (ObjectId ids) | Now detected and refused — see below |
 | B | **Stale overwrite.** Catch-up copies with `Conflicts.Proceed` and internal versioning, so it *unconditionally overwrites*. A document written through the alias after the cutover is clobbered by the older source copy. | **All models, including `IHaveDates`** | `version_conflicts` stays zero (internal versioning raises no conflict) and an overwrite leaves document counts unchanged |
 | C | **Resurrected deletes.** No reindex slicing mode can express a delete, so a document deleted through the alias after the cutover is re-copied from the source. | **All models, including `IHaveDates`** | The resurrected document makes counts *match*, so the count comparison is satisfied |
 
@@ -1485,19 +1468,21 @@ Additional narrower limits:
 
 ### Quiescing writes for a verified cutover
 
-`QuiesceSource` inverts the ordering: it blocks writes to the source, reconciles the copy against a source that
-can no longer change, verifies the result, and only then promotes the alias. This closes defects A, B, and C at
-their cause rather than detecting them afterwards.
+Set `QuiesceSourceOnReindex = true` (or `ReindexWorkItem.QuiesceSource = true`) for mutable data that needs verified cutover.
 
-::: danger This blocks writes for the duration of the reindex
-While a source is quiesced, writes to it are **rejected** with `403 cluster_block_exception`. Reads are
-unaffected. The block is held until that index's copy has been reconciled and verified, so **the outage is
-proportional to how much data must be copied** — on a large index that is not brief. Do not enable this unless the
-application can tolerate rejected writes for that period.
-:::
+**The first pass remains writable.** The protocol is:
 
-It is opt-in and off by default, because silently introducing a write outage on upgrade would be worse than the
-defects it fixes.
+```text
+live full copy → block and drain source writes → refresh → full final copy
+→ reconcile hard deletes → verify → switch aliases → release owned block
+→ record completion → optional source cleanup
+```
+
+The dedicated add-block API waits for in-flight writes. Reads continue; writes to the blocked physical source, whether addressed directly or through an alias, receive `403 cluster_block_exception`. Producers must retain rejected operations and retry through the alias after cutover. Rejected operations are not buffered by this library.
+
+The final pass is a **full rescan**, not only a timestamp delta. This catches old-ID updates and soft-delete flags even when timestamps do not advance. For unscripted copies, every destination `(id, routing)` is checked against the source, regardless of relative counts; confirmed absences are deleted, and partial lookup/bulk failures prevent promotion. For scripted copies, the unpromoted destination is cleared before the final scripted copy, removing stale first-pass output when a document becomes a no-op, a scripted deletion, or a hard deletion.
+
+The final gate requires complete task accounting, exact expected output cardinality (including intentional no-ops/deletions), and unchanged per-primary source checkpoints. `StartUtc` is rejected in quiesced mode because partial copying cannot establish this full-source contract.
 
 ```csharp
 public class EmployeeIndex : VersionedIndex<Employee>
@@ -1505,29 +1490,14 @@ public class EmployeeIndex : VersionedIndex<Employee>
     public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees", 2)
     {
-        // Writes to each source index are blocked while its copy is reconciled and verified.
         QuiesceSourceOnReindex = true;
     }
 }
 ```
 
-For a **time-series index the block is applied per partition** and released before the next partition starts, so
-the write outage covers one dated partition at a time rather than the whole multi-partition migration. Partitions
-that have already migrated accept writes again immediately.
+The write outage covers the final source copy and destination reconciliation/verification, **not the first pass**. It scales with index size and configured throttling, not merely the number of changed documents. There is no measured outage guarantee for large production indexes. Time-series migration blocks and releases one partition at a time.
 
-Under this ordering:
-
-- The catch-up pass rescans the **whole** source rather than a time range, which is what catches in-place updates
-  that no range query can express. This is affordable because it runs once, against a source that cannot change.
-- Documents deleted from the source during the copy are removed from the destination, so they are not resurrected.
-  Skipped when a reindex `Script` is in use, since `ctx.op = 'noop'` makes "missing from the source" ambiguous.
-- The document-count comparison becomes a **hard gate** that throws `ReindexIncompleteException` rather than an
-  advisory warning. A shortfall has no benign explanation here, and refusing costs nothing because the alias has
-  not moved.
-- If anything fails, the block is released and the alias is left on the source, so the failure is recoverable.
-
-If you cannot accept a write outage, the alternative is to accept the residual risk for mutable data: prefer
-append-only writes during a migration, or migrate at a time when the index is not being written to.
+Failures before promotion retain the source and attempt bounded block cleanup. A lost response, failed release, or process termination can require durable-state recovery or operator inspection; `finally` is not a crash-recovery guarantee. See [Reindex safety and recovery](/guide/reindex-safety) for ownership rules, permissions, soft deletes, and the non-blocking mode's limitations.
 
 ## Best Practices
 
@@ -1601,20 +1571,24 @@ For indexes with millions of documents that take hours to reindex, the lock is a
 
 ### Crash Recovery
 
-If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is safe to retry — a retry recopies from the beginning, and because reindex writes by document id, recopying converges rather than duplicating. It deliberately does **not** try to skip ahead based on what is already in the destination: Elasticsearch copies in unordered doc order, so an interrupted pass leaves an arbitrary subset behind, and narrowing the retry by the destination's newest timestamp would permanently skip older documents that were never copied.
+Lock expiry alone does not make replay safe: an asynchronous server task and an index write block can outlive the client. `foundatio-reindex-safety` records dispatch intent/task IDs and generation-bound block ownership before side effects occur.
+
+A retry confirms an earlier known task stopped before clearing its fence and starting another copy. An unknown dispatch outcome remains fenced. A confirmed migration-owned block can be recovered for the same source UUID; an operator-owned block is preserved. Ambiguous ownership requires inspection. Stale workers cannot overwrite or remove newer journal records because updates are owner-token and sequence/primary-term checked.
+
+A promoted destination without matching completion evidence is never recopied or certified from alias state. A retry permitted by these gates starts from the source again; it never derives a resume watermark from arbitrary first-pass destination documents. The direct configuration dispatcher only discovers outdated versions; it is not a verifier of earlier promoted migrations. Use explicit physical work-item identities and the [recovery runbook](/guide/reindex-safety) for interrupted attempts.
 
 ### Second-Pass Catch-Up Strategy
 
 Reindexing performs a second pass after the first completes to catch documents written during the first pass. The strategy depends on the index configuration:
 
 1. **TimestampField available** (e.g., `IHaveDates` models): Uses a timestamp-based range query starting from the reindex start time. This is the preferred approach.
-2. **No TimestampField, ObjectId-format IDs**: Falls back to ObjectId-based range queries on the document `id` field (ObjectIds encode a timestamp). Because an ObjectId encodes only *creation* time, this range cannot express an in-place update to a document that already existed. The reindex therefore also records the source's highest `_seq_no` before copying, and refuses to promote if any document that changed during the copy has an id predating the migration. Creations during the copy are reachable by the range query and promote normally. Logged at Information level.
-3. **No TimestampField, non-ObjectId IDs**: A second pass is impossible, so the copy is only promoted if the source did **not** change while it ran. Before copying, the reindex records the source's highest `_seq_no`; before switching any alias it re-reads it. If the source was written to (insert, update, or delete — all advance `_seq_no`, unlike document counts), the reindex throws `ReindexIncompleteException` and **refuses to promote**: the alias stays on the old index and the old index is retained. A static source copies normally. If the sequence number cannot be read, the reindex refuses rather than assuming nothing changed.
+2. **No TimestampField, ObjectId-format IDs**: Falls back to ObjectId-based range queries on the document `id` field (ObjectIds encode a timestamp). Because an ObjectId encodes only *creation* time, this range cannot express an in-place update to a document that already existed. The reindex therefore also records the source's generation-bound **per-primary-shard checkpoint vector** before copying, and refuses to promote if any document that changed during the copy has an id predating the migration. Creations during the copy are reachable by the range query and promote normally. Logged at Information level.
+3. **No TimestampField, non-ObjectId IDs**: A second pass is impossible, so the copy is only promoted if the source did **not** change while it ran. Before copying, the reindex records the source's generation-bound **per-primary-shard checkpoint vector**; before switching any alias it re-reads it. If the source was written to (insert, update, or delete — all advance `_seq_no`, unlike document counts), the reindex throws `ReindexIncompleteException` and **refuses to promote**: the alias stays on the old index and the old index is retained. A static source copies normally. If the sequence number cannot be read, the reindex refuses rather than assuming nothing changed.
 4. **Empty source index**: Skips the second pass entirely (nothing to catch up).
 
 Cases 2–4 are decided by sampling one document from the source, so the source is refreshed first. Elasticsearch only makes writes searchable on refresh, and "no hits" is what case 4 keys on — without that refresh, an index bulk-loaded with `refresh_interval: -1` would be classified as empty, silently disabling both the catch-up pass and the `_seq_no` guard while the copy went on to copy a full index.
 
-When `QuiesceSourceOnReindex` is set, this classification is bypassed entirely: the catch-up pass rescans the whole blocked source until it converges, which needs no timestamp field, no id format, and no range query. See [Quiescing writes for a verified cutover](#quiescing-writes-for-a-verified-cutover).
+When `QuiesceSourceOnReindex` is set, this classification is bypassed entirely: the catch-up pass rescans the whole blocked source and verifies stable per-primary checkpoints, which needs no timestamp field, no id format, and no range query. See [Quiescing writes for a verified cutover](#quiescing-writes-for-a-verified-cutover).
 
 Two things this check deliberately does not do. It does not refuse merely because a model has no date fields or uses custom IDs — those are supported, and a copy of a source that is not being written to is safe. And a `TimestampField` is **not** proof of full consistency: it makes catch-up possible, but with the default ordering the catch-up pass still runs after the alias switch, so writes landing in that window are the subject of [Remaining limitations](#remaining-limitations-not-fixed-by-the-above).
 

@@ -1,5 +1,7 @@
 # Ledger: record migration completion durably so a redelivery cannot ack an unconfirmed migration
 
+> **Implementation update, 2026-09-22:** The historical design/findings below are superseded where they describe global-max checkpoints, bounded changed-ID sampling, unconditional replay, scripted-copy exclusions, or completion inferred from a quiesce flag. Current code uses per-primary vectors, complete pagination, routed per-item reconciliation, scripted final-output rebuilding, durable task/block ownership, and fail-closed completion checks. Original CLR overloads are preserved. See `docs/guide/reindex-safety.md` and the PR's final validation record; historical test totals below are not current validation evidence.
+
 Status: **implemented (bounded scope expansion)** — approved 2026-09-11, implemented same day. See the
 2026-09-22 review below for changes and unresolved recovery limitations; the original validation is historical.
 Scope gate: bounded addition to the reindex safety work. Explicitly **not** authorization for the full
@@ -110,15 +112,14 @@ case-sensitive alias matching, missing indexes, failed/incomplete responses, and
 `40a3249` supplies the shared error-formatting import required by both target frameworks. Test results must be
 read from the corresponding CI revision; the presence of these tests is not a claim that they have passed.
 
-**Unresolved:** `PromotedAfterVerification` still infers the earlier attempt's protocol from the current work
+**Historical finding (fixed by removing this recovery branch):** `PromotedAfterVerification` inferred the earlier attempt's protocol from the current work
 item's `QuiesceSource` flag. A default-order attempt may have promoted and failed before a different item is
 submitted with that flag enabled. Neither the new flag nor the alias proves that the earlier copy was
 verified. Recovery must require durable prior-attempt evidence or remain `PromotedButUnconfirmed`. The exact
 index lookup does not resolve this separate review finding.
 
 The script-only fingerprint also does not bind `StartUtc`, `TimestampField`, or `QuiesceSource`, and the
-concatenated completion id is not length-bounded. Those identity concerns remain separate from destination
-lookup and require regression coverage before claiming completion records attest the full migration contract.
+concatenated completion id is not length-bounded. These identity findings are now covered by the versioned bounded ID and full copy-semantics fingerprint; see the current tests and safety guide.
 
 ## Compatibility impact (to carry into release notes)
 

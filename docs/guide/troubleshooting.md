@@ -413,7 +413,7 @@ The destination could not be trusted as a complete replica of the source, so the
 | the source changed and no catch-up pass is possible | The model has no timestamp field and non-ObjectId ids, and the source was written to during the copy | Set `QuiesceSourceOnReindex`, add `IHaveDates`, or migrate when writes are stopped |
 | documents changed that the catch-up pass cannot reach | The model uses ObjectId ids and a **pre-existing** document was updated in place during the copy — the id-range catch-up encodes creation time only | Set `QuiesceSourceOnReindex`; this is the only way to catch in-place updates |
 | the destination is short of the quiesced source | Under `QuiesceSourceOnReindex`, verification found fewer documents in the destination than in the blocked source | Retry; a shortfall against a blocked source is not a race, so investigate the copy logs for rejected documents |
-| the source kept changing while blocked | Under `QuiesceSourceOnReindex`, the source's `_seq_no` kept advancing despite the write block | Something bypassed the block (a direct write to the versioned index name, or another block-clearing process); retry after identifying it |
+| the source kept changing while blocked | Under `QuiesceSourceOnReindex`, one or more primary checkpoint values changed despite the write block | Inspect competing migrations and operator changes to the block; direct physical-index writes are blocked too |
 
 **Solutions:**
 
@@ -466,13 +466,13 @@ The destination was already promoted, but no completion record exists in the `fo
 - A first attempt failed *after* the alias cutover, which advances the version without finishing the work.
 - The migration completed before this library recorded completion evidence, and a stale work item for it was redelivered.
 
-Note that a **quiesced** migration does not land here: promotion under `QuiesceSourceOnReindex` happens only after reconciliation and verification succeeded, so a redelivered work item can safely re-derive the completion record and acknowledge.
+This also applies to **quiesced** work items: the current flag does not prove how the earlier alias promotion happened. Missing completion is never fabricated. Unknown task dispatch or ambiguous block ownership can also raise this exception before promotion; inspect the exception reason and durable safety records.
 
 **Solutions:**
 
 1. **Nothing was replayed, rolled back, or deleted.** Both indexes are left exactly as found — the library deliberately neither reports success (which would record a possibly short index as finished) nor copies again (which would write into an index already serving live traffic).
 
-2. **Establish whether the destination is actually short:**
+2. **Inspect the actual membership and content.** Counts below are only a starting point, not evidence of equality:
 
 ```bash
 # Compare counts; the source may still exist
@@ -486,36 +486,19 @@ curl "localhost:9200/employees-v2/_count"
 
 ### An index is stuck read-only after a reindex
 
-**Symptoms:**
+A source write block is a persistent Elasticsearch setting, not a client session. A failed cleanup or terminated process can leave `403 cluster_block_exception` responses after the worker exits.
 
-- Writes to an index fail with `403` / `cluster_block_exception` and `[FORBIDDEN/8/index write (api)]`, but no reindex is running.
-- A log entry at **Error** level: `Failed to remove the write block from index {Index} ... It will keep rejecting writes until the block is cleared manually by setting index.blocks.write to null on that index.`
-
-**Cause:**
-
-A quiesced reindex (`QuiesceSourceOnReindex`) blocks writes to the source and removes the block when it finishes. If the removal request itself failed — cluster unreachable, node restart, timeout — the block persists, because Elasticsearch blocks are durable index settings rather than session state.
-
-The library does not silently retry this forever or hide it. On the success path a failed removal throws `ReindexIncompleteException`; on a failure path it is logged at Error and the original failure is allowed to propagate, so the reason the migration failed is not replaced by the cleanup problem. Either way the Error log above is written.
-
-**Solutions:**
-
-1. **Confirm the block is present:**
+Check the physical source's UUID, aliases, and `index.blocks.write`, then correlate its `foundatio-reindex-safety` block entry and task state. A fresh attempt can recover a confirmed migration-owned block for the same physical generation. A pre-existing unowned block is treated as operator-owned and preserved. A pending/unconfirmed block intent, mismatched UUID, or another owner requires an explicit operator decision.
 
 ```bash
-curl "localhost:9200/employees-v1/_settings?filter_path=**.blocks"
+curl "localhost:9200/employees-v1/_settings?filter_path=**.uuid,**.blocks"
+curl "localhost:9200/employees-v1/_alias"
+curl "localhost:9200/_tasks?actions=*reindex&detailed=true"
 ```
 
-2. **Clear it.** `null` removes the block; setting it to `false` does not reliably clear one applied through the block API:
+**Do not clear every block or delete safety records merely to make retries proceed.** First stop competing workers and confirm no earlier task can still write. Only clear a setting after establishing that the block is yours and no operator still requires it. A stuck block on a retained old source does not prove that the live alias is read-only.
 
-```bash
-curl -X PUT "localhost:9200/employees-v1/_settings" \
-  -H 'Content-Type: application/json' \
-  -d '{"index.blocks.write": null}'
-```
-
-3. **Check whether the migration completed** before assuming the index is the live one — the alias may already point at the new version, in which case the stuck block is on a source that is no longer serving reads. See [ReindexIncompleteException](#reindexincompleteexception).
-
-Note that a block the library finds **already applied** when it starts is deliberately left in place on cleanup, on the assumption that something else owns it. If you block an index yourself, you are responsible for clearing it.
+In-process cleanup uses an independent bounded timeout. Explicit release failures propagate on the success path; disposal during another failure logs without masking the original error. Automatic recovery handles proven ownership, not arbitrary cluster-state ambiguity. See the [recovery runbook](/guide/reindex-safety).
 
 ## Notification Issues
 

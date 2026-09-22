@@ -1,5 +1,7 @@
 # Ledger: refuse automatic cutover when the migration guarantee cannot be satisfied
 
+> **Implementation update, 2026-09-22:** The historical design/findings below are superseded where they describe global-max checkpoints, bounded changed-ID sampling, unconditional replay, scripted-copy exclusions, or completion inferred from a quiesce flag. Current code uses per-primary vectors, complete pagination, routed per-item reconciliation, scripted final-output rebuilding, durable task/block ownership, and fail-closed completion checks. Original CLR overloads are preserved. See `docs/guide/reindex-safety.md` and the PR's final validation record; historical test totals below are not current validation evidence.
+
 Status: **implemented (narrow scope)** — approved 2026-09-11, implemented same day
 Scope gate: clarifies existing plan sections 4c/4d and release blocker B1. Does **not** expand scope.
 Follow-up: the deferred strict protocol landed in
