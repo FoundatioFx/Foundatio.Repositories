@@ -44,13 +44,13 @@ jobs:
           git bundle create ../audit-results/candidate.bundle HEAD
           git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 > ../audit-results/candidate.diff
           git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 --stat
-          git log -6 --oneline
+          git log -7 --oneline
       - name: Release build
         run: dotnet build Foundatio.Repositories.slnx --configuration Release
       - name: Repeat deterministic regression tests twenty times
         run: |
           set -euo pipefail
-          dotnet tests/Foundatio.Repositories.Elasticsearch.Tests/bin/Release/net10.0/Foundatio.Repositories.Elasticsearch.Tests.dll --help > ../audit-results/runner-help.txt
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj --help > ../audit-results/runner-help.txt
           for iteration in $(seq 1 20); do
             echo "Deterministic regression iteration $iteration"
             dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj --configuration Release --no-build --filter-class '*DeleteByQueryRetryTests' '*MultiGetResponseValidationTests' --report-xunit-trx --results-directory "${{ github.workspace }}/audit-results/repeat-$iteration"
