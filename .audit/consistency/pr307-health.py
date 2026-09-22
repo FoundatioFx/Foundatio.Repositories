@@ -1,5 +1,5 @@
 from pathlib import Path
-import sys
+import sys, subprocess
 root=Path(sys.argv[1])
 p=root/'src/Foundatio.Repositories.Elasticsearch/Configuration/CompatibilityTargetHealth.cs'
 s=p.read_text();old='            if (!response.IsValidResponse)';assert s.count(old)==1
@@ -9,3 +9,4 @@ s=s.replace(old, '''            // Elasticsearch returns HTTP 408 for an otherwi
             if (!response.IsValidResponse && !pollTimedOut)''');p.write_text(s)
 p=root/'tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.Consistency.cs'
 s=p.read_text().replace('new StubResponse(200, yellow), new StubResponse(200, green)', 'new StubResponse(408, yellow), new StubResponse(200, green)');p.write_text(s)
+subprocess.run([sys.executable, str(Path(__file__).with_name('lease-guard.py')), str(root), '307'], check=True)
