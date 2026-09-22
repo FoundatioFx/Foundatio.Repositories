@@ -26,6 +26,8 @@ namespace Foundatio.Repositories
         /// Time-series and parent/child repositories may recover documents through a search fallback.
         /// Unresolved item errors are aggregated before returning results or writing document and
         /// not-found cache entries. The fallback does not read or write query-result cache entries.
+        /// Incomplete or mismatched MGET responses are rejected before fallback and cache writes.
+        /// Found items must include a source; projected sources may omit their ID property.
         /// Existing document cache reads, consistency settings, and soft-delete filters still apply;
         /// this option does not guarantee fresh results, an atomic snapshot, or proof of absence.
         /// </remarks>

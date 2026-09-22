@@ -79,7 +79,7 @@ var documents = await repository.GetByIdsAsync(
     o => o.ThrowOnMultiGetErrors());
 ```
 
-For time-series and parent/child repositories, the fallback query across the index's other aliases runs first, so an item error on one dated index does not fail a document that is actually retrievable elsewhere. `DocumentException` is thrown only for ids still unresolved after that fallback, before any partial results or not-found cache markers are returned. An explicit `found: false` response still represents a normal missing document.
+For time-series and parent/child repositories, the fallback query across the index's other aliases runs first, so an item error on one dated index does not fail a document that is actually retrievable elsewhere. `DocumentException` is thrown only for ids still unresolved after that fallback, before any partial results or not-found cache markers are returned. An explicit `found: false` response still represents a normal missing document. Strict reads also reject incomplete or mismatched MGET response items before writing document-result cache entries. Strict mode does not bypass existing positive cache hits, make fallback searches real-time, or provide transactional guarantees; see [Multi-Get Error Options](/guide/configuration#multi-get-error-options). Never interpret a `DocumentException` as an empty batch for a destructive decision.
 
 ### Index Not Found
 
