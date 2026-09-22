@@ -8,7 +8,7 @@ packages.mkdir(exist_ok=True)
 consumer.mkdir(exist_ok=True)
 version = '8.0.2-pr308audit.0'
 for project in ('Foundatio.Repositories', 'Foundatio.Repositories.Elasticsearch'):
-    subprocess.run(['dotnet', 'pack', f'src/{project}/{project}.csproj', '--configuration', 'Release', f'-p:MinVerVersionOverride={version}', '-o', str(packages)], check=True)
+    subprocess.run(['dotnet', 'pack', f'src/{project}/{project}.csproj', '--configuration', 'Release', f'-p:MinVerVersionOverride={version}', '-p:ReferenceFoundatioSource=false', '-p:ReferenceFoundatioRepositoriesSource=false', '-o', str(packages)], check=True)
 
 (consumer / 'Consumer.csproj').write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
