@@ -1,0 +1,28 @@
+name: PR 308 isolated audit
+on:
+  push:
+    branches: [audit/pr-308-20260922]
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 9ed59304eec0a092a58c617c8370e62eab1c5935
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact reviewed source without credentials
+        run: |
+          test "$(git rev-parse HEAD)" = 9ed59304eec0a092a58c617c8370e62eab1c5935
+          mkdir -p /tmp/pr-308-audit
+          git bundle create /tmp/pr-308-audit/source.bundle HEAD
+          git log -1 --format=fuller > /tmp/pr-308-audit/commit.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr-308-source
+          path: /tmp/pr-308-audit
+          retention-days: 3
+          if-no-files-found: error
