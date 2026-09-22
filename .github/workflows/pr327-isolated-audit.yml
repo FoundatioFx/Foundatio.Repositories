@@ -5,11 +5,15 @@ on:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: pr327-isolated-transfer
+  cancel-in-progress: true
 jobs:
   transfer:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
         artifact: [pr327-offline-toolchain, pr327-elasticsearch-8.19.0, pr327-elasticsearch-9.5.0]
     steps:
@@ -20,11 +24,23 @@ jobs:
           github-token: ${{ github.token }}
           path: incoming
       - name: Split public validation dependencies into bounded artifacts
+        shell: python
         run: |
-          set -euo pipefail
-          mkdir -p chunks
-          tar -cf - -C incoming . | split --bytes=450M --numeric-suffixes=0 - chunks/part-
-          sha256sum chunks/part-* > chunks/SHA256SUMS
+          import hashlib, pathlib, tarfile
+          root = pathlib.Path('chunks')
+          root.mkdir()
+          with tarfile.open('transfer.tar', 'w') as archive:
+              for path in sorted(pathlib.Path('incoming').iterdir()):
+                  archive.add(path, arcname=path.name)
+          checksums = []
+          with open('transfer.tar', 'rb') as source:
+              part = 0
+              while data := source.read(450 * 1024 * 1024):
+                  name = f'part-{part:02}'
+                  (root / name).write_bytes(data)
+                  checksums.append(f'{hashlib.sha256(data).hexdigest()}  {name}')
+                  part += 1
+          (root / 'SHA256SUMS').write_text('\n'.join(checksums) + '\n')
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}-part-00
