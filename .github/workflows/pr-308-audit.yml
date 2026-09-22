@@ -28,71 +28,8 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Apply verified live fixes and scalar regression tests
-        working-directory: repo
-        run: |
-          mkdir -p ../evidence
-          git config user.name 'Blake Niemyjski'
-          git config user.email 'bniemyjski@gmail.com'
-          python - <<'PY'
-          import base64, hashlib, pathlib, re, subprocess, zlib
-          workflow = subprocess.check_output(['git', 'show', '05c1a46e67f7d8b8d0e828cf45f0c4a5d94295f8:.github/workflows/pr-308-audit.yml'], text=True)
-          payload = re.search(r"payload = '([A-Za-z0-9+/=]+)'", workflow).group(1)
-          patches = [(payload, '9ef0f6469d59fdaedee7a8d9ebea97847160aea07ed302250a94143344e3de38')]
-          for name, checksum in [('live-fix', '9a750e73d97361750c68b38e6d27759ddc7a9de1d7b74686c128eae3f0951d6a'), ('scalar-tests', '42faa3a11decb219420c51dfeb1e6fbdea0fc32ed4539ad1c5169b660e1f4498')]:
-              patches.append((pathlib.Path(f'../tools/.audit/{name}.b64').read_text().strip(), checksum))
-          for payload, checksum in patches:
-              patch = zlib.decompress(base64.b64decode(payload, validate=True))
-              assert hashlib.sha256(patch).hexdigest() == checksum
-              subprocess.run(['git', 'am', '--committer-date-is-author-date'], input=patch, check=True)
-          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == '71e47fcae9b6808e0b9f559703de9e74227cfdf1'
-          PY
-          dotnet build Foundatio.Repositories.slnx --configuration Release -warnaserror 2>&1 | tee ../evidence/baseline-build.log
-      - name: Prove scalar gaps without hiding unrelated failures
-        working-directory: repo
-        run: |
-          set +e
-          dotnet tests/Foundatio.Repositories.Elasticsearch.Tests/bin/Release/net10.0/Foundatio.Repositories.Elasticsearch.Tests.dll -class Foundatio.Repositories.Elasticsearch.Tests.SearchAfterRequestTests -result-xml ../evidence/scalar-baseline.xml 2>&1 | tee ../evidence/scalar-baseline.log
-          status=${PIPESTATUS[0]}
-          set -e
-          test "$status" -eq 1
-          python - <<'PY'
-          import xml.etree.ElementTree as ET
-          tests = ET.parse('../evidence/scalar-baseline.xml').findall('.//test')
-          failed = [t for t in tests if t.get('result') == 'Fail']
-          expected = ('ScalarQuery_WithIncompleteLiveCursorSearch', 'ScalarQuery_WithIncompatibleLivePaging', 'ScalarQuery_WithCompleteLiveCursorSearch')
-          assert len(tests) == 136, len(tests)
-          assert len(failed) == 36, [(t.get('name'), t.get('result')) for t in tests]
-          assert all(any(name in t.get('name', '') for name in expected) for t in failed)
-          assert all(t.get('result') in ('Pass', 'Fail') for t in tests)
-          print('Confirmed 36 expected scalar failures; 100 existing/live tests passed.')
-          PY
-      - name: Complete scalar safety and documentation in logical commits
-        working-directory: repo
-        run: |
-          python ../tools/.audit/finish.py scalar
-          git diff --check
-          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs
-          git commit -m 'fix: enforce complete responses and compatible modes for scalar cursors'
-          python ../tools/.audit/finish.py docs
-          git diff --check
-          git add src docs .agents
-          git commit -m 'docs: clarify cursor session identity, scalar safety, and traversal ownership'
-          test -z "$(git status --porcelain)"
-          git diff --exit-code 9ed59304eec0a092a58c617c8370e62eab1c5935 HEAD -- .github
-          git log -5 --format=fuller > ../evidence/commits.txt
-          git diff --stat 9ed59304eec0a092a58c617c8370e62eab1c5935 > ../evidence/diffstat.txt
-      - name: Build, run request regressions, and verify formatting
-        working-directory: repo
-        run: |
-          dotnet build Foundatio.Repositories.slnx --configuration Release -warnaserror 2>&1 | tee ../evidence/final-build.log
-          dotnet tests/Foundatio.Repositories.Elasticsearch.Tests/bin/Release/net10.0/Foundatio.Repositories.Elasticsearch.Tests.dll -class Foundatio.Repositories.Elasticsearch.Tests.SearchAfterRequestTests -result-xml ../evidence/request-tests.xml 2>&1 | tee ../evidence/request-tests.log
-          mapfile -t changed < <(git diff --name-only 9ed59304eec0a092a58c617c8370e62eab1c5935 HEAD -- '*.cs')
-          dotnet format Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${changed[@]}" 2>&1 | tee ../evidence/format.log
-          git diff --check
-          git bundle create ../evidence/candidate.bundle HEAD
-          git rev-parse HEAD > ../evidence/candidate-sha.txt
-          git format-patch --stdout 9ed59304eec0a092a58c617c8370e62eab1c5935..HEAD > ../evidence/fixes.patch
+      - name: Prove regressions, apply fixes, verify formatting and packaged consumers
+        run: bash tools/.audit/prepare.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -140,7 +77,7 @@ jobs:
           assert json.loads(pathlib.Path('../results/server.json').read_text())['version']['number'] == os.environ['ELASTICSEARCH_VERSION']
           for name in ('core', 'elasticsearch'):
               tests = ET.parse(f'../results/{name}.xml').findall('.//test')
-              assert len(tests) >= (152 if name == 'core' else 949), (name, len(tests))
+              assert len(tests) >= (152 if name == 'core' else 957), (name, len(tests))
               assert all(t.get('result') == 'Pass' for t in tests), [(t.get('name'), t.get('result')) for t in tests if t.get('result') != 'Pass']
               print(f'{name}: {len(tests)} passed, zero failures/skips')
           PY
