@@ -59,8 +59,8 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
 
         Serializer = serializer;
         ResiliencePolicyProvider = resiliencePolicyProvider ?? cacheClient?.GetResiliencePolicyProvider() ?? new ResiliencePolicyProvider();
-        ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
+        ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         _shouldDisposeCache = cacheClient is null;
         _configureIndexesCache = new ScopedCacheClient(Cache, ConfigureIndexesResourceName);
         _shouldDisposeMessageBus = messageBus is null;
@@ -435,10 +435,21 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
 
     private static bool IsCompatibilityDestinationReserved(IIndex registered, string target)
     {
-        if (String.Equals(registered.Name, target, StringComparison.Ordinal)
-            || registered is Index index && index.IsPotentialCompatibilitySourceName(target))
-        {
+        if (String.Equals(registered.Name, target, StringComparison.Ordinal))
             return true;
+
+        // Reservation is conservative: any native claim is a conflict, even when multiple registrations
+        // claim the same name. Source-discovery arbitration would incorrectly let those claims cancel out.
+        if (registered is Index index)
+        {
+            ReadOnlySpan<char> name = target;
+            const string errorSuffix = "-error";
+            if (index.IsNativeIndexName(name)
+                || (name.EndsWith(errorSuffix, StringComparison.Ordinal)
+                    && index.IsNativeIndexName(name[..^errorSuffix.Length])))
+            {
+                return true;
+            }
         }
 
         if (registered is not DailyIndex dailyIndex)
