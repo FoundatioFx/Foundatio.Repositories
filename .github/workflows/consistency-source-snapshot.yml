@@ -1,0 +1,42 @@
+name: Consistency hardening source snapshot
+on:
+  push:
+    branches: [audit/pr-307-final-validation-20260922]
+    paths: [.github/workflows/consistency-source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          path: pr307
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 091b2ba0a6c24806568c42897c1078f0b00dae5c
+          path: pr327
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: FoundatioFx/Foundatio
+          ref: 394a97fa61418e88b4f94d20cf91410ca4bd011a
+          path: foundatio
+          persist-credentials: false
+      - name: Capture source without credentials or build output
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git -czf consistency-source.tar.gz pr307 pr327 foundatio
+          git -C pr307 log -1 --format='%H %s'
+          git -C pr327 log -1 --format='%H %s'
+          git -C foundatio log -1 --format='%H %s'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consistency-source
+          path: consistency-source.tar.gz
+          retention-days: 7
