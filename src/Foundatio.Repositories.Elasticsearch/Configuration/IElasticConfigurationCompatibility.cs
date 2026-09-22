@@ -47,20 +47,23 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
     /// moves aliases, and deletes the source. Stop all writers and index-management processes, take and verify a
     /// snapshot, and do not invoke it while rollback to the previous Elasticsearch major remains an option.
     /// Mapping-level source includes/excludes and generated names over 255 UTF-8 bytes are rejected before
-    /// batch mutation. Ambiguous requests retain the marked artifacts for manual reconciliation.
+    /// batch mutation. A destination must not collide with another registration's logical or native index name,
+    /// error-index name, or configured or dated time-series alias, even if that registration has not created an
+    /// index or is excluded from <paramref name="indexes"/>. These reservations are checked again under the lock.
+    /// Ambiguous requests retain the marked artifacts for manual reconciliation.
     /// Restart or drain application instances before resuming writes because cached document concurrency tokens
     /// belong to the deleted physical index.
-    /// Progress callbacks are awaited and report each physical index separately. A callback failure before
-    /// cutover aborts that attempt and invokes the same evidence-based cleanup as other failures. A failure
-    /// reporting 100 percent is logged without undoing the completed cutover. The batch is not transactional:
-    /// earlier physical indexes remain upgraded if a later operation fails or is canceled. Cancellation may
-    /// be reported after a cutover has committed; inspect the original physical source before retrying.
+    /// Progress callbacks are awaited and report each physical index separately. Ordinary callback exceptions
+    /// are logged without interrupting the upgrade; <see cref="OperationCanceledException"/> and lock-renewal
+    /// failures still propagate through the same evidence-based handling as other failures. The batch is not
+    /// transactional: earlier physical indexes remain upgraded if a later operation fails or is canceled.
+    /// Cancellation may be reported after a cutover has committed; inspect the original physical source before retrying.
     /// </remarks>
     /// <param name="indexes">The indexes to inspect and upgrade, or <c>null</c> for all configured indexes.</param>
     /// <param name="progressCallbackAsync">An optional callback for per-index progress updates.</param>
     /// <param name="cancellationToken">The token used to cancel detection or pre-cutover work.</param>
-    /// <exception cref="Foundatio.Repositories.Exceptions.RepositoryException">The compatibility upgrade did not complete.</exception>
-    /// <exception cref="ArgumentException">An index belongs to a different configuration.</exception>
+    /// <exception cref="Foundatio.Repositories.Exceptions.RepositoryException">A destination is reserved by another registration or the compatibility upgrade did not complete.</exception>
+    /// <exception cref="ArgumentException">An index is unregistered or belongs to a different configuration.</exception>
     /// <exception cref="NotSupportedException">An index implementation is unsupported or the connected Elasticsearch version is older than 8.18.</exception>
     Task UpgradeIndexCompatibilityAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default);
 }
