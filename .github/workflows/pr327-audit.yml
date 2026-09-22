@@ -4,19 +4,90 @@ on:
     branches: [audit/pr327-verification]
 permissions:
   contents: read
+concurrency:
+  group: pr327-isolated-validation
+  cancel-in-progress: true
 jobs:
-  source:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        elasticsearch: ['8.19.0', '9.5.0']
     steps:
       - uses: actions/checkout@v6
         with:
+          path: payload
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          ref: 091b2ba0a6c24806568c42897c1078f0b00dae5c
+          path: source
           fetch-depth: 0
           persist-credentials: false
-      - name: Export pinned review source
-        run: git archive 091b2ba0a6c24806568c42897c1078f0b00dae5c | gzip > source.tar.gz
-      - uses: actions/upload-artifact@v4
+      - name: Apply hash-verified review edits
+        working-directory: source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, lzma
+          from pathlib import Path
+          payload = ''.join(Path(f'../payload/audit/changes-{i}.txt').read_text().strip() for i in range(1, 5))
+          raw = lzma.decompress(base64.b64decode(payload, validate=True))
+          assert hashlib.sha256(raw).hexdigest() == 'd88236f4904d34ac0955ee9d78a292821b355cffb990092c0950dad315e661ef'
+          for entry in json.loads(raw):
+              path = Path(entry['path'])
+              assert not path.is_absolute() and '..' not in path.parts
+              old = path.read_bytes() if path.exists() else b''
+              assert hashlib.sha256(old).hexdigest() == entry['base'], path
+              lines = old.decode().splitlines(keepends=True)
+              for start, end, text in reversed(entry['edits']):
+                  lines[start:end] = [text]
+              new = ''.join(lines).encode()
+              assert hashlib.sha256(new).hexdigest() == entry['result'], path
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(new)
+          PY
+          git add src tests
+          git diff --cached --check
+          git diff --cached --binary > ../reviewed.patch
+      - uses: actions/setup-dotnet@v5
         with:
-          name: pr327-source
-          path: source.tar.gz
-          retention-days: 1
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build release
+        working-directory: source
+        shell: bash
+        run: dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../build.log
+      - name: Start disposable Elasticsearch
+        env:
+          ES_VERSION: ${{ matrix.elasticsearch }}
+        shell: bash
+        run: |
+          docker run -d --name pr327-elasticsearch -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e cluster.name=pr327-disposable -e ES_JAVA_OPTS='-Xms512m -Xmx512m' docker.elastic.co/elasticsearch/elasticsearch:$ES_VERSION
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=1s' > cluster.json; then exit 0; fi
+            sleep 1
+          done
+          docker logs pr327-elasticsearch
+          exit 1
+      - name: Run complete test suite
+        working-directory: source
+        shell: bash
+        run: dotnet test --solution Foundatio.Repositories.slnx --configuration Release --no-build --report-github 2>&1 | tee ../tests.log
+      - name: Capture service logs
+        if: always()
+        run: docker logs pr327-elasticsearch > elasticsearch.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr327-evidence-${{ matrix.elasticsearch }}
+          path: |
+            reviewed.patch
+            build.log
+            tests.log
+            cluster.json
+            elasticsearch.log
+          retention-days: 7
