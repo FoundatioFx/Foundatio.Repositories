@@ -433,6 +433,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
             ValidateSearchAfterContinuation(options, continuation);
+            if (!ReferenceEquals(pointInTime, options.GetPointInTimeState()))
+                await TryCloseRepositoryOwnedPointInTimeAsync(options, pointInTime).AnyContext();
             pointInTime = options.GetPointInTimeState();
             var pagingState = options.GetSearchAfterPagingState();
             var pagingStrategy = GetPagingStrategy(options);
@@ -560,7 +562,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
         catch
         {
-            await CloseRepositoryOwnedPointInTimeAfterFailureAsync(options, pointInTime).AnyContext();
+            await TryCloseRepositoryOwnedPointInTimeAsync(options, pointInTime).AnyContext();
             throw;
         }
     }
@@ -981,7 +983,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return search;
     }
 
-    private async Task CloseRepositoryOwnedPointInTimeAfterFailureAsync(ICommandOptions options, PointInTimeState? pointInTime)
+    private async Task TryCloseRepositoryOwnedPointInTimeAsync(ICommandOptions options, PointInTimeState? pointInTime)
     {
         if (pointInTime?.IsRepositoryOwned is not true)
             return;
@@ -995,11 +997,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                     options.DisableSearchAfterPaging();
             }
             else
-                _logger.LogWarning("Failed to close repository-owned point in time after a paging failure; it will expire after its keep-alive window");
+                _logger.LogWarning("Failed to close repository-owned point in time; it will expire after its keep-alive window");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to close repository-owned point in time after a paging failure; it will expire after its keep-alive window");
+            _logger.LogWarning(ex, "Failed to close repository-owned point in time; it will expire after its keep-alive window");
         }
     }
 

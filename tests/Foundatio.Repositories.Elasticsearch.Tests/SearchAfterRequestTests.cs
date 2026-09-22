@@ -994,6 +994,57 @@ public sealed class SearchAfterRequestTests
         };
     }
 
+    [Theory]
+    [InlineData(false, "disable")]
+    [InlineData(true, "disable")]
+    [InlineData(false, "live")]
+    [InlineData(true, "live")]
+    [InlineData(false, "restart")]
+    [InlineData(true, "restart")]
+    [InlineData(false, "replace")]
+    [InlineData(true, "replace")]
+    public async Task FindAsync_WhenBeforeQueryAbandonsExistingPointInTime_RespectsOwnership(bool callerOwned, string change)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        if (callerOwned)
+            options.PointInTimeId("prior-pit");
+        else
+            options.RepositoryOwnedPointInTimeId("prior-pit");
+        repository.BeforeQuery.AddHandler((_, args) =>
+        {
+            switch (change)
+            {
+                case "disable":
+                    args.Options.SearchAfterPaging(false);
+                    break;
+                case "live":
+                    args.Options.SearchAfterPaging(SearchAfterPagingMode.Live);
+                    break;
+                case "restart":
+                    args.Options.SearchAfterPaging(false).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+                    break;
+                case "replace":
+                    args.Options.PointInTimeId("replacement-pit");
+                    break;
+            }
+            return Task.CompletedTask;
+        });
+
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+
+        Assert.True(page.HasMore);
+        if (!callerOwned && change is not "replace")
+            AssertClosed(invoker, "prior-pit");
+        else
+            Assert.DoesNotContain(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
+        Assert.Equal(change is "restart" or "replace" ? "updated-pit" : null, options.GetPointInTimeId());
+        Assert.Equal(change is "restart", options.IsRepoOwnedPointInTime());
+    }
+
     private static void AssertClosed(StubInvoker invoker, string expectedId)
     {
         var close = Assert.Single(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
