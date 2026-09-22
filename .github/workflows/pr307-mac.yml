@@ -1,0 +1,67 @@
+name: PR 307 alternate regression validation
+on:
+  push:
+    branches: [audit/pr-307-final-validation-20260922]
+    paths: ['.github/workflows/pr307-mac.yml']
+concurrency:
+  group: pr307-macos-regression-validation
+  cancel-in-progress: true
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  MINVERVERSIONOVERRIDE: 8.0.2-audit.pr307.${{ github.run_id }}
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build original source with new regressions
+        run: |
+          mkdir -p .audit/results
+          python3 .audit/pr307/run.py tests
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/red-build.log
+      - name: Prove failures on the original source
+        run: |
+          set +e
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' 2>&1 | tee .audit/results/red.log
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -ne 0
+          grep -Eq 'failed: [1-9][0-9]*' .audit/results/red.log
+      - name: Build and test the candidate
+        run: |
+          python3 .audit/pr307/run.py fix
+          python3 .audit/pr307/docs.py
+          git diff --check
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/green-build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' | tee .audit/results/green.log
+          dotnet test --project tests/Foundatio.Repositories.Tests/Foundatio.Repositories.Tests.csproj -c Release --no-build | tee .audit/results/core.log
+      - name: Verify changed-file formatting
+        run: |
+          dotnet format whitespace Foundatio.Repositories.slnx --no-restore --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskResponseReader.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskCancellation.cs src/Foundatio.Repositories.Elasticsearch/Configuration/Index.cs src/Foundatio.Repositories.Elasticsearch/Configuration/ElasticIndexCompatibilityUpgrader.cs src/Foundatio.Repositories.Elasticsearch/Configuration/IElasticConfigurationCompatibility.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.ErrorLineage.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CancellationEvidence.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.Task.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CutoverSafety.cs --verbosity diagnostic 2>&1 | tee .audit/results/format.log
+          git diff --check
+      - name: Package external consumers
+        run: bash .audit/pr307/consumer.sh
+      - name: Stage clean candidate commits only
+        run: |
+          sed "s|audit/pr-307-candidate-20260922|audit/pr-307-candidate-${GITHUB_RUN_ID}|g" .audit/pr307/stage.sh > "$RUNNER_TEMP/pr307-stage.sh"
+          bash "$RUNNER_TEMP/pr307-stage.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr307-macos-regression-proof
+          path: .audit/results
+          retention-days: 7
