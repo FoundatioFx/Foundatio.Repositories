@@ -1,0 +1,22 @@
+name: PR 327 isolated audit
+on:
+  push:
+    branches: [audit/pr327-final-20260922]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 091b2ba0a6c24806568c42897c1078f0b00dae5c
+          persist-credentials: false
+      - name: Export pinned source
+        run: git archive --format=tar.gz HEAD -o source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr327-pinned-source
+          path: source.tar.gz
+          retention-days: 3
