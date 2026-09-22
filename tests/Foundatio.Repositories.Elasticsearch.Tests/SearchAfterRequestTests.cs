@@ -653,6 +653,196 @@ public sealed class SearchAfterRequestTests
         Assert.Equal("/_search", invoker.Requests[1].Path);
     }
 
+    [Theory]
+    [InlineData("disable", false)]
+    [InlineData("disable", true)]
+    [InlineData("point-in-time", false)]
+    [InlineData("point-in-time", true)]
+    [InlineData("restart", false)]
+    [InlineData("restart", true)]
+    [InlineData("round-trip", false)]
+    [InlineData("round-trip", true)]
+    public async Task NextPageAsync_WhenLiveSessionIsReset_RejectsWithoutChangingOptions(string change, bool startNewSearch)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging();
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        Assert.True(page.HasMore);
+        string? token = page.GetSearchAfterToken();
+
+        ResetLiveSession(options, change);
+        if (startNewSearch)
+            await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+
+        int requests = invoker.Requests.Count;
+        int currentPage = options.GetPage();
+        var cursor = options.GetSearchAfter();
+        var pointInTime = options.GetPointInTimeState();
+        await Assert.ThrowsAsync<QueryValidationException>(() => page.NextPageAsync());
+
+        Assert.Equal(requests, invoker.Requests.Count);
+        Assert.Equal(currentPage, options.GetPage());
+        Assert.Same(cursor, options.GetSearchAfter());
+        Assert.Same(pointInTime, options.GetPointInTimeState());
+        Assert.Equal(1, page.Page);
+        Assert.True(page.HasMore);
+        Assert.Equal(token, page.GetSearchAfterToken());
+    }
+
+    [Theory]
+    [InlineData("disable")]
+    [InlineData("point-in-time")]
+    [InlineData("restart")]
+    [InlineData("round-trip")]
+    public async Task NextPageAsync_WhenBeforeQueryResetsLiveSession_RejectsBeforeSearching(string change)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        int calls = 0;
+        repository.BeforeQuery.AddHandler((_, args) =>
+        {
+            if (++calls is 2)
+                ResetLiveSession(args.Options, change);
+            return Task.CompletedTask;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging();
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        string? token = page.GetSearchAfterToken();
+        int requests = invoker.Requests.Count;
+
+        await Assert.ThrowsAsync<QueryValidationException>(() => page.NextPageAsync());
+
+        Assert.Equal(requests, invoker.Requests.Count);
+        Assert.Equal(1, page.Page);
+        Assert.True(page.HasMore);
+        Assert.Equal(token, page.GetSearchAfterToken());
+        options.SearchAfterPaging(false).SearchAfterPaging();
+        var restarted = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        Assert.Equal(1, restarted.Page);
+        Assert.Equal(requests + 1, invoker.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("disable")]
+    [InlineData("point-in-time")]
+    [InlineData("restart")]
+    [InlineData("round-trip")]
+    public async Task NextPageAsync_WhenAfterQueryResetsLiveSession_RejectsOriginalResults(string change)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        repository.AfterQuery.AddHandler((_, args) =>
+        {
+            ResetLiveSession(args.Options, change);
+            return Task.CompletedTask;
+        });
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging();
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        Assert.True(page.HasMore);
+        int requests = invoker.Requests.Count;
+
+        await Assert.ThrowsAsync<QueryValidationException>(() => page.NextPageAsync());
+
+        Assert.Equal(requests, invoker.Requests.Count);
+        Assert.Equal(1, page.Page);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task NextPageAsync_WhenLivePagingIsReapplied_ContinuesSameSession(bool specifyMode, bool beforeQuery)
+    {
+        using var invoker = new StubInvoker(endpoint => GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging();
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        void Reapply(ICommandOptions currentOptions)
+        {
+            if (specifyMode)
+                currentOptions.SearchAfterPaging(SearchAfterPagingMode.Live);
+            else
+                currentOptions.SearchAfterPaging();
+        }
+        if (beforeQuery)
+        {
+            repository.BeforeQuery.AddHandler((_, args) =>
+            {
+                Reapply(args.Options);
+                return Task.CompletedTask;
+            });
+        }
+        else
+        {
+            Reapply(options);
+        }
+
+        Assert.True(await page.NextPageAsync());
+
+        Assert.Equal(2, page.Page);
+        Assert.Equal(2, invoker.Requests.Count);
+        using var request = JsonDocument.Parse(invoker.Requests[1].Body!);
+        Assert.Equal(1, request.RootElement.GetProperty("search_after")[0].GetInt32());
+        Assert.False(request.RootElement.TryGetProperty("pit", out _));
+    }
+
+    [Fact]
+    public async Task NextPageAsync_WhenLiveSearchFails_RetriesSameCursorAndPage()
+    {
+        int searches = 0;
+        using var invoker = new StubInvoker(endpoint => ++searches is 2
+            ? GetPointInTimeResponse(endpoint, ErrorResponse, 500)
+            : GetPointInTimeResponse(endpoint, PageResponse));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<NonIdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository(index);
+        var options = new CommandOptions<NonIdentityDocument>().PageLimit(1).SearchAfterPaging();
+        var page = await repository.FindAsync(new RepositoryQuery<NonIdentityDocument>(), options);
+        string? token = page.GetSearchAfterToken();
+
+        await Assert.ThrowsAsync<DocumentException>(() => page.NextPageAsync());
+
+        Assert.Equal(1, page.Page);
+        Assert.True(page.HasMore);
+        Assert.Equal(token, page.GetSearchAfterToken());
+        Assert.True(await page.NextPageAsync());
+        Assert.Equal(2, page.Page);
+        Assert.Equal(3, invoker.Requests.Count);
+        Assert.Equal(invoker.Requests[1].Body, invoker.Requests[2].Body);
+        Assert.DoesNotContain(invoker.Requests, request => request.Path.EndsWith("/_pit", StringComparison.Ordinal));
+    }
+
+    private static void ResetLiveSession(ICommandOptions options, string change)
+    {
+        switch (change)
+        {
+            case "disable":
+                options.SearchAfterPaging(false);
+                break;
+            case "point-in-time":
+                options.SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+                break;
+            case "restart":
+                options.SearchAfterPaging(false).SearchAfterPaging();
+                break;
+            case "round-trip":
+                options.SearchAfterPaging(SearchAfterPagingMode.PointInTime).SearchAfterPaging(SearchAfterPagingMode.Live);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(change), change, "Unknown session change.");
+        }
+    }
+
     private static void AssertClosed(StubInvoker invoker, string expectedId)
     {
         var close = Assert.Single(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
