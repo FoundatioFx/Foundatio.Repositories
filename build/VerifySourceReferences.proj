@@ -1,0 +1,64 @@
+<Project DefaultTargets="Verify">
+
+  <PropertyGroup Condition="'$(RunSourceReferenceProbe)' == 'true'">
+    <ReferenceFoundatioSource>$(SourceOverride)</ReferenceFoundatioSource>
+    <ReferenceFoundatioRepositoriesSource>$(RepositoriesOverride)</ReferenceFoundatioRepositoriesSource>
+  </PropertyGroup>
+
+  <Import Project="common.props" Condition="'$(RunSourceReferenceProbe)' == 'true'" />
+
+  <ItemGroup Condition="'$(RunSourceReferenceProbe)' != 'true'">
+    <Scenario Include="Standalone">
+      <Settings>SolutionName=;ExpectedSource=;ExpectedRepositories=</Settings>
+    </Scenario>
+    <Scenario Include="UndefinedSolution">
+      <Settings>SolutionName=*Undefined*;ExpectedSource=;ExpectedRepositories=</Settings>
+    </Scenario>
+    <Scenario Include="RepositorySolution">
+      <Settings>SolutionName=Foundatio.Repositories;ExpectedSource=;ExpectedRepositories=</Settings>
+    </Scenario>
+    <Scenario Include="CombinedSolution">
+      <Settings>SolutionName=Foundatio.All;ExpectedSource=true;ExpectedRepositories=true</Settings>
+    </Scenario>
+    <Scenario Include="ExternalWorkspace">
+      <Settings>SolutionName=Exceptionless;ExpectedSource=true;ExpectedRepositories=true</Settings>
+    </Scenario>
+    <Scenario Include="ExplicitSourceDisabled">
+      <Settings>SolutionName=Foundatio.All;SourceOverride=false;ExpectedSource=false;ExpectedRepositories=true</Settings>
+    </Scenario>
+    <Scenario Include="ExplicitRepositoriesDisabled">
+      <Settings>SolutionName=Foundatio.All;RepositoriesOverride=false;ExpectedSource=true;ExpectedRepositories=false</Settings>
+    </Scenario>
+    <Scenario Include="ExplicitBothDisabled">
+      <Settings>SolutionName=Exceptionless;SourceOverride=false;RepositoriesOverride=false;ExpectedSource=false;ExpectedRepositories=false</Settings>
+    </Scenario>
+    <Scenario Include="ExplicitBothEnabled">
+      <Settings>SolutionName=Foundatio.Repositories;SourceOverride=true;RepositoriesOverride=true;ExpectedSource=true;ExpectedRepositories=true</Settings>
+    </Scenario>
+    <Scenario Include="StandaloneExplicitSource">
+      <Settings>SolutionName=;SourceOverride=true;ExpectedSource=true;ExpectedRepositories=</Settings>
+    </Scenario>
+    <Scenario Include="StandaloneExplicitRepositories">
+      <Settings>SolutionName=;RepositoriesOverride=true;ExpectedSource=;ExpectedRepositories=true</Settings>
+    </Scenario>
+    <Scenario Include="UndefinedExplicitBothEnabled">
+      <Settings>SolutionName=*Undefined*;SourceOverride=true;RepositoriesOverride=true;ExpectedSource=true;ExpectedRepositories=true</Settings>
+    </Scenario>
+  </ItemGroup>
+
+  <Target Name="Verify">
+    <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="_VerifySourceReferences"
+             Properties="RunSourceReferenceProbe=true;ScenarioName=%(Scenario.Identity);%(Scenario.Settings)"
+             RemoveProperties="ReferenceFoundatioSource;ReferenceFoundatioRepositoriesSource"
+             BuildInParallel="false" />
+  </Target>
+
+  <Target Name="_VerifySourceReferences">
+    <Error Condition="'$(ReferenceFoundatioSource)' != '$(ExpectedSource)'"
+           Text="Unexpected source-reference settings for $(ScenarioName): ReferenceFoundatioSource='$(ReferenceFoundatioSource)', expected '$(ExpectedSource)'." />
+    <Error Condition="'$(ReferenceFoundatioRepositoriesSource)' != '$(ExpectedRepositories)'"
+           Text="Unexpected source-reference settings for $(ScenarioName): ReferenceFoundatioRepositoriesSource='$(ReferenceFoundatioRepositoriesSource)', expected '$(ExpectedRepositories)'." />
+    <Message Importance="high" Text="Passed source-reference scenario: $(ScenarioName)" />
+  </Target>
+
+</Project>
