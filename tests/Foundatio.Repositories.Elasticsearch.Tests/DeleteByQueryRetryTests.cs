@@ -34,6 +34,7 @@ public sealed class DeleteByQueryRetryTests : TestWithLoggingBase
         long deleted = await repository.RemoveAllAsync(o => o.ImmediateConsistency().Retry(2));
 
         Assert.Equal(10, deleted);
+        Assert.DoesNotContain(Log.LogEntries, entry => entry.LogLevel >= LogLevel.Error);
         Assert.Equal(3, invoker.DeleteRequests.Count);
         Assert.Empty(invoker.RemainingResponses);
         Assert.Equal(2, Assert.IsType<InMemoryMessageBus>(configuration.MessageBus).MessagesSent);
@@ -167,7 +168,7 @@ public sealed class DeleteByQueryRetryTests : TestWithLoggingBase
     private sealed class ScriptedRequestInvoker : InMemoryRequestInvoker, IRequestInvoker
     {
         public ScriptedRequestInvoker(IEnumerable<(long Deleted, long Conflicts)> responses)
-            : base(null, headers: new Dictionary<string, IEnumerable<string>> { ["X-Elastic-Product"] = ["Elasticsearch"] })
+            : base(null, headers: new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { ["x-elastic-product"] = ["Elasticsearch"] })
         {
             RemainingResponses = new Queue<(long Deleted, long Conflicts)>(responses);
         }
@@ -178,7 +179,13 @@ public sealed class DeleteByQueryRetryTests : TestWithLoggingBase
 
         TResponse IRequestInvoker.Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
         {
-            throw new InvalidOperationException($"Unexpected synchronous request: {endpoint.Uri}");
+            if (typeof(TResponse) != typeof(GetMappingResponse))
+                throw new InvalidOperationException($"Unexpected synchronous request: {endpoint.Uri}");
+
+            byte[] mapping = Encoding.UTF8.GetBytes("""
+                {"identity":{"mappings":{"properties":{"id":{"type":"keyword"}}}}}
+                """);
+            return BuildResponse<TResponse>(endpoint, boundConfiguration, postData, mapping);
         }
 
         Task<TResponse> IRequestInvoker.RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)

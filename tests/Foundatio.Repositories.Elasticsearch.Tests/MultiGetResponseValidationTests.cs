@@ -180,7 +180,7 @@ public sealed class MultiGetResponseValidationTests
         {
             Cache = new InMemoryCacheClient();
             _invoker = new InMemoryRequestInvoker(Encoding.UTF8.GetBytes(body), statusCode,
-                headers: new Dictionary<string, IEnumerable<string>> { ["X-Elastic-Product"] = ["Elasticsearch"] });
+                headers: new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { ["x-elastic-product"] = ["Elasticsearch"] });
             _configuration = new TestConfiguration(_invoker, Cache);
             Repository = new TestRepository(new IdentityIndex(_configuration));
         }
