@@ -42,6 +42,12 @@ public class ElasticConfiguration : IElasticConfiguration
     public const string ConfigureIndexesResourceName = "configure-indexes";
     private int _disposed;
 
+    /// <summary>Retains the original constructor signature for already-compiled consumers.</summary>
+    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue, ICacheClient? cacheClient, IMessageBus? messageBus, ITextSerializer? serializer, TimeProvider? timeProvider, IResiliencePolicyProvider? resiliencePolicyProvider, ILoggerFactory? loggerFactory)
+        : this(workItemQueue, cacheClient, messageBus, serializer, timeProvider, resiliencePolicyProvider, loggerFactory, null)
+    {
+    }
+
     public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null, ILockProvider? lockProvider = null)
     {
         _workItemQueue = workItemQueue;
@@ -271,59 +277,56 @@ public class ElasticConfiguration : IElasticConfiguration
             return;
 
         List<Exception>? failures = null;
-        foreach (var outdatedIndex in outdatedIndexes)
+        try
         {
-            // An incomplete reindex must not be retried. Retrying cannot recover it and actively hides it: the
-            // alias may already point at the destination, so the next attempt reads the version from the alias,
-            // finds it at the target, skips, and returns normally - turning a known-short migration into a
-            // reported success. Capturing it leaves the policy no exception to retry, and it is recorded as a
-            // failure below. Pre-cutover refusals are equally non-retryable: the condition is a property of the
-            // data, so retrying only pays for more full copies before surfacing the same refusal.
-            ReindexIncompleteException? incomplete = null;
-            try
+            foreach (var outdatedIndex in outdatedIndexes)
             {
-                await ResiliencePolicy.ExecuteAsync(async ct =>
+                // Do not replay an incomplete migration: the alias may already have moved, and a version
+                // check on retry could turn that incomplete result into an apparent success.
+                ReindexIncompleteException? incomplete = null;
+                try
                 {
-                    try
+                    await ResiliencePolicy.ExecuteAsync(async ct =>
                     {
-                        await outdatedIndex.ReindexAsync((progress, message) =>
-                                progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, ct)
-                            .AnyContext();
-                    }
-                    catch (ReindexIncompleteException ex)
-                    {
-                        incomplete = ex;
-                    }
-                }, cancellationToken).AnyContext();
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                // The caller asked to stop. Swallowing this would log cancellation as a failure and then carry
-                // on reindexing the remaining indexes, so it has to propagate.
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Every outdated index still gets an attempt, because one index failing does not mean the
-                // others cannot migrate. But the failures are collected and rethrown below: logging and
-                // returning normally is what let an incomplete migration look like a successful startup.
-                _logger.LogError(ex, "Failed to reindex {IndexName} after retries", outdatedIndex.Name);
-                (failures ??= []).Add(ex);
+                        try
+                        {
+                            await outdatedIndex.ReindexAsync((progress, message) =>
+                                    progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, ct)
+                                .AnyContext();
+                        }
+                        catch (ReindexIncompleteException ex)
+                        {
+                            incomplete = ex;
+                        }
+                    }, cancellationToken).AnyContext();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // Cancellation stops the remaining migrations and remains distinguishable from failure.
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to reindex {IndexName} after retries", outdatedIndex.Name);
+                    (failures ??= []).Add(ex);
+                }
+
+                if (incomplete is not null)
+                {
+                    _logger.LogError(incomplete, "Reindex of {IndexName} did not complete", outdatedIndex.Name);
+                    (failures ??= []).Add(incomplete);
+                }
             }
 
-            if (incomplete is not null)
-            {
-                _logger.LogError(incomplete, "Reindex of {IndexName} did not complete", outdatedIndex.Name);
-                (failures ??= []).Add(incomplete);
-            }
+            if (failures is { Count: > 0 })
+                throw new AggregateException($"{failures.Count} of {outdatedIndexes.Count} index(es) failed to reindex.", failures);
         }
-
-        // The marker is what makes ConfigureIndexesAsync skip, so it must not be left behind after a partial
-        // failure - leaving it would suppress the very call that re-enqueues the reindex.
-        await TryRemoveCacheMarkerAsync().AnyContext();
-
-        if (failures is { Count: > 0 })
-            throw new AggregateException($"{failures.Count} of {outdatedIndexes.Count} index(es) failed to reindex.", failures);
+        finally
+        {
+            // A cancelled migration may already have changed aliases. Do not let the recent-configuration
+            // marker suppress the next configuration/recovery attempt. Cleanup does not inherit cancellation.
+            await TryRemoveCacheMarkerAsync().AnyContext();
+        }
     }
 
     private string GetConfigureIndexesCacheKey()
@@ -375,8 +378,10 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             await _configureIndexesCache.RemoveAllAsync().AnyContext();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
+            // Cache-provider cancellation is also a cleanup failure, not a replacement for the migration's
+            // original exception. The cache operation does not receive the migration's cancellation token.
             _logger.LogWarning(ex, "Error removing configure-indexes cache marker: {Message}", ex.Message);
         }
     }
