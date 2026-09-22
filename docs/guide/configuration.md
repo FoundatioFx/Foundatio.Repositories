@@ -343,7 +343,7 @@ await repository.GetByIdsAsync(ids, o => o
 
 The option defaults to `false`; `ThrowOnMultiGetErrors(false)` restores the default behavior. Ordinary `found: false` results are not errors. For time-series and parent/child repositories, any applicable search fallback runs first. A document recovered by that fallback does not cause a strict-mode exception. Remaining item errors are aggregated into one `DocumentException` with ID, index, type, and reason details.
 
-Strict reads also require one MGET response item per requested operation, in request order, with matching response IDs. Null items, mismatched or duplicate response IDs, found documents without a source, and missing documents with an unexpected source throw `DocumentException` before fallback or cache writes. Projected sources may omit their ID property; correlation uses Elasticsearch response metadata. This validation does not run for the default non-strict path.
+Strict reads also require one MGET response item per requested operation, in request order, with matching response IDs. Null items, mismatched response IDs (including unexpected duplicates), found documents without a source, and missing documents with an unexpected source throw `DocumentException` before fallback or cache writes. Projected sources may omit their ID property; correlation uses Elasticsearch response metadata. This validation does not run for the default non-strict path.
 
 The internal fallback does not read or write query-result cache entries. Document results and not-found markers are cached by the outer operation only after unresolved-error validation succeeds, using the caller's cache policy. A strict-mode item-error exception does not write those entries or evict pre-existing cache entries.
 
