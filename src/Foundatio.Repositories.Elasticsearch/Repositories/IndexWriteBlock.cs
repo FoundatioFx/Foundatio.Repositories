@@ -11,41 +11,24 @@ using Microsoft.Extensions.Logging;
 namespace Foundatio.Repositories.Elasticsearch;
 
 /// <summary>
-/// Holds an Elasticsearch write block on a single index for as long as the instance is alive, so a copy can be
-/// reconciled against a source that cannot change underneath it.
+/// Holds an Elasticsearch write block on a single index while a copy is reconciled.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Reads are unaffected by the block, which is what makes it usable here: the reindex still scrolls the source
-/// while application writes are rejected with <c>403 cluster_block_exception</c>.
+/// Reads are unaffected while application writes are rejected with <c>403 cluster_block_exception</c>.
+/// The dedicated <c>PUT /{index}/_block/write</c> API waits for in-flight writes on every shard;
+/// setting <c>index.blocks.write</c> directly does not provide that guarantee.
 /// </para>
 /// <para>
-/// The block is applied through the dedicated <c>PUT /{index}/_block/write</c> API rather than by setting
-/// <c>index.blocks.write</c>. Only the dedicated API waits for every shard to acknowledge, and that cross-shard
-/// accounting is the whole guarantee — without it, writes already in flight on a shard could still land after the
-/// call returned. The typed client exposes no equivalent, so the request goes through the low-level transport and
-/// its response is validated by hand.
+/// The prior block state must be readable before acquisition. A pre-existing block is never removed.
+/// If applying or confirming a new block fails, acquisition attempts to release it before propagating
+/// the original exception. Cleanup cannot guarantee recovery after process termination or an unavailable
+/// cluster: the index setting persists independently of this instance.
 /// </para>
 /// <para>
-/// Release necessarily goes the other way, through settings, because Elasticsearch has no remove-block API. That
-/// is safe: clearing <c>index.blocks.write</c> also clears a block that was applied through the dedicated API.
-/// </para>
-/// <para>
-/// A block <b>persists</b> on the index. Any path that leaves the source in place must remove it again, including
-/// on failure, which is why this is <see cref="IAsyncDisposable"/> rather than a pair of method calls.
-/// </para>
-/// <para>
-/// Removal comes in two flavours, and the difference matters. <see cref="ReleaseAsync"/> is the deliberate call
-/// for the success path: it is an ordered step of the migration, so a failure to unblock is surfaced as an
-/// exception. <see cref="DisposeAsync"/> is the backstop for every other path: it makes the same attempt but only
-/// logs a failure, because dispose runs from a <c>finally</c> and a throwing <c>finally</c> replaces the exception
-/// that caused the unwind — losing the reason the migration failed in order to report a second problem.
-/// </para>
-/// <para>
-/// Neither honours the caller's <see cref="CancellationToken"/>. Removing the block is not optional work that a
-/// cancellation should be able to abandon: leaving an index read-only is a worse outcome than any operation this
-/// class is used inside. It is still bounded, by an independent timeout, so dispose cannot hang forever against an
-/// unresponsive cluster.
+/// <see cref="ReleaseAsync"/> surfaces release failures on the success path. <see cref="DisposeAsync"/>
+/// logs them without replacing an exception already unwinding through a <c>finally</c>. Both use an
+/// independent bounded timeout, so caller cancellation cannot abandon cleanup or make it unbounded.
 /// </para>
 /// </remarks>
 internal sealed class IndexWriteBlock : IAsyncDisposable
@@ -56,11 +39,6 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
     private readonly TimeSpan _releaseTimeout;
     private bool _releaseAttempted;
 
-    /// <summary>
-    /// Bound on the release request when the caller does not supply one. Matches the independent timeout the
-    /// reindexer uses to cancel a server-side task, for the same reason: mandatory cleanup that must not inherit
-    /// a cancelled token still has to give up eventually rather than hang.
-    /// </summary>
     private static readonly TimeSpan DefaultReleaseTimeout = TimeSpan.FromSeconds(30);
 
     private IndexWriteBlock(ElasticsearchClient client, string index, bool wasAlreadyBlocked, TimeSpan releaseTimeout, ILogger logger)
@@ -72,35 +50,21 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
         _logger = logger;
     }
 
-    /// <summary>
-    /// The index whose writes are blocked.
-    /// </summary>
+    /// <summary>The exact physical index whose writes are blocked.</summary>
     public string Index { get; }
 
-    /// <summary>
-    /// Blocks writes to <paramref name="index"/> and waits for every shard to acknowledge.
-    /// </summary>
-    /// <exception cref="RepositoryException">
-    /// The block could not be applied, or the server did not confirm it across all shards. Callers must treat this
-    /// as fatal: an unconfirmed block cannot be relied on to hold writes still.
-    /// </exception>
+    /// <summary>Blocks writes to the index and requires acknowledgement from every shard.</summary>
     public static async Task<IndexWriteBlock> ApplyAsync(ElasticsearchClient client, string index, ILogger logger, CancellationToken cancellationToken = default)
         => await ApplyAsync(client, index, logger, DefaultReleaseTimeout, cancellationToken).AnyContext();
 
-    /// <summary>
-    /// Blocks writes to <paramref name="index"/> and waits for every shard to acknowledge.
-    /// </summary>
-    /// <param name="client">Client used to issue the block and release requests.</param>
-    /// <param name="index">Index whose writes are blocked.</param>
-    /// <param name="logger">Logger for block and release outcomes.</param>
-    /// <param name="releaseTimeout">
-    /// Bound on the release request. Release never honours the caller's cancellation token, so this is what stops
-    /// it hanging against an unresponsive cluster.
-    /// </param>
-    /// <param name="cancellationToken">Cancels applying the block. Deliberately does not affect releasing it.</param>
+    /// <summary>Blocks writes to the index and requires acknowledgement from every shard.</summary>
+    /// <param name="client">Client used for block and release requests.</param>
+    /// <param name="index">The exact physical index to block.</param>
+    /// <param name="logger">Logger for acquisition and release outcomes.</param>
+    /// <param name="releaseTimeout">Independent timeout for mandatory cleanup.</param>
+    /// <param name="cancellationToken">Cancels acquisition, but not cleanup.</param>
     /// <exception cref="RepositoryException">
-    /// The block could not be applied, or the server did not confirm it across all shards. Callers must treat this
-    /// as fatal: an unconfirmed block cannot be relied on to hold writes still.
+    /// The prior state could not be established, or the server did not confirm the block.
     /// </exception>
     public static async Task<IndexWriteBlock> ApplyAsync(ElasticsearchClient client, string index, ILogger logger, TimeSpan releaseTimeout, CancellationToken cancellationToken = default)
     {
@@ -109,33 +73,33 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(releaseTimeout, TimeSpan.Zero);
 
-        // Whether the caller had already blocked this index for their own reasons. If so, releasing it would be
-        // undoing a decision that is not ours to undo, so the block is left exactly as it was found.
-        bool wasAlreadyBlocked = await IsWriteBlockedAsync(client, index, logger, cancellationToken).AnyContext();
+        bool wasAlreadyBlocked = await IsWriteBlockedAsync(client, index, cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var response = await client.Transport
-            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.PUT, $"/{index}/_block/write", PostData.Empty, cancellationToken)
-            .AnyContext();
+        // The request may apply the setting even when its response is lost or cannot be validated.
+        // Establish cleanup responsibility before dispatch, not after acknowledgement.
+        var block = new IndexWriteBlock(client, index, wasAlreadyBlocked, releaseTimeout, logger);
+        try
+        {
+            var response = await client.Transport
+                .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.PUT, $"/{Uri.EscapeDataString(index)}/_block/write", PostData.Empty, cancellationToken)
+                .AnyContext();
 
-        int? statusCode = response.ApiCallDetails?.HttpStatusCode;
-        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
-            throw new RepositoryException($"Error blocking writes to index {index}: the request failed with status {statusCode?.ToString() ?? "unknown"}.");
+            int? statusCode = response.ApiCallDetails?.HttpStatusCode;
+            if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
+                throw new RepositoryException($"Error blocking writes to index {index}: the request failed with status {statusCode?.ToString() ?? "unknown"}.");
 
-        EnsureBlockConfirmed(index, response.Body);
-
-        logger.LogInformation("Blocked writes to index {Index} for the duration of the reindex.", index);
-
-        return new IndexWriteBlock(client, index, wasAlreadyBlocked, releaseTimeout, logger);
+            EnsureBlockConfirmed(index, response.Body);
+            logger.LogInformation("Blocked writes to index {Index} for the duration of the reindex.", index);
+            return block;
+        }
+        catch
+        {
+            await block.DisposeAsync().AnyContext();
+            throw;
+        }
     }
 
-    /// <summary>
-    /// Verifies the server confirmed the block on every shard.
-    /// </summary>
-    /// <remarks>
-    /// A 200 is not sufficient. <c>acknowledged</c> alone means the cluster state was updated; only
-    /// <c>shards_acknowledged</c> together with the per-index <c>blocked</c> flag means no shard can still accept a
-    /// write. Anything less is treated as a failure rather than optimistically accepted.
-    /// </remarks>
     private static void EnsureBlockConfirmed(string index, string? body)
     {
         if (String.IsNullOrEmpty(body))
@@ -144,14 +108,12 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
         bool acknowledged;
         bool shardsAcknowledged;
         bool blocked;
-
         try
         {
             using var document = JsonDocument.Parse(body);
             var root = document.RootElement;
-
-            acknowledged = root.TryGetProperty("acknowledged", out var acknowledgedElement) && acknowledgedElement.ValueKind is JsonValueKind.True;
-            shardsAcknowledged = root.TryGetProperty("shards_acknowledged", out var shardsElement) && shardsElement.ValueKind is JsonValueKind.True;
+            acknowledged = HasTrueProperty(root, "acknowledged");
+            shardsAcknowledged = HasTrueProperty(root, "shards_acknowledged");
             blocked = TryReadIndexBlocked(root, index);
         }
         catch (JsonException ex)
@@ -164,88 +126,78 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
                 $"Error blocking writes to index {index}: the server did not confirm the block (acknowledged: {acknowledged}, shards_acknowledged: {shardsAcknowledged}, blocked: {blocked}). Refusing to continue, because writes may still be accepted.");
     }
 
+    private static bool HasTrueProperty(JsonElement element, string property)
+        => element.ValueKind is JsonValueKind.Object
+            && element.TryGetProperty(property, out var value)
+            && value.ValueKind is JsonValueKind.True;
+
     private static bool TryReadIndexBlocked(JsonElement root, string index)
     {
-        if (!root.TryGetProperty("indices", out var indices) || indices.ValueKind is not JsonValueKind.Array)
+        if (root.ValueKind is not JsonValueKind.Object
+            || !root.TryGetProperty("indices", out var indices)
+            || indices.ValueKind is not JsonValueKind.Array
+            || indices.GetArrayLength() is not 1)
             return false;
 
-        foreach (var entry in indices.EnumerateArray())
-        {
-            if (!entry.TryGetProperty("name", out var name) || name.GetString() != index)
-                continue;
-
-            return entry.TryGetProperty("blocked", out var blockedElement) && blockedElement.ValueKind is JsonValueKind.True;
-        }
-
-        return false;
+        var entry = indices[0];
+        return entry.ValueKind is JsonValueKind.Object
+            && entry.TryGetProperty("name", out var name)
+            && name.ValueKind is JsonValueKind.String
+            && String.Equals(name.GetString(), index, StringComparison.Ordinal)
+            && HasTrueProperty(entry, "blocked");
     }
 
-    /// <summary>
-    /// Reports whether writes to the index are already blocked.
-    /// </summary>
-    /// <remarks>
-    /// Read through the low-level transport and parsed explicitly because Elasticsearch returns index settings as
-    /// <em>strings</em> - <c>"blocks": {"write": "true"}</c>, not a JSON boolean - so binding it to a <c>bool</c>
-    /// property depends on coercion this codebase has already been bitten by once (the snake_case task counters).
-    /// Getting this wrong would silently lift a block the operator set deliberately, so it is parsed by hand.
-    /// </remarks>
-    private static async Task<bool> IsWriteBlockedAsync(ElasticsearchClient client, string index, ILogger logger, CancellationToken cancellationToken)
+    private static async Task<bool> IsWriteBlockedAsync(ElasticsearchClient client, string index, CancellationToken cancellationToken)
     {
         var response = await client.Transport
-            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.GET, $"/{index}/_settings", cancellationToken)
+            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.GET, $"/{Uri.EscapeDataString(index)}/_settings", cancellationToken)
             .AnyContext();
 
         if (response.ApiCallDetails?.HasSuccessfulStatusCode != true || String.IsNullOrEmpty(response.Body))
-            return false;
+            throw new RepositoryException($"Could not read the prior write-block state of index {index}; refusing to change a block whose ownership is unknown.");
 
         try
         {
             using var document = JsonDocument.Parse(response.Body);
+            var root = document.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object
+                || !root.TryGetProperty(index, out var indexEntry)
+                || indexEntry.ValueKind is not JsonValueKind.Object
+                || !indexEntry.TryGetProperty("settings", out var settings)
+                || settings.ValueKind is not JsonValueKind.Object
+                || !settings.TryGetProperty("index", out var indexSettings)
+                || indexSettings.ValueKind is not JsonValueKind.Object)
+                throw new RepositoryException($"The settings response did not contain the exact index {index}; its prior write-block state is unknown.");
 
-            foreach (var indexEntry in document.RootElement.EnumerateObject())
+            if (!indexSettings.TryGetProperty("blocks", out var blocks))
+                return false;
+
+            if (blocks.ValueKind is not JsonValueKind.Object)
+                throw new RepositoryException($"The block settings for index {index} could not be interpreted; refusing to assume the index is unblocked.");
+
+            if (!blocks.TryGetProperty("write", out var write))
+                return false;
+
+            return write.ValueKind switch
             {
-                if (indexEntry.Value.TryGetProperty("settings", out var settings)
-                    && settings.TryGetProperty("index", out var indexSettings)
-                    && indexSettings.TryGetProperty("blocks", out var blocks)
-                    && blocks.TryGetProperty("write", out var write)
-                    && IsTrue(write))
-                {
-                    return true;
-                }
-            }
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String when Boolean.TryParse(write.GetString(), out bool value) => value,
+                _ => throw new RepositoryException($"The write-block setting for index {index} could not be interpreted; refusing to assume the index is unblocked.")
+            };
         }
         catch (JsonException ex)
         {
-            // Treated as "not already blocked", which is the conservative answer: it means this instance takes
-            // responsibility for releasing the block it applied rather than leaving one behind.
-            logger.LogWarning(ex, "Could not determine whether index {Index} was already write blocked.", index);
+            throw new RepositoryException($"Could not parse the prior write-block state of index {index}; refusing to change a block whose ownership is unknown.", ex);
         }
-
-        return false;
     }
 
-    private static bool IsTrue(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.String => String.Equals(element.GetString(), "true", StringComparison.OrdinalIgnoreCase),
-            _ => false
-        };
-    }
-
-    /// <summary>
-    /// Removes the write block, restoring normal writes to the index.
-    /// </summary>
+    /// <summary>Removes a block acquired by this instance, with an independent bounded timeout.</summary>
     /// <remarks>
-    /// Use this on the success path, where unblocking is an ordered step of the operation and a failure to unblock
-    /// should stop it. Does not honour any caller cancellation - see the class remarks - and is bounded by the
-    /// release timeout given to <see cref="ApplyAsync(ElasticsearchClient, string, ILogger, TimeSpan, CancellationToken)"/>.
-    /// Safe to call more than once, and safe to call before <see cref="DisposeAsync"/>; the second call is a no-op.
+    /// A pre-existing block is preserved. At most one release attempt is made, including when disposal
+    /// follows an explicit release. An unconfirmed release requires operator inspection.
     /// </remarks>
-    /// <exception cref="RepositoryException">
-    /// The block could not be removed. The index is still rejecting writes and needs manual intervention.
-    /// </exception>
+    /// <exception cref="RepositoryException">Removal of the block could not be confirmed.</exception>
     public async Task ReleaseAsync()
     {
         if (!TryBeginRelease())
@@ -259,21 +211,12 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
         }
 
         LogReleaseFailure(statusCode, exception);
-
         throw new RepositoryException(
-            $"Error removing the write block from index {Index}: the request failed with status {statusCode?.ToString() ?? "unknown"}. It is still rejecting writes and must be unblocked manually by setting index.blocks.write to null.",
+            $"Could not confirm removal of the write block from index {Index} (status {statusCode?.ToString() ?? "unknown"}). Inspect index.blocks.write; it must be unblocked manually if the block remains.",
             exception);
     }
 
-    /// <summary>
-    /// Backstop removal of the write block for paths that did not call <see cref="ReleaseAsync"/>.
-    /// </summary>
-    /// <remarks>
-    /// Makes the same attempt as <see cref="ReleaseAsync"/> but <b>never throws</b>. Dispose runs from a
-    /// <c>finally</c>, and an exception thrown there replaces the one that caused the unwind - so throwing here
-    /// would discard the reason the operation failed in order to report that cleanup also failed. The operator needs
-    /// both, so this failure is logged at error level and the original exception is left to propagate.
-    /// </remarks>
+    /// <summary>Attempts mandatory cleanup without replacing an exception from the caller.</summary>
     public async ValueTask DisposeAsync()
     {
         if (!TryBeginRelease())
@@ -296,17 +239,12 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Claims the single release attempt, so an explicit <see cref="ReleaseAsync"/> followed by the
-    /// <c>await using</c> dispose does not issue the request twice.
-    /// </summary>
     private bool TryBeginRelease()
     {
         if (_releaseAttempted)
             return false;
 
         _releaseAttempted = true;
-
         if (_wasAlreadyBlocked)
         {
             _logger.LogInformation("Leaving the write block on index {Index} in place because it was already blocked before the reindex started.", Index);
@@ -318,28 +256,33 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
 
     private async Task<(bool Succeeded, int? StatusCode, Exception? Exception)> TryRemoveBlockAsync()
     {
-        // Release goes through settings rather than a dedicated API because Elasticsearch has no remove-block
-        // endpoint. The typed settings descriptor cannot express an explicit JSON null - `Blocks(b => b.Write(null))`
-        // serializes to an empty object, which Elasticsearch rejects with "no settings to update" - and null is the
-        // only value that *removes* the block rather than setting it to false. Verified against a live cluster.
-        //
-        // The token is this class's own, never the caller's: unblocking is mandatory cleanup that a cancelled
-        // operation must not be able to abandon, but it still has to be bounded so this cannot hang.
-        using var timeout = new CancellationTokenSource(_releaseTimeout);
+        try
+        {
+            using var timeout = new CancellationTokenSource(_releaseTimeout);
+            var response = await _client.Transport
+                .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.PUT, $"/{Uri.EscapeDataString(Index)}/_settings",
+                    PostData.String("""{"index.blocks.write":null}"""), timeout.Token)
+                .AnyContext();
 
-        var response = await _client.Transport
-            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.PUT, $"/{Index}/_settings",
-                PostData.String("""{"index.blocks.write":null}"""), timeout.Token)
-            .AnyContext();
+            bool acknowledged = false;
+            if (response.ApiCallDetails?.HasSuccessfulStatusCode == true && !String.IsNullOrEmpty(response.Body))
+            {
+                using var document = JsonDocument.Parse(response.Body);
+                acknowledged = HasTrueProperty(document.RootElement, "acknowledged");
+            }
 
-        bool succeeded = response.ApiCallDetails?.HasSuccessfulStatusCode == true;
-        return (succeeded, response.ApiCallDetails?.HttpStatusCode, response.ApiCallDetails?.OriginalException);
+            return (acknowledged, response.ApiCallDetails?.HttpStatusCode, response.ApiCallDetails?.OriginalException);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex);
+        }
     }
 
     private void LogReleaseFailure(int? statusCode, Exception? exception)
     {
         _logger.LogError(exception,
-            "Failed to remove the write block from index {Index} (status {StatusCode}). It will keep rejecting writes until the block is cleared manually by setting index.blocks.write to null on that index.",
+            "Could not confirm removal of the write block from index {Index} (status {StatusCode}). Inspect index.blocks.write and clear it manually if it remains; the index may still reject writes.",
             Index, statusCode);
     }
 }
