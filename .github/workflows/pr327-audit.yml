@@ -43,6 +43,13 @@ jobs:
         working-directory: source
         shell: bash
         run: dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../build.log
+      - name: Build documentation
+        if: matrix.elasticsearch == '8.19.0'
+        working-directory: source/docs
+        shell: bash
+        run: |
+          npm ci
+          npm run build 2>&1 | tee ../../docs-build.log
       - name: Start disposable Elasticsearch
         env:
           ES_VERSION: ${{ matrix.elasticsearch }}
@@ -69,7 +76,40 @@ jobs:
           path: |
             reviewed.patch
             build.log
+            docs-build.log
             tests.log
             cluster.json
             elasticsearch.log
+          retention-days: 7
+  prepare-commits:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: payload
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          ref: 091b2ba0a6c24806568c42897c1078f0b00dae5c
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare unreferenced reviewed commits
+        working-directory: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python ../payload/audit/apply.py
+          python ../payload/audit/prepare-commits.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr327-commits
+          path: |
+            commits.json
+            reviewed.patch
           retention-days: 7
