@@ -2,9 +2,46 @@ name: PR 308 isolated audit
 on:
   push:
     branches: [audit/pr-308-20260922]
+    paths: [.github/workflows/pr-308-audit.yml]
+concurrency:
+  group: pr-308-isolated-audit
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Check patch integrity
+        run: |
+          mkdir -p /tmp/pr308-transport
+          python - <<'PY'
+          import base64, hashlib, json, pathlib, zlib
+          expected = {'live-fix': '9a750e73d97361750c68b38e6d27759ddc7a9de1d7b74686c128eae3f0951d6a', 'scalar-tests': '42faa3a11decb219420c51dfeb1e6fbdea0fc32ed4539ad1c5169b660e1f4498', 'scalar-fix': 'd52f1e3422ef75d21743e78317a0769c4a3296cc50db33b317d6f7eb548a8a8e', 'docs': 'b3f6614ee58aba496265d18cfaf1aaa0d1eafcdec2a70e78b9037d7e309c58fb'}
+          result = {}
+          for name, checksum in expected.items():
+              payload = pathlib.Path(f'.audit/{name}.b64').read_text().strip()
+              pathlib.Path(f'/tmp/pr308-transport/{name}.b64').write_text(payload)
+              try:
+                  patch = zlib.decompress(base64.b64decode(payload, validate=True))
+                  actual = hashlib.sha256(patch).hexdigest()
+                  result[name] = {'valid': actual == checksum, 'sha256': actual}
+              except Exception as error:
+                  result[name] = {'valid': False, 'error': str(error)}
+          pathlib.Path('/tmp/pr308-transport/verification.json').write_text(json.dumps(result, indent=2))
+          print(json.dumps(result, indent=2))
+          assert all(item['valid'] for item in result.values())
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pr-308-transport
+          path: /tmp/pr308-transport
+          retention-days: 3
   baseline:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -19,7 +56,7 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Apply checksum-verified regression tests
+      - name: Apply verified regression tests
         run: |
           mkdir -p /tmp/pr308-validation
           git config user.name 'Blake Niemyjski'
@@ -34,26 +71,27 @@ jobs:
           PY
       - name: Build with warnings as errors
         run: dotnet build Foundatio.Repositories.slnx --configuration Release -warnaserror
-      - name: Run regression probes
+      - name: Prove the regressions fail for the expected reason
         run: |
-          assembly=tests/Foundatio.Repositories.Elasticsearch.Tests/bin/Release/net10.0/Foundatio.Repositories.Elasticsearch.Tests.dll
-          dotnet "$assembly" --help > /tmp/pr308-validation/help.txt
           set +e
-          dotnet "$assembly" --filter-class Foundatio.Repositories.Elasticsearch.Tests.SearchAfterRequestTests 2>&1 | tee /tmp/pr308-validation/baseline.log
+          dotnet tests/Foundatio.Repositories.Elasticsearch.Tests/bin/Release/net10.0/Foundatio.Repositories.Elasticsearch.Tests.dll -class Foundatio.Repositories.Elasticsearch.Tests.SearchAfterRequestTests -result-xml /tmp/pr308-validation/baseline.xml 2>&1 | tee /tmp/pr308-validation/baseline.log
           status=${PIPESTATUS[0]}
           set -e
           echo "$status" > /tmp/pr308-validation/exit-code.txt
-          test "$status" -eq 2
-      - name: Preserve evidence
-        if: always()
-        run: |
-          mkdir -p /tmp/pr308-validation
-          git bundle create /tmp/pr308-validation/source.bundle HEAD
-          git log -1 --format=fuller > /tmp/pr308-validation/commit.txt
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          tests = ET.parse('/tmp/pr308-validation/baseline.xml').findall('.//test')
+          failed = [t for t in tests if t.get('result') == 'Fail']
+          expected = ('WhenLiveSessionIsReset', 'WhenBeforeQueryResetsLiveSession', 'WhenAfterQueryResetsLiveSession')
+          assert len(failed) == 16, [(t.get('name'), t.get('result')) for t in tests]
+          assert all(any(name in t.get('name', '') for name in expected) for t in failed)
+          assert all('No exception was thrown' in ''.join(t.itertext()) for t in failed)
+          assert all(t.get('result') in ('Pass', 'Fail') for t in tests)
+          print(f'Confirmed {len(failed)} expected failures and {len(tests)-len(failed)} passing tests.')
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: pr-308-baseline-native
+          name: pr-308-baseline-proven
           path: /tmp/pr308-validation
           retention-days: 3
-          if-no-files-found: error
