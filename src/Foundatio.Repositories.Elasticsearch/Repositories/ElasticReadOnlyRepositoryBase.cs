@@ -206,7 +206,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
             var findOptions = options.Clone();
-            findOptions.PageLimit(1000);
+            // Only the outer batch read may cache results, after all item errors have been resolved.
+            findOptions.Cache(false).ReadCache(false).PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
             do
             {
@@ -224,7 +225,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemErrors.Count > 0)
         {
             var stillMissingIds = new HashSet<string>(itemsToFind.Select(id => id.Value));
-            var unresolvedErrors = itemErrors.Where(e => stillMissingIds.Contains(e.Id!.ToString())).ToList();
+            var unresolvedErrors = itemErrors.Where(e => e.Id is null || stillMissingIds.Contains(e.Id.ToString())).ToList();
             if (unresolvedErrors.Count > 0)
             {
                 string message = String.Join("; ", unresolvedErrors.Select(e => $"id={e.Id}, index={e.Index}, type={e.Error?.Type}, reason={e.Error?.Reason}"));

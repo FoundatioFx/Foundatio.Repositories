@@ -27,9 +27,25 @@ namespace Foundatio.Repositories
         }
 
         internal const string ReadCacheEnabledKey = "@ReadCacheEnabled";
+
+        /// <summary>
+        /// Enables cache reads without changing whether results are written to the cache.
+        /// </summary>
         public static T ReadCache<T>(this T options) where T : ICommandOptions
         {
-            return options.BuildOption(ReadCacheEnabledKey, true);
+            return options.ReadCache(true);
+        }
+
+        /// <summary>
+        /// Explicitly enables or disables cache reads without changing cache writes.
+        /// </summary>
+        /// <remarks>
+        /// This setting takes precedence over <c>Cache()</c>. Use <c>Cache(false).ReadCache(false)</c>
+        /// to disable both reads and writes, including a previously enabled <c>ReadCache()</c> setting.
+        /// </remarks>
+        public static T ReadCache<T>(this T options, bool enabled) where T : ICommandOptions
+        {
+            return options.BuildOption(ReadCacheEnabledKey, enabled);
         }
 
         internal const string CacheKeyKey = "@CacheKey";
