@@ -3,37 +3,121 @@ on:
   push:
     branches: [audit/pr314-docs-advisory-20260922]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  report:
+  validate:
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: b92b5c8f0dc1d28e1827c4dde94be5ee5fa3ee21
-          persist-credentials: false
+          ref: feature/strict-mget-item-errors
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Retrieve advisory details without changing dependencies
+      - name: Verify source revision and included main
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = b92b5c8f0dc1d28e1827c4dde94be5ee5fa3ee21
+          git fetch origin main
+          git merge-base --is-ancestor origin/main HEAD
           mkdir -p audit-results
-          cd docs
-          set +e
-          npm audit --json > ../audit-results/npm-audit.json
-          audit_exit=$?
-          set -e
-          test "$audit_exit" -le 1
-          node -e 'const r=require("../audit-results/npm-audit.json");if(r.error)throw Error(JSON.stringify(r.error));console.log(JSON.stringify(r,null,2));'
-          git diff --exit-code
-          git rev-parse HEAD > ../audit-results/source-revision.txt
-      - name: Preserve report
+          git rev-parse HEAD > audit-results/parent-revision.txt
+      - name: Patch only the vulnerable transitive lock entry
+        working-directory: docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const entry = lock.packages['node_modules/uuid'];
+          assert.equal(entry.version, '11.1.0');
+          assert.ok(lock.packages['node_modules/mermaid'].dependencies.uuid.includes('^11.1.0'));
+          const metadata = JSON.parse(execFileSync('npm', ['view', 'uuid@11.1.1', '--json'], { encoding: 'utf8' }));
+          assert.equal(metadata.version, '11.1.1');
+          assert.equal(metadata.dist.tarball, 'https://registry.npmjs.org/uuid/-/uuid-11.1.1.tgz');
+          assert.match(metadata.dist.integrity, /^sha512-/);
+          assert.equal(Object.keys(metadata.dependencies || {}).length, 0);
+          assert.equal(Object.keys(metadata.optionalDependencies || {}).length, 0);
+          assert.equal(metadata.license, entry.license);
+          for (const key of ['bin', 'engines', 'os', 'cpu'])
+            assert.deepEqual(metadata[key], entry[key], `Unexpected ${key} metadata change`);
+          entry.version = metadata.version;
+          entry.resolved = metadata.dist.tarball;
+          entry.integrity = metadata.dist.integrity;
+          fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+          fs.writeFileSync('../audit-results/uuid-registry-metadata.json', JSON.stringify(metadata, null, 2) + '\n');
+          JS
+          git diff --check
+          git diff -- package-lock.json
+          npm ci
+          npm audit --json > ../audit-results/npm-audit-after.json
+          node -e 'const r=require("../audit-results/npm-audit-after.json");if(r.metadata.vulnerabilities.total!==0)throw Error(JSON.stringify(r));console.log("No reported npm vulnerabilities");'
+      - name: Exercise patched buffer-boundary behavior
+        working-directory: docs
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { v3, v5, v6 } from 'uuid';
+          const namespace = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+          for (const generate of [
+            (buffer, offset) => v3('audit', namespace, buffer, offset),
+            (buffer, offset) => v5('audit', namespace, buffer, offset),
+            (buffer, offset) => v6({}, buffer, offset)
+          ]) {
+            assert.throws(() => generate(new Uint8Array(8), 0), RangeError);
+            assert.throws(() => generate(new Uint8Array(16), 1), RangeError);
+            assert.throws(() => generate(new Uint8Array(16), -1), RangeError);
+            const buffer = new Uint8Array(16);
+            assert.equal(generate(buffer, 0), buffer);
+          }
+          console.log('All twelve UUID buffer-boundary checks passed');
+          JS
+      - name: Build documentation with the patched dependency
+        working-directory: docs
+        run: npm run build
+      - name: Save narrowly scoped candidate commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only)" = docs/package-lock.json
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const before = JSON.parse(execFileSync('git', ['show', 'HEAD:docs/package-lock.json'], { encoding: 'utf8' }));
+          const after = JSON.parse(fs.readFileSync('docs/package-lock.json', 'utf8'));
+          const oldEntry = before.packages['node_modules/uuid'];
+          const newEntry = after.packages['node_modules/uuid'];
+          assert.equal(oldEntry.version, '11.1.0');
+          assert.equal(newEntry.version, '11.1.1');
+          const changed = Object.keys(newEntry).filter(key => JSON.stringify(oldEntry[key]) !== JSON.stringify(newEntry[key]));
+          assert.deepEqual(changed.sort(), ['integrity', 'resolved', 'version']);
+          after.packages['node_modules/uuid'] = oldEntry;
+          assert.deepEqual(after, before);
+          JS
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/package-lock.json
+          git diff --cached --check
+          git commit -m 'fix(docs): patch transitive uuid buffer validation'
+          candidate="audit/pr314-uuid-candidate-${{ github.run_id }}"
+          git push origin "HEAD:refs/heads/$candidate"
+          git rev-parse HEAD | tee audit-results/validated-revision.txt
+          git rev-parse origin/main > audit-results/included-main.txt
+          git show --format=fuller --stat HEAD > audit-results/commit-summary.txt
+          git bundle create audit-results/candidate.bundle HEAD
+          cp docs/package-lock.json audit-results/package-lock.json
+      - name: Preserve verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr314-npm-advisory
+          name: pr314-uuid-security-verification
           path: audit-results/
           retention-days: 7
