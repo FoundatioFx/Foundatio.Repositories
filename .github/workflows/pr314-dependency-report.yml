@@ -1,0 +1,39 @@
+name: PR 314 dependency report
+on:
+  push:
+    branches: [audit/pr314-docs-advisory-20260922]
+permissions:
+  contents: read
+jobs:
+  report:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: b92b5c8f0dc1d28e1827c4dde94be5ee5fa3ee21
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Retrieve advisory details without changing dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-results
+          cd docs
+          set +e
+          npm audit --json > ../audit-results/npm-audit.json
+          audit_exit=$?
+          set -e
+          test "$audit_exit" -le 1
+          node -e 'const r=require("../audit-results/npm-audit.json");if(r.error)throw Error(JSON.stringify(r.error));console.log(JSON.stringify(r,null,2));'
+          git diff --exit-code
+          git rev-parse HEAD > ../audit-results/source-revision.txt
+      - name: Preserve report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr314-npm-advisory
+          path: audit-results/
+          retention-days: 7
