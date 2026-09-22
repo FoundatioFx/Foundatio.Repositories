@@ -193,7 +193,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (!multiGetResults.IsValidResponse)
                 throw new DocumentException(multiGetResults.GetErrorMessage("Error getting documents"), multiGetResults.OriginalException());
 
-            itemErrors = options.ShouldThrowOnMultiGetErrors() ? multiGetResults.GetItemErrors(_logger) : [];
+            itemErrors = options.ShouldThrowOnMultiGetErrors() ? multiGetResults.GetItemErrors(docOperations, _logger) : [];
 
             foreach (var findHit in multiGetResults.ToFindHits(_logger))
             {
