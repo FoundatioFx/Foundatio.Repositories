@@ -24,7 +24,7 @@ for project in ('Foundatio.Repositories', 'Foundatio.Repositories.Elasticsearch'
 </Project>
 ''')
 fixtures = Path('tests/Foundatio.Repositories.Elasticsearch.Tests/QueryBuilderTestTypes.cs').read_text()
-fixtures = fixtures.replace('namespace Foundatio.Repositories.Elasticsearch.Tests;', 'namespace Audit;')
+fixtures = 'using Foundatio.Repositories;\n' + fixtures.replace('namespace Foundatio.Repositories.Elasticsearch.Tests;', 'namespace Audit;')
 (consumer / 'LegacyIndex.cs').write_text(fixtures)
 section = Path('docs/guide/index-management.md').read_text().split('### Externally-Managed Indexes', 1)[1]
 example = re.search(r'```csharp\n(.*?)\n\s*```', section, re.S).group(1)
