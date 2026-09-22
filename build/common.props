@@ -9,8 +9,6 @@
     <MinVerMinimumMajorMinor>8.0</MinVerMinimumMajorMinor>
     <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
     <MinVerTagPrefix>v</MinVerTagPrefix>
-    <ReferenceFoundatioSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioSource>
-    <ReferenceFoundatioRepositoriesSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioRepositoriesSource>
     <FoundatioProjectsDir>$(ProjectDir)..\..\..\</FoundatioProjectsDir>
 
     <Copyright>Copyright © $([System.DateTime]::Now.ToString(yyyy)) Foundatio.  All rights reserved.</Copyright>
@@ -28,6 +26,12 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <!-- Standalone and design-time builds may not provide a solution name. -->
+  <PropertyGroup Condition="'$(SolutionName)' != '' And '$(SolutionName)' != '*Undefined*' And ($(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio')))">
+    <ReferenceFoundatioSource Condition="'$(ReferenceFoundatioSource)' == ''">true</ReferenceFoundatioSource>
+    <ReferenceFoundatioRepositoriesSource Condition="'$(ReferenceFoundatioRepositoriesSource)' == ''">true</ReferenceFoundatioRepositoriesSource>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
