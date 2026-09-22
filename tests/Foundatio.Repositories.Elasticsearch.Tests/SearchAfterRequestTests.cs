@@ -10,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Exceptions;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Xunit;
 
@@ -843,6 +844,156 @@ public sealed class SearchAfterRequestTests
         }
     }
 
+    public static TheoryData<string, bool, bool> IncompleteScalarSearchCases
+    {
+        get
+        {
+            var cases = new TheoryData<string, bool, bool>();
+            foreach (string operation in new[] { "find-one", "count", "exists" })
+                foreach (bool timedOut in new[] { false, true })
+                    foreach (bool enableInBeforeQuery in new[] { false, true })
+                        cases.Add(operation, timedOut, enableInBeforeQuery);
+            return cases;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(IncompleteScalarSearchCases))]
+    public async Task ScalarQuery_WithIncompleteLiveCursorSearch_Throws(string operation, bool timedOut, bool enableInBeforeQuery)
+    {
+        string response = timedOut ? PageResponse.Replace("\"timed_out\":false", "\"timed_out\":true")
+            : PageResponse.Replace("\"successful\":1,\"failed\":0", "\"successful\":0,\"failed\":1");
+        using var invoker = new StubInvoker(_ => (response, 200));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<IdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository<IdentityDocument>(index);
+        var options = new CommandOptions<IdentityDocument>();
+        int afterQueries = 0;
+        repository.AfterQuery.AddHandler((_, _) =>
+        {
+            afterQueries++;
+            return Task.CompletedTask;
+        });
+        if (enableInBeforeQuery)
+            repository.BeforeQuery.AddHandler((_, args) =>
+            {
+                args.Options.SearchAfter(1);
+                return Task.CompletedTask;
+            });
+        else
+            options.SearchAfter(1);
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => ExecuteScalarAsync(repository, operation, options));
+
+        Assert.Contains(timedOut ? "timed_out=True" : "failed shards=1", exception.Message);
+        Assert.Equal(0, afterQueries);
+        var request = Assert.Single(invoker.Requests);
+        Assert.Contains("allow_partial_search_results=false", request.Query);
+    }
+
+    public static TheoryData<string, string, bool> IncompatibleScalarPagingCases
+    {
+        get
+        {
+            var cases = new TheoryData<string, string, bool>();
+            foreach (string operation in new[] { "find-one", "count", "exists" })
+                foreach (string mode in new[] { "snapshot", "async-submit", "async-poll" })
+                    foreach (bool enableInBeforeQuery in new[] { false, true })
+                        cases.Add(operation, mode, enableInBeforeQuery);
+            return cases;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(IncompatibleScalarPagingCases))]
+    public async Task ScalarQuery_WithIncompatibleLivePaging_RejectsBeforeRequest(string operation, string mode, bool enableInBeforeQuery)
+    {
+        using var invoker = new StubInvoker(_ => (PageResponse, 200));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<IdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository<IdentityDocument>(index);
+        var options = new CommandOptions<IdentityDocument>();
+        switch (mode)
+        {
+            case "snapshot":
+                options.SnapshotPaging();
+                break;
+            case "async-submit":
+                options.AsyncQuery(TimeSpan.Zero);
+                break;
+            case "async-poll":
+                options.AsyncQueryId("async-id");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown paging mode.");
+        }
+        if (enableInBeforeQuery)
+            repository.BeforeQuery.AddHandler((_, args) =>
+            {
+                args.Options.SearchAfterPaging();
+                return Task.CompletedTask;
+            });
+        else
+            options.SearchAfterPaging();
+
+        await Assert.ThrowsAsync<QueryValidationException>(() => ExecuteScalarAsync(repository, operation, options));
+
+        Assert.Empty(invoker.Requests);
+    }
+
+    [Theory]
+    [InlineData("find-one", false)]
+    [InlineData("find-one", true)]
+    [InlineData("count", false)]
+    [InlineData("count", true)]
+    [InlineData("exists", false)]
+    [InlineData("exists", true)]
+    public async Task ScalarQuery_WithCompleteLiveCursorSearch_ReturnsResult(string operation, bool enableInBeforeQuery)
+    {
+        using var invoker = new StubInvoker(_ => (PageResponse, 200));
+        using var configuration = new StubConfiguration(invoker);
+        using var index = new Index<IdentityDocument>(configuration, "test-index");
+        using var repository = new StubRepository<IdentityDocument>(index);
+        var options = new CommandOptions<IdentityDocument>();
+        if (enableInBeforeQuery)
+            repository.BeforeQuery.AddHandler((_, args) =>
+            {
+                args.Options.SearchAfter(1);
+                return Task.CompletedTask;
+            });
+        else
+            options.SearchAfter(1);
+
+        var result = await ExecuteScalarAsync(repository, operation, options);
+
+        switch (operation)
+        {
+            case "find-one":
+                Assert.Equal("1", Assert.IsType<FindHit<IdentityDocument>>(result).Id);
+                break;
+            case "count":
+                Assert.Equal(2, Assert.IsType<CountResult>(result).Total);
+                break;
+            case "exists":
+                Assert.True(Assert.IsType<bool>(result));
+                break;
+        }
+        var request = Assert.Single(invoker.Requests);
+        Assert.Contains("allow_partial_search_results=false", request.Query);
+    }
+
+    private static async Task<object> ExecuteScalarAsync(StubRepository<IdentityDocument> repository, string operation, ICommandOptions options)
+    {
+        var query = new RepositoryQuery<IdentityDocument>();
+        return operation switch
+        {
+            "find-one" => await repository.FindOneAsync(query, options),
+            "count" => await repository.CountAsync(query, options),
+            "exists" => await repository.ExistsAsync(query, options),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unknown scalar operation.")
+        };
+    }
+
     private static void AssertClosed(StubInvoker invoker, string expectedId)
     {
         var close = Assert.Single(invoker.Requests, r => r.Method is Elastic.Transport.HttpMethod.DELETE);
@@ -878,11 +1029,18 @@ public sealed class SearchAfterRequestTests
         }
     }
 
-    private sealed class StubRepository(IIndex index) : ElasticReadOnlyRepositoryBase<NonIdentityDocument>(index)
+    private sealed class IdentityDocument : IIdentity
     {
-        protected override async Task<SearchRequestDescriptor<NonIdentityDocument>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options)
+        public string Id { get; set; } = String.Empty;
+    }
+
+    private sealed class StubRepository(IIndex index) : StubRepository<NonIdentityDocument>(index);
+
+    private class StubRepository<TDocument>(IIndex index) : ElasticReadOnlyRepositoryBase<TDocument>(index) where TDocument : class, new()
+    {
+        protected override async Task<SearchRequestDescriptor<TDocument>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options)
         {
-            var context = new QueryBuilderContext<NonIdentityDocument>(query, options);
+            var context = new QueryBuilderContext<TDocument>(query, options);
             await new PageableQueryBuilder().BuildAsync(context);
             return context.Search.Indices("test-index").IgnoreUnavailable(true);
         }
