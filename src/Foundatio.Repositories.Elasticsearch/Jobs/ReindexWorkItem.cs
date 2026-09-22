@@ -16,7 +16,7 @@ public record ReindexWorkItem
     /// The number of documents Elasticsearch reads and writes per internal bulk batch while reindexing.
     /// Defaults to null, which uses the Elasticsearch reindex API default of 1000. Lower this if reindexing
     /// large documents triggers "rejected execution of coordinating operation" errors from indexing pressure limits.
-    /// Must be greater than zero when specified - <see cref="ElasticReindexer.ReindexAsync"/> throws
+    /// Must be greater than zero when specified - <see cref="ElasticReindexer"/>.<c>ReindexAsync</c> throws
     /// <see cref="ArgumentOutOfRangeException"/> otherwise.
     /// </summary>
     public int? ReindexBatchSize { get; init; }
@@ -25,7 +25,7 @@ public record ReindexWorkItem
     /// Throttles the reindex to approximately this many documents per second. Defaults to null, which uses
     /// the Elasticsearch reindex API default of unlimited. Combine with <see cref="ReindexBatchSize"/> to
     /// reduce load on a cluster that is rejecting reindex requests due to indexing pressure limits.
-    /// Must be a positive, finite number when specified - <see cref="ElasticReindexer.ReindexAsync"/> throws
+    /// Must be a positive, finite number when specified - <see cref="ElasticReindexer"/>.<c>ReindexAsync</c> throws
     /// <see cref="ArgumentOutOfRangeException"/> for zero, negative, <c>NaN</c>, or infinite values.
     /// </summary>
     /// <remarks>
@@ -36,30 +36,13 @@ public record ReindexWorkItem
     /// </remarks>
     public float? ReindexRequestsPerSecond { get; init; }
 
-    /// <summary>
-    /// Blocks writes to the source index while the copy is reconciled, then promotes the alias only after the
-    /// destination is proven to match. Defaults to <c>false</c>, which preserves the historical ordering where the
-    /// alias is promoted before the catch-up pass runs.
-    /// </summary>
+    /// <summary>Opt in to a write barrier for final reconciliation and verification before alias promotion.</summary>
     /// <remarks>
-    /// <para>
-    /// <b>This blocks writes to the source index, and the block lasts until the reindex finishes.</b> The duration
-    /// is proportional to how much changed during the copy, but it is not bounded and it is not "brief" on a large
-    /// index. Reads are unaffected throughout. Do not enable this without knowing that the application can tolerate
-    /// rejected writes (<c>403 cluster_block_exception</c>) for that period.
-    /// </para>
-    /// <para>
-    /// What it buys is that the alias never points at a destination that has not been reconciled. With the default
-    /// ordering the alias moves first, which leaves three windows in which live traffic and the catch-up pass
-    /// interfere: an update landing after the cutover can be overwritten by the older source copy, a delete can be
-    /// resurrected from the source, and - for models with neither a timestamp field nor ObjectId ids - an update to
-    /// a pre-existing document is never caught up at all. A blocked source cannot change, so the catch-up pass can
-    /// be run to convergence and verified before anything is promoted.
-    /// </para>
-    /// <para>
-    /// This is the only setting that makes a reindex safe for a model whose documents are updated in place. For
-    /// append-only data the default ordering is usually sufficient.
-    /// </para>
+    /// The first pass remains writable. The block begins before the full second pass and lasts through delete
+    /// reconciliation, verification, and cutover. Its duration scales with source/destination size, not just
+    /// changed documents; reads remain available and writes receive 403 cluster_block_exception. Producers must
+    /// retain and retry rejected writes through aliases. A full copy is required: StartUtc is unsupported.
+    /// The default false retains the historical non-blocking ordering, which is not lossless for mutable data.
     /// </remarks>
     public bool QuiesceSource { get; init; }
 }

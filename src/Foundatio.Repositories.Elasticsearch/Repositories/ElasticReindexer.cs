@@ -34,8 +34,6 @@ public class ElasticReindexer
     private readonly ITextSerializer _serializer;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
-    private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
-    private readonly IResiliencePolicy _resiliencePolicy;
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
@@ -71,33 +69,27 @@ public class ElasticReindexer
     /// </remarks>
     public static string GetCompletionIndexName() => "foundatio-reindex-completions";
 
-    /// <summary>
-    /// Returns the stable id identifying a physical migration, so the same migration is recognizable across
-    /// redelivery, process restart, and direct-versus-queued execution.
-    /// </summary>
-    /// <remarks>
-    /// Keyed by the logical migration - alias plus source and destination index names - and explicitly not by
-    /// an attempt id, delivery id, or job id, all of which change on redelivery and would make every retry
-    /// look like a migration that had never run.
-    /// </remarks>
+    /// <summary>Returns a bounded, unambiguous key for the physical migration.</summary>
     public static string GetCompletionId(ReindexWorkItem workItem)
     {
         ArgumentNullException.ThrowIfNull(workItem);
-
-        return String.Concat(workItem.Alias, "|", workItem.OldIndex, "|", workItem.NewIndex);
+        string identity = JsonSerializer.Serialize(new[] { workItem.Alias, workItem.OldIndex, workItem.NewIndex });
+        return "v2-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
 
-    /// <summary>
-    /// Returns a fingerprint of the transformation the copy applies, so a completion record written for a
-    /// different script cannot vouch for this migration.
-    /// </summary>
+    /// <summary>Fingerprints result-affecting copy options; throughput and cleanup options are excluded.</summary>
     internal static string GetTransformationFingerprint(ReindexWorkItem workItem)
     {
-        if (String.IsNullOrEmpty(workItem.Script))
-            return "none";
-
-        byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(workItem.Script));
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        ArgumentNullException.ThrowIfNull(workItem);
+        string contract = JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Script = workItem.Script ?? String.Empty,
+            TimestampField = workItem.TimestampField ?? String.Empty,
+            StartUtc = workItem.StartUtc?.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            workItem.QuiesceSource
+        });
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(contract))).ToLowerInvariant();
     }
 
     public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, ILogger? logger = null) : this(client, serializer, TimeProvider.System, logger)
@@ -110,13 +102,10 @@ public class ElasticReindexer
 
     public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger? logger = null)
     {
-        _client = client;
+        _client = client ?? throw new ArgumentNullException(nameof(client));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _resiliencePolicyProvider = resiliencePolicyProvider ?? new ResiliencePolicyProvider();
         _logger = logger ?? NullLogger.Instance;
-
-        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy<ElasticReindexer>(fallback => fallback.WithMaxAttempts(5).WithDelay(TimeSpan.FromSeconds(10)), _logger, _timeProvider);
     }
 
     /// <summary>
@@ -124,11 +113,10 @@ public class ElasticReindexer
     /// </summary>
     /// <param name="workItem">Describes the source, destination, alias, and copy options.</param>
     /// <param name="progressCallbackAsync">Invoked with a percentage and a status message.</param>
-    /// <param name="cancellationToken">
-    /// Cancels the wait for the server-side copy. Note this abandons the client's wait; the Elasticsearch
-    /// <c>_reindex</c> task itself was started with <c>wait_for_completion=false</c> and continues running
-    /// server-side.
-    /// </param>
+    public Task ReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task>? progressCallbackAsync)
+        => ReindexAsync(workItem, progressCallbackAsync, CancellationToken.None);
+
+    /// <summary>Copies and promotes an index with cancellation before its irreversible cutover boundary.</summary>
     public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workItem);
@@ -174,6 +162,21 @@ public class ElasticReindexer
         var startTime = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(-1);
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (workItem.QuiesceSource && workItem.StartUtc.HasValue)
+            throw new ArgumentException("Quiesced promotion requires a full source copy; StartUtc is not supported.", nameof(workItem));
+        if (workItem.OldIndex != workItem.NewIndex)
+        {
+            if (await HasCompletionEvidenceAsync(workItem, cancellationToken).AnyContext())
+            {
+                await progressCallbackAsync(100, "Already reindexed").AnyContext();
+                return;
+            }
+            await EnsureSourceOwnsAliasAsync(workItem, cancellationToken).AnyContext();
+            await EnsureDestinationNotServingTrafficAsync(workItem, cancellationToken).AnyContext();
+            await IndexWriteBlock.RecoverAsync(_client, workItem, _logger, cancellationToken).AnyContext();
+        }
+
         // Determined before the copy so an unsupported configuration is refused cheaply rather than after an
         // expensive copy. This is a per-shard stats read, not a scan.
         var catchUpPlan = await PlanCatchUpAsync(workItem, cancellationToken).AnyContext();
@@ -195,7 +198,10 @@ public class ElasticReindexer
         // make it evidence of a migration still in progress; writing it after cleanup would leave a finished
         // migration indistinguishable from one that failed after the cutover.
         if (workItem.OldIndex != workItem.NewIndex)
-            await RecordCompletionAsync(workItem, cancellationToken).AnyContext();
+        {
+            using var completionTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await RecordCompletionAsync(workItem, completionTimeout.Token).AnyContext();
+        }
 
         // Cleanup is deliberately after the completion record and is not allowed to undo it: deleting the
         // source is an optimization, and a failure there must not send a finished migration back to copying.
@@ -221,10 +227,16 @@ public class ElasticReindexer
         // cannot be found again, so promoting the destination would silently serve an incomplete index. This
         // deliberately runs pre-Switch - turning the old post-cutover warning into a post-cutover exception
         // would report the failure without preventing it, since the alias has already moved.
-        await EnsureCatchUpPossibleAsync(workItem, catchUpPlan, startTime, cancellationToken).AnyContext();
+        await EnsureCatchUpPossibleAsync(workItem, catchUpPlan, startTime, progressCallbackAsync, cancellationToken).AnyContext();
 
         if (workItem.OldIndex != workItem.NewIndex)
-            await SwitchAliasesAsync(workItem, progressCallbackAsync, 92, cancellationToken).AnyContext();
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Once promotion begins, its outcome may be ambiguous. Finish required reconciliation independently
+            // of host shutdown; the no-progress watchdog still bounds stalled server tasks.
+            await SwitchAliasesAsync(workItem, progressCallbackAsync, 92, CancellationToken.None).AnyContext();
+            cancellationToken = CancellationToken.None;
+        }
 
         if (catchUpPlan.CanCatchUp)
             await RunCatchUpPassAsync(workItem, progressCallbackAsync, startTime, 93, 96, cancellationToken).AnyContext();
@@ -236,35 +248,29 @@ public class ElasticReindexer
     }
 
     /// <summary>
-    /// Blocks writes to the source, reconciles the copy against a source that can no longer change, verifies the
-    /// result, and only then promotes the alias.
+    /// After the live first pass, block and drain source writes, perform a full final copy and deletion
+    /// reconciliation, then verify unchanged per-primary checkpoints and exact output counts before promotion.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The ordering is the entire point. Because nothing can write to the source once it is blocked, the catch-up
-    /// pass can be repeated until it reports no further changes, and that convergence is proof - independent of
-    /// timestamps or id formats - that the destination has everything the source has. Verification can therefore be
-    /// a hard gate rather than an advisory count comparison, because a shortfall here cannot be explained away by
-    /// live traffic.
-    /// </para>
-    /// <para>
-    /// The block is released in a <c>finally</c> so a failure anywhere in between cannot leave the source
-    /// read-only. Release happens before cleanup, so the source is writable again even if it is about to be
-    /// deleted - deletion is best-effort and may not happen at all.
-    /// </para>
-    /// </remarks>
+    /// <remarks>Cleanup preserves operator blocks. Unconfirmed release or process termination uses durable ownership recovery.</remarks>
     private async Task<bool> ReconcileThenPromoteAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CatchUpPlan catchUpPlan, CancellationToken cancellationToken)
     {
-        var writeBlock = await IndexWriteBlock.ApplyAsync(_client, workItem.OldIndex, _logger, cancellationToken).AnyContext();
+        var writeBlock = await IndexWriteBlock.ApplyAsync(_client, workItem, _logger, cancellationToken).AnyContext();
         try
         {
             await progressCallbackAsync(92, $"Blocked writes to {workItem.OldIndex} to reconcile the copy").AnyContext();
 
-            await ConvergeCatchUpAsync(workItem, progressCallbackAsync, catchUpPlan, cancellationToken).AnyContext();
+            var checkpoint = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
+            if (checkpoint is null)
+                throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex, "blocked source checkpoints could not be read");
+            var finalPass = await ConvergeCatchUpAsync(workItem, progressCallbackAsync, catchUpPlan, cancellationToken).AnyContext();
 
             await ReconcileDeletesAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
-            await EnsureDocumentCountsMatchAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
+            await EnsureDocumentCountsMatchAsync(workItem, finalPass, progressCallbackAsync, cancellationToken).AnyContext();
+            var finalCheckpoint = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
+            if (finalCheckpoint is null || !checkpoint.Matches(finalCheckpoint))
+                throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex, "source changed while the write block should have been held");
+            cancellationToken.ThrowIfCancellationRequested();
 
             await SwitchAliasesAsync(workItem, progressCallbackAsync, 99, cancellationToken).AnyContext();
 
@@ -281,24 +287,10 @@ public class ElasticReindexer
         }
     }
 
-    /// <summary>
-    /// Decides, before the copy starts, whether this reindex can catch up documents written to the source while
-    /// the copy runs — and records the source's sequence number so a later change can be detected.
-    /// </summary>
+    /// <summary>Plans non-blocking catch-up and captures every primary checkpoint when changes may be unreachable.</summary>
     /// <remarks>
-    /// <para>
-    /// The catch-up pass narrows the source by time. With a <see cref="ReindexWorkItem.TimestampField"/> it
-    /// queries that field directly; without one it slices by document id, which only works for ObjectId-format
-    /// ids because their prefix encodes creation time. Any other id format leaves no way to find documents
-    /// written during the copy.
-    /// </para>
-    /// <para>
-    /// A sampled id is explicitly <em>not</em> treated as proof: ids are not required to be homogeneous, so one
-    /// ObjectId does not establish that catch-up will find everything. It is used only in the negative
-    /// direction — to recognize a source that definitely cannot be sliced by id — which is why a failed or
-    /// empty sample leaves catch-up enabled rather than refusing. Deliberately no full scan: inferring id
-    /// formats across a 500 GB index would cost more than the migration.
-    /// </para>
+    /// Quiesced copies always rescan the whole source. An empty non-quiesced source still needs a checkpoint
+    /// guard; one sampled ObjectId only selects a strategy and does not prove that all changed IDs are reachable.
     /// </remarks>
     private async Task<CatchUpPlan> PlanCatchUpAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
     {
@@ -308,7 +300,7 @@ public class ElasticReindexer
         if (workItem.OldIndex == workItem.NewIndex)
             return new CatchUpPlan(CanCatchUp: !String.IsNullOrEmpty(workItem.TimestampField), InPlace: true);
 
-        if (!String.IsNullOrEmpty(workItem.TimestampField))
+        if (workItem.QuiesceSource || !String.IsNullOrEmpty(workItem.TimestampField))
             return new CatchUpPlan(CanCatchUp: true);
 
         // The sample below is a search, so it only sees refreshed writes. Without this, a source loaded with
@@ -322,31 +314,30 @@ public class ElasticReindexer
         {
             case SampleIdStatus.Empty:
                 _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
-                return new CatchUpPlan(CanCatchUp: false, SourceIsEmpty: true);
+                var emptyCheckpoint = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
+                return new CatchUpPlan(CanCatchUp: false, SourceIsEmpty: true, StartingCheckpoint: emptyCheckpoint, SequenceNumberReadable: emptyCheckpoint is not null);
 
             case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out _):
                 // A baseline is recorded here too, even though this branch *can* catch up. The ObjectId catch-up
                 // ranges on the id, which encodes only *creation* time, so it finds documents created during the
                 // copy but is blind to an in-place update of an older document, and to a delete. The baseline is
                 // what lets the guard tell those apart afterwards.
-                long? objectIdMaxSeqNo = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
+                ReindexSourceCheckpoint? objectIdMaxSeqNo = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
                 _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
-                return new CatchUpPlan(CanCatchUp: true, StartingMaxSequenceNumber: objectIdMaxSeqNo, SequenceNumberReadable: objectIdMaxSeqNo.HasValue, CatchUpIsCreationTimeOnly: true);
+                return new CatchUpPlan(CanCatchUp: true, StartingCheckpoint: objectIdMaxSeqNo, SequenceNumberReadable: objectIdMaxSeqNo is not null, CatchUpIsCreationTimeOnly: true);
 
             case SampleIdStatus.Found:
                 // The one case that genuinely cannot catch up. Record the source's sequence number so the
                 // enforcement below can tell a static source (safe) from one being written to (not safe).
-                long? maxSeqNo = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
+                ReindexSourceCheckpoint? maxSeqNo = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
                 _logger.LogInformation(
                     "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds (sample: {SampleId}), so documents written during the copy cannot be caught up. The copy will only be promoted if the source does not change while it runs.",
                     workItem.OldIndex, workItem.NewIndex, sampleResult.Id);
-                return new CatchUpPlan(CanCatchUp: false, StartingMaxSequenceNumber: maxSeqNo, SequenceNumberReadable: maxSeqNo.HasValue);
+                return new CatchUpPlan(CanCatchUp: false, StartingCheckpoint: maxSeqNo, SequenceNumberReadable: maxSeqNo is not null);
 
             default:
-                _logger.LogWarning(sampleResult.Exception,
-                    "Reindex {OldIndex} -> {NewIndex}: Failed to sample document ID ({Error}). Attempting ObjectId-based second pass anyway.",
-                    workItem.OldIndex, workItem.NewIndex, sampleResult.Error);
-                return new CatchUpPlan(CanCatchUp: true);
+                throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                    "source ID classification failed; refusing to assume that timestamp-free catch-up is safe");
         }
     }
 
@@ -361,7 +352,7 @@ public class ElasticReindexer
     /// that case is unaffected.
     /// </para>
     /// <para>
-    /// Change is detected by the source's maximum sequence number, which advances on inserts, updates, and
+    /// Change is detected by the complete per-primary checkpoint vector, which advances on inserts, updates, and
     /// deletes alike. Document counts cannot do this: an update leaves the count unchanged, and an insert can
     /// offset a delete.
     /// </para>
@@ -373,14 +364,14 @@ public class ElasticReindexer
     /// <exception cref="ReindexIncompleteException">
     /// The source changed during the copy and those changes cannot be found again.
     /// </exception>
-    private async Task EnsureCatchUpPossibleAsync(ReindexWorkItem workItem, CatchUpPlan plan, DateTime startTime, CancellationToken cancellationToken)
+    private async Task EnsureCatchUpPossibleAsync(ReindexWorkItem workItem, CatchUpPlan plan, DateTime startTime, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
     {
-        if (plan.SourceIsEmpty || plan.InPlace)
+        if (plan.InPlace)
             return;
 
         if (plan.CatchUpIsCreationTimeOnly)
         {
-            await EnsureNoUncatchableChangesAsync(workItem, plan, startTime, cancellationToken).AnyContext();
+            await EnsureNoUncatchableChangesAsync(workItem, plan, startTime, progressCallbackAsync, cancellationToken).AnyContext();
             return;
         }
 
@@ -391,129 +382,90 @@ public class ElasticReindexer
             throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
                 $"{workItem.OldIndex} has no timestamp field and its document ids are not ObjectIds, so documents written during the copy cannot be caught up - and whether any were written could not be determined because the source's sequence numbers could not be read. Refusing to promote {workItem.NewIndex}. Add IHaveDates to the model, use ObjectId-format ids, or stop writes to {workItem.OldIndex} for the duration of the migration.");
 
-        long? currentMaxSeqNo = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
+        ReindexSourceCheckpoint? currentMaxSeqNo = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
         if (currentMaxSeqNo is null)
             throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
                 $"{workItem.OldIndex} has no timestamp field and its document ids are not ObjectIds, so documents written during the copy cannot be caught up - and whether any were written could not be confirmed because the source's sequence numbers could not be re-read. Refusing to promote {workItem.NewIndex}.");
 
-        if (currentMaxSeqNo > plan.StartingMaxSequenceNumber)
+        if (!currentMaxSeqNo.Matches(plan.StartingCheckpoint!))
             throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
-                $"{workItem.OldIndex} was written to during the copy (sequence number advanced from {plan.StartingMaxSequenceNumber:N0} to {currentMaxSeqNo:N0}), and because it has no timestamp field and its document ids are not ObjectIds those changes cannot be caught up. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias. Add IHaveDates to the model, use ObjectId-format ids, or stop writes for the duration of the migration.");
+                $"{workItem.OldIndex} was written to during the copy (primary shard checkpoints changed), and because it has no timestamp field and its document ids are not ObjectIds those changes cannot be caught up. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias. Add IHaveDates to the model, use ObjectId-format ids, or stop writes for the duration of the migration.");
 
-        _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source was not written to during the copy (sequence number {SequenceNumber:N0}), so no catch-up is required.",
-            workItem.OldIndex, workItem.NewIndex, currentMaxSeqNo);
+        _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source primary shard checkpoints did not change during the copy; no catch-up is required.",
+            workItem.OldIndex, workItem.NewIndex);
     }
 
-    /// <summary>
-    /// Refuses to promote an ObjectId-based migration whose source was changed in a way the catch-up pass cannot
-    /// express.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The ObjectId catch-up ranges on <c>_id &gt;= ObjectId(startTime)</c>, and an ObjectId encodes the time the
-    /// document was <em>created</em>. Documents created during the copy are therefore caught up correctly, which is
-    /// the common case for the append-heavy models that use these ids. What it cannot see is a change to a document
-    /// that already existed: an in-place update keeps its old id, so it falls outside the range and is silently lost,
-    /// and a delete cannot be expressed by a copy at all.
-    /// </para>
-    /// <para>
-    /// Rather than refuse on any sequence-number advance - which would fail the ordinary case of documents being
-    /// created during a copy, and make this branch unusable - the changed documents are identified precisely. Every
-    /// document whose sequence number advanced past the baseline is examined, and only the ones whose id predates
-    /// the copy are a problem, because those are exactly the ones the catch-up range will miss. This keeps the
-    /// refusal free of false positives: a source that only received new documents still migrates.
-    /// </para>
-    /// <para>
-    /// A delete cannot be detected this way, since a deleted document has no sequence number left to find. That
-    /// remains a real gap on this path and is the reason the refusal message points at
-    /// <see cref="ReindexWorkItem.QuiesceSource"/>, which closes it structurally.
-    /// </para>
-    /// </remarks>
-    /// <exception cref="ReindexIncompleteException">
-    /// A pre-existing document was modified during the copy, so the catch-up pass cannot recover the change.
-    /// </exception>
-    private async Task EnsureNoUncatchableChangesAsync(ReindexWorkItem workItem, CatchUpPlan plan, DateTime startTime, CancellationToken cancellationToken)
+    /// <summary>Examines every changed document on each primary's own sequence-number range.</summary>
+    private async Task EnsureNoUncatchableChangesAsync(ReindexWorkItem workItem, CatchUpPlan plan, DateTime startTime, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
     {
-        if (!plan.SequenceNumberReadable || plan.StartingMaxSequenceNumber is null)
-        {
-            _logger.LogWarning(
-                "Reindex {OldIndex} -> {NewIndex}: Could not read the source's sequence numbers, so an in-place update during the copy cannot be ruled out. The catch-up pass finds documents by creation time only. Set QuiesceSource to block writes and reconcile before promoting if this index is updated in place.",
-                workItem.OldIndex, workItem.NewIndex);
-            return;
-        }
-
+        if (plan.StartingCheckpoint is null)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex, "source checkpoints are unknown; ObjectId catch-up cannot establish safety");
         await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
-
-        var changed = await GetIdsChangedSinceAsync(workItem.OldIndex, plan.StartingMaxSequenceNumber.Value, cancellationToken).AnyContext();
-        if (changed is null)
-        {
-            _logger.LogWarning(
-                "Reindex {OldIndex} -> {NewIndex}: Could not determine which documents changed during the copy, so an in-place update cannot be ruled out. Set QuiesceSource if this index is updated in place.",
-                workItem.OldIndex, workItem.NewIndex);
+        var current = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
+        if (current is null || current.IndexUuid != plan.StartingCheckpoint.IndexUuid || current.Shards.Count != plan.StartingCheckpoint.Shards.Count)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex, "source identity or shard observations changed during copy");
+        if (current.Matches(plan.StartingCheckpoint))
             return;
-        }
 
-        // The watermark the catch-up pass will use, derived from the same instant so this check and the catch-up
-        // range agree exactly. An id at or above it is reachable by the catch-up; an id below it belongs to a
-        // document that already existed and so will not be found again.
         string watermark = ObjectId.GenerateNewId(startTime).ToString();
-
-        var unreachable = changed
-            .Where(id => String.Compare(id, watermark, StringComparison.Ordinal) < 0)
-            .ToList();
-
-        if (unreachable.Count is 0)
+        foreach (var (shardId, baseline) in plan.StartingCheckpoint.Shards)
         {
-            _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: {Changed:N0} document(s) changed during the copy and all of them are reachable by the catch-up pass.",
-                workItem.OldIndex, workItem.NewIndex, changed.Count);
-            return;
-        }
-
-        throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
-            $"{unreachable.Count:N0} document(s) that already existed in {workItem.OldIndex} were modified during the copy (for example {unreachable[0]}). The catch-up pass finds documents by the creation time encoded in their ObjectId ids, so it cannot recover an update to a document created before the migration started, and promoting {workItem.NewIndex} would silently lose those changes. Refusing to promote; {workItem.OldIndex} is unchanged and still serving the alias. Set QuiesceSource on the reindex to block writes to the source and reconcile the copy before promoting, add a timestamp field to the model, or stop writes for the duration of the migration.");
-    }
-
-    /// <summary>
-    /// Returns the ids of documents whose sequence number advanced past <paramref name="baseline"/>, or
-    /// <c>null</c> if that could not be determined.
-    /// </summary>
-    private async Task<List<string>?> GetIdsChangedSinceAsync(string index, long baseline, CancellationToken cancellationToken)
-    {
-        var response = await _client.Transport
-            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, $"/{index}/_search?_source=false",
-                PostData.String($"{{\"size\":{CHANGED_ID_SAMPLE_SIZE},\"query\":{{\"range\":{{\"_seq_no\":{{\"gt\":{baseline}}}}}}}}}"), cancellationToken)
-            .AnyContext();
-
-        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true || String.IsNullOrEmpty(response.Body))
-            return null;
-
-        try
-        {
-            var ids = new List<string>();
-            using var document = JsonDocument.Parse(response.Body);
-
-            if (!document.RootElement.TryGetProperty("hits", out var hits) || !hits.TryGetProperty("hits", out var hitArray))
-                return null;
-
-            foreach (var hit in hitArray.EnumerateArray())
+            string? scrollId = null;
+            try
             {
-                if (hit.TryGetProperty("_id", out var id) && id.GetString() is { } value)
-                    ids.Add(value);
+                while (true)
+                {
+                    StringResponse response;
+                    if (scrollId is null)
+                    {
+                        string body = JsonSerializer.Serialize(new
+                        {
+                            size = CHANGED_ID_BATCH_SIZE,
+                            _source = new[] { ID_FIELD },
+                            sort = new[] { "_doc" },
+                            query = new { range = new { _seq_no = new { gt = baseline.Local } } }
+                        });
+                        response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST,
+                            $"/{Uri.EscapeDataString(workItem.OldIndex)}/_search?scroll={SCROLL_KEEP_ALIVE}&preference=_shards:{shardId}&allow_partial_search_results=false",
+                            PostData.String(body), cancellationToken).AnyContext();
+                    }
+                    else
+                    {
+                        response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, "/_search/scroll",
+                            PostData.String(JsonSerializer.Serialize(new { scroll = SCROLL_KEEP_ALIVE, scroll_id = scrollId })), cancellationToken).AnyContext();
+                    }
+                    using var document = ReindexResponse.Parse(response, "Reading changed source documents", cancellationToken);
+                    var root = document.RootElement;
+                    ReindexResponse.RequireCompleteSearch(root);
+                    scrollId = ReindexResponse.Text(root, "_scroll_id");
+                    var hits = ReindexResponse.Required(ReindexResponse.Required(root, "hits", JsonValueKind.Object), "hits", JsonValueKind.Array);
+                    if (hits.GetArrayLength() is 0)
+                        break;
+                    if (String.IsNullOrEmpty(scrollId))
+                        throw new RepositoryException("Changed-document search did not provide a scroll ID.");
+                    await progressCallbackAsync(91, $"Checking changes on source shard {shardId}").AnyContext();
+                    foreach (var hit in hits.EnumerateArray())
+                    {
+                        string id = ReindexResponse.Text(hit, "_id");
+                        var source = ReindexResponse.Required(hit, "_source", JsonValueKind.Object);
+                        if (!ObjectId.TryParse(id, out _) || String.CompareOrdinal(id, watermark) < 0
+                            || !String.Equals(ReindexResponse.Text(source, ID_FIELD), id, StringComparison.Ordinal))
+                            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                                $"document {id} changed outside the ObjectId catch-up range; use QuiesceSource or a timestamp field");
+                    }
+                }
             }
-
-            return ids;
-        }
-        catch (JsonException)
-        {
-            return null;
+            finally
+            {
+                await ClearScrollAsync(scrollId, CancellationToken.None).AnyContext();
+            }
         }
     }
 
     /// <summary>
-    /// How many changed ids are examined. The check only needs to find one unreachable document to refuse, so this
-    /// bounds the work rather than limiting correctness.
+    /// Page size for a complete changed-document scan; this is not a correctness cutoff.
     /// </summary>
-    private const int CHANGED_ID_SAMPLE_SIZE = 1000;
+    private const int CHANGED_ID_BATCH_SIZE = 1000;
 
     /// <summary>
     /// Whether a reindex can catch up writes that land during the copy, plus the evidence needed to tell
@@ -527,7 +479,7 @@ public class ElasticReindexer
     private sealed record CatchUpPlan(
         bool CanCatchUp,
         bool SourceIsEmpty = false,
-        long? StartingMaxSequenceNumber = null,
+        ReindexSourceCheckpoint? StartingCheckpoint = null,
         bool SequenceNumberReadable = false,
         bool InPlace = false,
         bool CatchUpIsCreationTimeOnly = false);
@@ -550,34 +502,17 @@ public class ElasticReindexer
     /// The number of settle checks made against a blocked source before giving up.
     /// </summary>
     /// <remarks>
-    /// A blocked source should already be settled on the first check. The allowance exists only so a write accepted
-    /// a moment before the block landed does not fail the migration. Needing more than this means the source is
-    /// still changing, which contradicts the block and must be surfaced rather than looped on.
+    /// The block API drains writes. Repeated changes indicate an externally disturbed barrier, not a normal
+    /// catch-up condition, and cannot be allowed to loop indefinitely.
     /// </remarks>
     private const int MAX_SETTLE_CHECKS = 5;
 
-    /// <summary>
-    /// Reconciles the copy against a blocked source by rescanning the whole source once it has stopped changing.
-    /// </summary>
+    /// <summary>Copies the entire settled, blocked source; timestamp and creation-time ranges are insufficient.</summary>
     /// <remarks>
-    /// <para>
-    /// Settling is proven by the source's sequence number, not by the copy's own counters. Reindex reports a
-    /// document as <c>updated</c> whenever it rewrites it, even when the content is byte-for-byte identical, so
-    /// "the last pass copied nothing" is not a state a rescan can ever reach - verified against a live cluster.
-    /// The source's max <c>_seq_no</c>, by contrast, advances on every insert, update, and delete and goes still
-    /// the moment writes are blocked, which is exactly the property needed.
-    /// </para>
-    /// <para>
-    /// The reconcile pass then deliberately rescans the <em>whole</em> source rather than a time range. That is what
-    /// catches the changes no range query can express: an in-place update to an old document whose timestamp did
-    /// not move, and an update to a document whose ObjectId id encodes only its creation time. Rescanning is
-    /// affordable here because it happens once, against a source that cannot change while it runs.
-    /// </para>
+    /// A scripted migration first clears its unpromoted destination so newly no-op or deleted records cannot
+    /// survive from the live first pass. Full rescanning is deliberate and its cost scales with index size.
     /// </remarks>
-    /// <exception cref="ReindexIncompleteException">
-    /// The source kept changing despite the block, so the copy could not be proven complete.
-    /// </exception>
-    private async Task ConvergeCatchUpAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CatchUpPlan catchUpPlan, CancellationToken cancellationToken)
+    private async Task<ReindexResult> ConvergeCatchUpAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CatchUpPlan catchUpPlan, CancellationToken cancellationToken)
     {
         if (catchUpPlan.SourceIsEmpty)
             _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index was empty when planning; reconciling anyway in case it was written to before the block landed.",
@@ -585,36 +520,33 @@ public class ElasticReindexer
 
         await EnsureSourceHasSettledAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
 
+        if (!String.IsNullOrEmpty(workItem.Script))
+            await ClearDestinationForScriptAsync(workItem, progressCallbackAsync, cancellationToken).AnyContext();
+
         // startTime is intentionally not used to narrow this pass. See the remarks above.
         var result = await RunCatchUpPassAsync(workItem, progressCallbackAsync, null, 92, 95, cancellationToken).AnyContext();
 
         _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Reconciled the copy against the blocked source ({Created:N0} created, {Updated:N0} rewritten of {Total:N0} matched).",
             workItem.OldIndex, workItem.NewIndex, result.Created, result.Updated, result.Total);
+        return result;
     }
 
-    /// <summary>
-    /// Waits until the blocked source's sequence number stops advancing.
-    /// </summary>
-    /// <remarks>
-    /// The block is applied with cross-shard acknowledgement, so in practice the source is already still by the time
-    /// this runs and the first check passes. It exists to close the narrow race where a write was accepted just
-    /// before the block took effect, and to fail loudly rather than silently reconcile against a moving source if
-    /// the block somehow is not holding.
-    /// </remarks>
+    /// <summary>Requires stable per-primary checkpoint vectors after the acknowledged write barrier.</summary>
+    /// <remarks>The add-block API drains in-flight writes. Checkpoints detect a broken or externally removed barrier.</remarks>
     private async Task EnsureSourceHasSettledAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
     {
-        long? previous = null;
+        ReindexSourceCheckpoint? previous = null;
 
         for (int check = 1; check <= MAX_SETTLE_CHECKS; check++)
         {
             await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
-            long? current = await TryGetMaxSequenceNumberAsync(workItem.OldIndex, cancellationToken).AnyContext();
+            ReindexSourceCheckpoint? current = await TryGetSourceCheckpointAsync(workItem.OldIndex, cancellationToken).AnyContext();
 
             if (current is null)
                 throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
                     $"Writes to {workItem.OldIndex} are blocked but its sequence numbers could not be read, so it could not be confirmed to have stopped changing. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
 
-            if (current == previous)
+            if (previous is not null && current.Matches(previous))
                 return;
 
             if (previous is not null)
@@ -636,30 +568,10 @@ public class ElasticReindexer
     /// </summary>
     private const int DELETE_RECONCILE_BATCH_SIZE = 1000;
 
-    /// <summary>
-    /// Removes documents from the destination that no longer exist in the blocked source.
-    /// </summary>
+    /// <summary>Deletes destination identities absent from the blocked source, preserving custom routing.</summary>
     /// <remarks>
-    /// <para>
-    /// The copy cannot express a delete: no reindex slicing mode has a way to say "this document is gone". So a
-    /// document the first pass copied and that was then deleted from the source survives in the destination, and
-    /// promoting it would silently resurrect it. Re-running the copy does not help, because the copy only ever adds
-    /// and overwrites.
-    /// </para>
-    /// <para>
-    /// Once the source is blocked and settled it is authoritative, so the discrepancy can be repaired directly:
-    /// anything in the destination that is absent from the source was deleted during the copy and is deleted here
-    /// too. This only runs when the destination holds more documents than the source, which is the only way a
-    /// delete can manifest, so the ordinary migration pays nothing for it.
-    /// </para>
-    /// <para>
-    /// Deleting is safe specifically because the alias has not moved yet: the destination is not serving traffic and
-    /// holds nothing but what this migration copied into it, so there is no live write here to destroy.
-    /// </para>
-    /// <para>
-    /// Skipped when a script is in play: a script can legitimately drop documents with <c>ctx.op = 'noop'</c>, so
-    /// "in the destination but not the source" stops being reliable evidence of a delete.
-    /// </para>
+    /// Equal counts do not establish equal membership. Every destination batch is checked, and each lookup and
+    /// deletion must succeed. Scripted copies instead rebuild an empty destination in their final pass.
     /// </remarks>
     private async Task ReconcileDeletesAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
     {
@@ -668,14 +580,7 @@ public class ElasticReindexer
 
         await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
 
-        long sourceCount = await GetDocumentCountAsync(workItem.OldIndex, cancellationToken).AnyContext();
         long destinationCount = await GetDocumentCountAsync(workItem.NewIndex, cancellationToken).AnyContext();
-
-        if (destinationCount <= sourceCount)
-            return;
-
-        _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Destination holds {DestinationCount:N0} document(s) but the blocked source holds {SourceCount:N0}, so documents were deleted during the copy. Reconciling.",
-            workItem.OldIndex, workItem.NewIndex, destinationCount, sourceCount);
 
         long deleted = 0;
         long examined = 0;
@@ -707,7 +612,7 @@ public class ElasticReindexer
         }
         finally
         {
-            await ClearScrollAsync(scrollId, cancellationToken).AnyContext();
+            await ClearScrollAsync(scrollId, CancellationToken.None).AnyContext();
         }
 
         _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Removed {Deleted:N0} document(s) from the destination that had been deleted from the source during the copy.",
@@ -717,52 +622,32 @@ public class ElasticReindexer
         await progressCallbackAsync(96, $"Reconciled {deleted:N0} delete(s) that happened during the copy").AnyContext();
     }
 
-    /// <summary>
-    /// Reads the next page of destination ids.
-    /// </summary>
-    /// <remarks>
-    /// Paged with a scroll rather than <c>search_after</c>. A scroll is a point-in-time snapshot, so it is unaffected
-    /// by the deletes this loop is issuing against the very index it is reading. The obvious alternatives do not
-    /// work here: sorting on <c>_id</c> is rejected outright (<c>Fielddata access on the _id field is disallowed</c>)
-    /// and <c>_doc</c> sort values are only unique within a shard, so they cannot page a multi-shard index.
-    /// </remarks>
-    private async Task<(List<string> Ids, string? ScrollId)> GetNextDestinationIdBatchAsync(string index, string? scrollId, CancellationToken cancellationToken)
+    /// <summary>Reads a complete scroll page, preserving custom routing in every document key.</summary>
+    private async Task<(List<ReindexDocumentBatch.Key> Ids, string? ScrollId)> GetNextDestinationIdBatchAsync(string index, string? scrollId, CancellationToken cancellationToken)
     {
         StringResponse response;
         if (scrollId is null)
         {
-            response = await _client.Transport
-                .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, $"/{index}/_search?scroll={SCROLL_KEEP_ALIVE}",
-                    PostData.String($"{{\"size\":{DELETE_RECONCILE_BATCH_SIZE},\"_source\":false}}"), cancellationToken)
-                .AnyContext();
+            response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST,
+                $"/{Uri.EscapeDataString(index)}/_search?scroll={SCROLL_KEEP_ALIVE}&allow_partial_search_results=false",
+                PostData.String(JsonSerializer.Serialize(new { size = DELETE_RECONCILE_BATCH_SIZE, _source = false, stored_fields = new[] { "_routing" }, sort = new[] { "_doc" } })), cancellationToken).AnyContext();
         }
         else
         {
-            response = await _client.Transport
-                .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, "/_search/scroll",
-                    PostData.String($"{{\"scroll\":\"{SCROLL_KEEP_ALIVE}\",\"scroll_id\":{JsonSerializer.Serialize(scrollId)}}}"), cancellationToken)
-                .AnyContext();
+            response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, "/_search/scroll",
+                PostData.String(JsonSerializer.Serialize(new { scroll = SCROLL_KEEP_ALIVE, scroll_id = scrollId })), cancellationToken).AnyContext();
         }
-
-        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
-            throw new RepositoryException($"Error reading document ids from {index} while reconciling deletes: the request failed with status {response.ApiCallDetails?.HttpStatusCode?.ToString() ?? "unknown"}.");
-
-        var ids = new List<string>(DELETE_RECONCILE_BATCH_SIZE);
-        using var document = JsonDocument.Parse(response.Body!);
+        using var document = ReindexResponse.Parse(response, "Reading destination document keys", cancellationToken);
         var root = document.RootElement;
-
-        string? nextScrollId = root.TryGetProperty("_scroll_id", out var scrollIdElement) ? scrollIdElement.GetString() : scrollId;
-
-        if (!root.TryGetProperty("hits", out var hits) || !hits.TryGetProperty("hits", out var hitArray))
-            return (ids, nextScrollId);
-
-        foreach (var hit in hitArray.EnumerateArray())
-        {
-            if (hit.TryGetProperty("_id", out var id) && id.GetString() is { } value)
-                ids.Add(value);
-        }
-
-        return (ids, nextScrollId);
+        ReindexResponse.RequireCompleteSearch(root);
+        string nextScroll = ReindexResponse.Text(root, "_scroll_id");
+        var hits = ReindexResponse.Required(ReindexResponse.Required(root, "hits", JsonValueKind.Object), "hits", JsonValueKind.Array);
+        if (hits.GetArrayLength() > 0 && String.IsNullOrEmpty(nextScroll))
+            throw new RepositoryException("Destination search did not provide a scroll ID.");
+        var keys = new List<ReindexDocumentBatch.Key>(hits.GetArrayLength());
+        foreach (var hit in hits.EnumerateArray())
+            keys.Add(ReindexDocumentBatch.ReadKey(hit));
+        return (keys, nextScroll);
     }
 
     private const string SCROLL_KEEP_ALIVE = "2m";
@@ -778,6 +663,8 @@ public class ElasticReindexer
 
         try
         {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            cancellationToken = cleanup.Token;
             await _client.Transport
                 .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.DELETE, "/_search/scroll",
                     PostData.String($"{{\"scroll_id\":{JsonSerializer.Serialize(scrollId)}}}"), cancellationToken)
@@ -789,111 +676,97 @@ public class ElasticReindexer
         }
     }
 
-    /// <summary>
-    /// Returns the subset of <paramref name="ids"/> that no longer exists in the source.
-    /// </summary>
-    private async Task<List<string>> GetIdsMissingFromSourceAsync(string index, List<string> ids, CancellationToken cancellationToken)
+    /// <summary>Only an explicit, error-free absence response authorizes deleting a destination key.</summary>
+    /// <remarks>
+    /// Request routing explicitly: with source retrieval disabled and no stored fields requested,
+    /// Elasticsearch can skip its stored-field loader and omit routing even for a routed document.
+    /// That omission must not be mistaken for a change of document identity.
+    /// </remarks>
+    private async Task<List<ReindexDocumentBatch.Key>> GetIdsMissingFromSourceAsync(string index, List<ReindexDocumentBatch.Key> ids, CancellationToken cancellationToken)
     {
-        var request = new StringBuilder("{\"ids\":[");
-        for (int i = 0; i < ids.Count; i++)
+        var docs = ids.Select(key =>
         {
-            if (i > 0)
-                request.Append(',');
-
-            request.Append(JsonSerializer.Serialize(ids[i]));
-        }
-        request.Append("]}");
-
-        // _source is a query parameter here, not a body field: _mget rejects it in the body.
-        var response = await _client.Transport
-            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, $"/{index}/_mget?_source=false", PostData.String(request.ToString()), cancellationToken)
-            .AnyContext();
-
-        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
-            throw new RepositoryException($"Error checking which documents still exist in {index} while reconciling deletes: the request failed with status {response.ApiCallDetails?.HttpStatusCode?.ToString() ?? "unknown"}.");
-
-        var missing = new List<string>();
-        using var document = JsonDocument.Parse(response.Body!);
-
-        if (!document.RootElement.TryGetProperty("docs", out var docs))
-            return missing;
-
-        foreach (var doc in docs.EnumerateArray())
-        {
-            bool found = doc.TryGetProperty("found", out var foundElement) && foundElement.ValueKind is JsonValueKind.True;
-            if (!found && doc.TryGetProperty("_id", out var id) && id.GetString() is { } value)
-                missing.Add(value);
-        }
-
-        return missing;
+            var item = new Dictionary<string, object> { ["_id"] = key.Id };
+            if (key.Routing is not null)
+                item["routing"] = key.Routing;
+            return item;
+        });
+        var response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST,
+            $"/{Uri.EscapeDataString(index)}/_mget?_source=false&stored_fields=_routing",
+            PostData.String(JsonSerializer.Serialize(new { docs })), cancellationToken).AnyContext();
+        using var document = ReindexResponse.Parse(response, "Reading source document presence", cancellationToken);
+        return ReindexDocumentBatch.ReadMissing(index, ids, document.RootElement);
     }
 
-    private async Task DeleteDocumentsAsync(ReindexWorkItem workItem, List<string> ids, CancellationToken cancellationToken)
+    /// <summary>Deletes exact routed keys and validates every bulk result.</summary>
+    private async Task DeleteDocumentsAsync(ReindexWorkItem workItem, List<ReindexDocumentBatch.Key> ids, CancellationToken cancellationToken)
     {
+        if (ids.Count is 0)
+            return;
         var request = new StringBuilder();
-        foreach (string id in ids)
+        foreach (var key in ids)
         {
-            request.Append("{\"delete\":{\"_index\":").Append(JsonSerializer.Serialize(workItem.NewIndex))
-                .Append(",\"_id\":").Append(JsonSerializer.Serialize(id)).Append("}}\n");
+            var metadata = new Dictionary<string, object> { ["_index"] = workItem.NewIndex, ["_id"] = key.Id };
+            if (key.Routing is not null)
+                metadata["routing"] = key.Routing;
+            request.Append(JsonSerializer.Serialize(new { delete = metadata })).Append('\n');
         }
-
-        var response = await _client.Transport
-            .RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, "/_bulk", PostData.String(request.ToString()), cancellationToken)
-            .AnyContext();
-
-        if (response.ApiCallDetails?.HasSuccessfulStatusCode != true)
-            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
-                $"documents deleted from {workItem.OldIndex} during the copy could not be removed from {workItem.NewIndex}, so promoting it would resurrect them. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
+        var response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.POST, "/_bulk",
+            PostData.String(request.ToString()), cancellationToken).AnyContext();
+        using var document = ReindexResponse.Parse(response, "Deleting stale destination documents", cancellationToken);
+        ReindexDocumentBatch.RequireSuccessfulDeletes(workItem.NewIndex, ids, document.RootElement);
     }
 
     private async Task<long> GetDocumentCountAsync(string index, CancellationToken cancellationToken)
     {
         var response = await _client.CountAsync<object>(d => d.Indices(index), cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
         _logger.LogRequest(response);
 
-        if (!response.IsValidResponse)
-            throw new RepositoryException($"Error reading the document count for {index}: {response.ElasticsearchServerError}");
+        if (!response.IsValidResponse || response.Shards is null || response.Shards.Failed > 0
+            || response.Shards.Total <= 0 || response.Shards.Successful != response.Shards.Total || response.Count < 0)
+            throw new RepositoryException($"Error reading the complete document count for {index}: {response.ElasticsearchServerError}");
 
         return response.Count;
     }
 
-    /// <summary>
-    /// Fails the reindex unless the destination holds at least as many documents as the blocked source.
-    /// </summary>
-    /// <remarks>
-    /// This is the hard-gate counterpart to <see cref="VerifyDocumentCountsAsync"/>. That method cannot throw
-    /// because it runs after the alias has moved, so a shortfall there is ambiguous - live traffic could explain
-    /// it. Here the source is blocked and nothing has been promoted, so a shortfall has no benign explanation and
-    /// no cost to refusing: the alias still points at the source.
-    /// </remarks>
-    /// <exception cref="ReindexIncompleteException">
-    /// The destination is short of the source, or a count could not be read.
-    /// </exception>
-    private async Task EnsureDocumentCountsMatchAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    /// <summary>Requires exact output cardinality from the final blocked-source copy.</summary>
+    private async Task EnsureDocumentCountsMatchAsync(ReindexWorkItem workItem, ReindexResult finalPass, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
     {
-        var refreshResponse = await _client.Indices.RefreshAsync(Indices.Index(workItem.OldIndex).And(workItem.NewIndex), d => d.IgnoreUnavailable(), cancellationToken).AnyContext();
-        _logger.LogRequest(refreshResponse);
-
-        var newDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex), cancellationToken).AnyContext();
-        _logger.LogRequest(newDocCountResponse);
-
-        var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex), cancellationToken).AnyContext();
-        _logger.LogRequest(oldDocCountResponse);
-
-        await progressCallbackAsync(97, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
-
-        if (!newDocCountResponse.IsValidResponse || !oldDocCountResponse.IsValidResponse)
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+        long sourceCount = await GetDocumentCountAsync(workItem.OldIndex, cancellationToken).AnyContext();
+        long destinationCount = await GetDocumentCountAsync(workItem.NewIndex, cancellationToken).AnyContext();
+        long expected = finalPass.Total - finalPass.Noops - finalPass.Deleted;
+        if (sourceCount != finalPass.Total || expected < 0 || destinationCount != expected)
             throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
-                $"The copy of {workItem.OldIndex} to {workItem.NewIndex} could not be verified because a document count could not be read. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
+                $"expected {expected} output documents from {sourceCount} source documents, but found {destinationCount}; refusing promotion");
+        await progressCallbackAsync(98, "Verified final copy accounting and exact document counts").AnyContext();
+    }
 
-        // A shortfall is the failure; an exact match is not required. A script may legitimately drop documents via
-        // `ctx.op = 'noop'`, so demanding equality would fail scripted migrations that are working as intended.
-        // Overcount is handled before this by ReconcileDeletesAsync, which throws if it cannot repair it.
-        if (newDocCountResponse.Count < oldDocCountResponse.Count)
-            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
-                $"{workItem.NewIndex} has {newDocCountResponse.Count:N0} documents but the blocked source {workItem.OldIndex} has {oldDocCountResponse.Count:N0}, so the copy is short. Refusing to promote {workItem.NewIndex}; {workItem.OldIndex} is unchanged and still serving the alias.");
-
-        await progressCallbackAsync(98, "Verified the copy matches the source").AnyContext();
+    /// <summary>Removes first-pass remnants before a scripted final pass can deliberately noop or delete them.</summary>
+    private async Task ClearDestinationForScriptAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, CancellationToken cancellationToken)
+    {
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+        string? scrollId = null;
+        try
+        {
+            while (true)
+            {
+                var (keys, nextScrollId) = await GetNextDestinationIdBatchAsync(workItem.NewIndex, scrollId, cancellationToken).AnyContext();
+                scrollId = nextScrollId;
+                if (keys.Count is 0)
+                    break;
+                await DeleteDocumentsAsync(workItem, keys, cancellationToken).AnyContext();
+                await progressCallbackAsync(92, "Clearing first-pass output before the scripted final copy").AnyContext();
+            }
+        }
+        finally
+        {
+            await ClearScrollAsync(scrollId, CancellationToken.None).AnyContext();
+        }
+        await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+        if (await GetDocumentCountAsync(workItem.NewIndex, cancellationToken).AnyContext() is not 0)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex, "scripted final-pass destination could not be emptied");
     }
 
     /// <summary>
@@ -902,7 +775,7 @@ public class ElasticReindexer
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is a coarse safety net, not proof of completeness, and deliberately never throws. By the time it
+    /// This is a coarse safety net, not proof of completeness. A count mismatch is advisory on this path. By the time it
     /// runs the aliases have already been switched, so writes - including hard deletes - land on the
     /// destination while the source is frozen. A legitimately complete reindex can therefore end up with fewer
     /// documents than its source, and treating that as a failure would ask callers to retry a reindex that
@@ -910,9 +783,9 @@ public class ElasticReindexer
     /// after the cutover can offset documents that genuinely failed to copy, hiding a real shortfall.
     /// </para>
     /// <para>
-    /// Completeness is established instead by the per-pass accounting in
+    /// Per-pass accounting is checked in
     /// <see cref="InternalReindexAsync"/>, which compares the copy task's own report of what it matched
-    /// against what it did and so cannot race with live traffic.
+    /// against what it did. That checks task completion, not consistency against concurrent application writes.
     /// </para>
     /// </remarks>
     /// <returns>
@@ -924,40 +797,30 @@ public class ElasticReindexer
         if (workItem.OldIndex == workItem.NewIndex)
             return true;
 
-        var refreshResponse = await _client.Indices.RefreshAsync(Indices.Index(workItem.OldIndex).And(workItem.NewIndex), d => d.IgnoreUnavailable(), cancellationToken).AnyContext();
-        _logger.LogRequest(refreshResponse);
-        if (!refreshResponse.IsValidResponse)
-            _logger.LogWarning("Failed to refresh indices before doc count comparison for {OldIndex} -> {NewIndex}: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
-
-        var newDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex), cancellationToken).AnyContext();
-        _logger.LogRequest(newDocCountResponse);
-        if (!newDocCountResponse.IsValidResponse)
-            _logger.LogWarning("Failed to get new index doc count for {NewIndex}: {Error}", workItem.NewIndex, newDocCountResponse.ElasticsearchServerError);
-
-        var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex), cancellationToken).AnyContext();
-        _logger.LogRequest(oldDocCountResponse);
-        if (!oldDocCountResponse.IsValidResponse)
-            _logger.LogWarning("Failed to get old index doc count for {OldIndex}: {Error}", workItem.OldIndex, oldDocCountResponse.ElasticsearchServerError);
-
-        await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
-
-        if (!newDocCountResponse.IsValidResponse || !oldDocCountResponse.IsValidResponse)
+        long sourceCount;
+        long destinationCount;
+        try
         {
-            _logger.LogWarning("Could not verify the reindex of {OldIndex} -> {NewIndex} was complete because a document count could not be read. Treating the reindex as unverified and keeping {OldIndex}.",
-                workItem.OldIndex, workItem.NewIndex, workItem.OldIndex);
+            await RefreshForCopyAsync(workItem, cancellationToken).AnyContext();
+            destinationCount = await GetDocumentCountAsync(workItem.NewIndex, cancellationToken).AnyContext();
+            sourceCount = await GetDocumentCountAsync(workItem.OldIndex, cancellationToken).AnyContext();
+        }
+        catch (RepositoryException ex)
+        {
+            // The alias already moved, so retain the source rather than declaring partial refresh/count
+            // evidence sufficient for cleanup. This advisory path does not certify live-write consistency.
+            _logger.LogWarning(ex, "Could not verify the reindex of {OldIndex} -> {NewIndex}; keeping the source because refresh or count evidence was incomplete.", workItem.OldIndex, workItem.NewIndex);
             return false;
         }
 
-        if (newDocCountResponse.Count >= oldDocCountResponse.Count)
+        await progressCallbackAsync(98, $"Old Docs: {sourceCount} New Docs: {destinationCount}").AnyContext();
+        if (destinationCount >= sourceCount)
             return true;
 
-        long missing = oldDocCountResponse.Count - newDocCountResponse.Count;
-
-        // A script can legitimately drop documents (`ctx.op = "noop"`/`"delete"`), and so can a hard delete
-        // through the already-switched alias, so this is reported rather than treated as a failure. Either way
-        // the source is kept, so nothing is lost if the shortfall was real.
-        _logger.LogWarning("Reindex of {OldIndex} -> {NewIndex} left the destination {MissingCount:N0} document(s) short ({OldCount:N0} -> {NewCount:N0}). This can be legitimate - a reindex script can drop documents, and documents deleted through the alias after the cutover are gone from the destination but still counted in the source - so it is not treated as a failure, but {OldIndex} will not be deleted.",
-            workItem.OldIndex, workItem.NewIndex, missing, oldDocCountResponse.Count, newDocCountResponse.Count, workItem.OldIndex);
+        long missing = sourceCount - destinationCount;
+        // Scripts and writes through the already-switched alias can legitimately reduce output cardinality.
+        _logger.LogWarning("Reindex of {OldIndex} -> {NewIndex} left the destination {MissingCount:N0} document(s) short ({OldCount:N0} -> {NewCount:N0}). This can be legitimate, so it is not treated as a failure, but {OldIndex} will not be deleted.",
+            workItem.OldIndex, workItem.NewIndex, missing, sourceCount, destinationCount, workItem.OldIndex);
 
         return false;
     }
@@ -1003,35 +866,35 @@ public class ElasticReindexer
 
         var query = GetResumeQuery(workItem.TimestampField, startTime);
 
-        var result = await _resiliencePolicy.ExecuteAsync(async ct =>
+        await using var taskLease = await ReindexTaskLease.AcquireAsync(_client, workItem, _logger, cancellationToken).AnyContext();
+        var result = await _client.ReindexAsync(d =>
         {
-            var response = await _client.ReindexAsync(d =>
+            d.Source(src =>
             {
-                d.Source(src =>
-                {
-                    src.Indices(workItem.OldIndex);
-                    if (query != null)
-                        src.Query(query);
-                    if (workItem.ReindexBatchSize.HasValue)
-                        src.Size(workItem.ReindexBatchSize.Value);
-                });
-                d.Dest(dest => dest.Index(workItem.NewIndex));
-                d.Conflicts(Conflicts.Proceed);
-                d.WaitForCompletion(false);
+                src.Indices(workItem.OldIndex);
+                if (query != null)
+                    src.Query(query);
+                if (workItem.ReindexBatchSize.HasValue)
+                    src.Size(workItem.ReindexBatchSize.Value);
+            });
+            d.Dest(dest => dest.Index(workItem.NewIndex));
+            d.Conflicts(Conflicts.Proceed);
+            d.WaitForCompletion(false);
+            d.RequestConfiguration(r => r.MaxRetries(0));
 
-                if (workItem.ReindexRequestsPerSecond.HasValue)
-                    d.RequestsPerSecond(workItem.ReindexRequestsPerSecond.Value);
+            if (workItem.ReindexRequestsPerSecond.HasValue)
+                d.RequestsPerSecond(workItem.ReindexRequestsPerSecond.Value);
 
-                if (!String.IsNullOrWhiteSpace(workItem.Script))
-                    d.Script(new Script { Source = workItem.Script });
-            }, ct).AnyContext();
-            _logger.LogRequest(response);
-
-            return response;
+            if (!String.IsNullOrWhiteSpace(workItem.Script))
+                d.Script(new Script { Source = workItem.Script });
         }, cancellationToken).AnyContext();
 
         if (result.Task is null)
         {
+            // A definite API rejection did not start a task. Transport failures and missing task IDs remain
+            // fenced by the durable dispatch intent because the request might have been accepted.
+            if (result.ApiCallDetails?.HttpStatusCode is 400 or 401 or 403 or 404 && result.ElasticsearchServerError is not null)
+                taskLease.MarkTerminal();
             string reason = result.ElasticsearchServerError?.Error?.Reason ?? "Unknown";
             _logger.LogError("Reindex failed to start - no task returned. Response valid: {IsValid}, Reason: {Reason}",
                 result.IsValidResponse, reason);
@@ -1040,10 +903,12 @@ public class ElasticReindexer
             return new ReindexResult
             {
                 Outcome = ReindexOutcome.NotStarted,
-                FailureReason = $"Elasticsearch did not return a reindex task, so no documents were copied ({reason})."
+                FailureReason = $"Elasticsearch did not return a reindex task; dispatch may be ambiguous ({reason})."
             };
         }
 
+        await taskLease.RecordTaskAsync(result.Task.FullyQualifiedId).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
         _logger.LogInformation("Reindex Task Id: {ReindexTaskId}", result.Task.FullyQualifiedId);
         _logger.LogRequest(result);
         long totalDocs = result.Total ?? 0;
@@ -1063,8 +928,11 @@ public class ElasticReindexer
             cancellationToken.ThrowIfCancellationRequested();
 
             var status = await _client.Tasks.GetAsync(CreateStatusRequest(result.Task.FullyQualifiedId), cancellationToken).AnyContext();
+            cancellationToken.ThrowIfCancellationRequested();
             if (status.IsValidResponse)
             {
+                if (status.Completed)
+                    taskLease.MarkTerminal();
                 _logger.LogRequest(status);
             }
             else
@@ -1088,7 +956,7 @@ public class ElasticReindexer
 
             statusGetFails = 0;
 
-            // The reindex sub-response (the per-document failures and the created/updated/noop counters that
+            // The reindex sub-response (the per-document failures and the created/updated/deleted/noop counters that
             // completeness is judged on) is only present in the raw body, so this must be readable. Treating an
             // unreadable body as "no failures" is exactly how a lossy reindex reports success.
             if (!TryReadReindexStatus(status, out var response, out string? readFailureReason))
@@ -1159,7 +1027,6 @@ public class ElasticReindexer
             _logger.LogError("Reindex abandoned for {OldIndex} -> {NewIndex}. ReindexTaskId: {ReindexTaskId}, StatusFails: {StatusFails}, LastExamined: {LastExamined}, TotalDocs: {TotalDocs}, Elapsed: {Elapsed}",
                 workItem.OldIndex, workItem.NewIndex, result.Task.FullyQualifiedId, statusGetFails, lastExamined, totalDocs, sw.Elapsed);
 
-            await TryCancelTaskAsync(result.Task, workItem.OldIndex, workItem.NewIndex).AnyContext();
         }
 
         long failures = 0;
@@ -1184,17 +1051,23 @@ public class ElasticReindexer
 
         long total = lastReindexResponse?.Total ?? 0;
         long versionConflicts = lastReindexResponse?.VersionConflicts ?? 0;
-        long completed = (lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Noops ?? 0);
+        long completed = checked((lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Noops ?? 0) + (lastReindexResponse?.Deleted ?? 0));
 
         // The copy must account for every document it matched. This is the one completeness check that cannot
         // race with live traffic, because it compares the task's own report of what it matched against its own
         // report of what it did - unlike comparing index document counts, which the alias cutover makes
         // unreliable (see VerifyDocumentCountsAsync).
-        if (outcome is ReindexOutcome.Completed && completed + versionConflicts < total)
+        if (outcome is ReindexOutcome.Completed && (decimal)completed + versionConflicts != total)
         {
             long unaccounted = total - (completed + versionConflicts);
             outcome = ReindexOutcome.Failed;
             failureReason = $"the copy task reported it finished but only accounted for {completed + versionConflicts:N0} of the {total:N0} document(s) it matched, leaving {unaccounted:N0} unaccounted for";
+        }
+
+        if (outcome is ReindexOutcome.Completed && (versionConflicts > 0 || lastReindexResponse?.TimedOut is true))
+        {
+            outcome = ReindexOutcome.Failed;
+            failureReason = "the copy timed out or left version conflicts unresolved";
         }
 
         string message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
@@ -1205,6 +1078,8 @@ public class ElasticReindexer
             Completed = completed,
             Created = lastReindexResponse?.Created ?? 0,
             Updated = lastReindexResponse?.Updated ?? 0,
+            Deleted = lastReindexResponse?.Deleted ?? 0,
+            Noops = lastReindexResponse?.Noops ?? 0,
             Failures = failures,
             Outcome = outcome,
             FailureReason = failureReason
@@ -1216,7 +1091,7 @@ public class ElasticReindexer
     /// the raw response body.
     /// </summary>
     /// <remarks>
-    /// The reindex sub-response - the per-document <c>failures</c> array and the created/updated/noop counters
+    /// The reindex sub-response - the per-document <c>failures</c> array and the created/updated/deleted/noop counters
     /// that completeness is judged on - is not modeled by the client's typed <c>GetTasksResponse</c>, so it has
     /// to be read out of the raw JSON. The transport only retains that JSON when direct streaming is disabled,
     /// which is off by default, so without asking for it here failure detection silently degrades to "no
@@ -1253,8 +1128,24 @@ public class ElasticReindexer
 
         try
         {
+            using var document = JsonDocument.Parse(status.ApiCallDetails.ResponseBodyInBytes);
+            var root = document.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object)
+                throw new RepositoryException("Task response is not an object.");
+            if (status.Completed && !root.TryGetProperty("error", out _))
+            {
+                var final = ReindexResponse.Required(root, "response", JsonValueKind.Object);
+                foreach (string name in new[] { "total", "created", "updated", "deleted", "noops", "version_conflicts" })
+                {
+                    if (ReindexResponse.Number(final, name) < 0)
+                        throw new RepositoryException("Task response contains a negative counter.");
+                }
+                ReindexResponse.Required(final, "failures", JsonValueKind.Array);
+                if (!final.TryGetProperty("timed_out", out var timedOut) || timedOut.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new RepositoryException("Task response did not establish timeout status.");
+            }
             response = status.DeserializeRaw<TaskWithReindexResponse>(_serializer);
-            return true;
+            return response is not null;
         }
         catch (Exception ex)
         {
@@ -1264,24 +1155,29 @@ public class ElasticReindexer
         }
     }
 
-    /// <summary>
-    /// Makes already-written documents visible to search before a copy pass reads them. Failure is logged and
-    /// tolerated: a refresh that did not happen means the pass may copy less than it could have, which the
-    /// completeness verification at the end of the reindex catches.
-    /// </summary>
+    /// <summary>Requires a complete refresh of the source before any copy or verification.</summary>
     private async Task RefreshForCopyAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
     {
-        var indices = workItem.OldIndex == workItem.NewIndex
-            ? Indices.Index(workItem.OldIndex)
-            : Indices.Index(workItem.OldIndex).And(workItem.NewIndex);
+        var source = await _client.Indices.RefreshAsync(Indices.Index(workItem.OldIndex), cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        _logger.LogRequest(source);
+        if (!source.IsValidResponse || source.Shards is null || source.Shards.Failed > 0 || source.Shards.Total <= 0 || source.Shards.Successful <= 0)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                "the source refresh failed or returned incomplete shard results; the copy cannot see all acknowledged writes");
 
-        // The destination does not exist yet on the first pass of some reindexes, and a refresh of a missing
-        // index is a 404 rather than a no-op.
-        var refreshResponse = await _client.Indices.RefreshAsync(indices, d => d.IgnoreUnavailable(), cancellationToken).AnyContext();
-        _logger.LogRequest(refreshResponse);
+        if (String.Equals(workItem.OldIndex, workItem.NewIndex, StringComparison.Ordinal))
+            return;
 
-        if (!refreshResponse.IsValidResponse)
-            _logger.LogWarning("Failed to refresh {OldIndex} and {NewIndex} before copying, so the copy may read stale data: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
+        // An absent destination is allowed only before its first copy.
+        var destination = await _client.Indices.RefreshAsync(Indices.Index(workItem.NewIndex), cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        _logger.LogRequest(destination);
+        if (destination.ApiCallDetails?.HttpStatusCode is 404)
+            return;
+        if (!destination.IsValidResponse || destination.Shards is null || destination.Shards.Failed > 0
+            || destination.Shards.Total <= 0 || destination.Shards.Successful <= 0)
+            throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
+                "the destination refresh failed or returned incomplete shard results");
     }
 
     private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
@@ -1381,76 +1277,25 @@ public class ElasticReindexer
             _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", errorIndex, gr.Id);
     }
 
-    /// <summary>
-    /// Attempts to cancel the Elasticsearch server-side reindex task. Best-effort — failures are logged but not propagated.
-    /// </summary>
-    private async Task TryCancelTaskAsync(TaskId reindexTaskId, string oldIndex, string newIndex)
-    {
-        try
-        {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var response = await _client.Tasks.CancelAsync(c => c.TaskId(reindexTaskId), cts.Token).AnyContext();
-            if (response.IsValidResponse)
-            {
-                _logger.LogRequest(response);
-                _logger.LogInformation("Cancelled reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
-            }
-            else
-            {
-                _logger.LogErrorRequest(response, "Failed to cancel reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Exception cancelling reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
-        }
-    }
-
-    /// <summary>
-    /// Returns every alias on <paramref name="index"/> along with its definition, so the definitions can be
-    /// recreated on the destination rather than silently defaulted.
-    /// </summary>
-    /// <exception cref="RepositoryException">
-    /// The alias list could not be read. This is fatal by design: proceeding would move the primary alias
-    /// while silently stranding every other alias on the old index, and would drop alias filters that may be
-    /// the only thing scoping a shared index.
-    /// </exception>
+    /// <summary>Reads complete alias definitions for the exact source, or refuses promotion.</summary>
     private async Task<Dictionary<string, AliasDefinition>> GetIndexAliasesAsync(string index, CancellationToken cancellationToken)
     {
-        var aliasesResponse = await _client.Indices.GetAliasAsync(Indices.Index(index), cancellationToken).AnyContext();
-        _logger.LogRequest(aliasesResponse);
-
-        var result = new Dictionary<string, AliasDefinition>(StringComparer.Ordinal);
-
-        if (aliasesResponse.IsValidResponse)
-        {
+        var response = await _client.Indices.GetAliasAsync(Indices.Index(index), cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse)
+            throw new RepositoryException(response.GetErrorMessage($"Could not read source aliases for {index}"), response.OriginalException());
 #if ELASTICSEARCH9
-            var indices = aliasesResponse.Aliases;
+        var indices = response.Aliases;
 #else
-            var indices = aliasesResponse.Values;
+        var indices = response.Values;
 #endif
-            if (indices is null || indices.Count is 0)
-                return result;
-
-            // FirstOrDefault rather than SingleOrDefault: a response carrying more than one entry for the
-            // requested index must not throw from inside the cutover path.
-            var match = indices.FirstOrDefault(a => String.Equals(a.Key, index));
-            if (match.Value?.Aliases is null)
-                return result;
-
-            foreach (var (alias, definition) in match.Value.Aliases)
-                result[alias] = definition ?? new AliasDefinition();
-
-            return result;
-        }
-
-        // A missing index has no aliases to move, which is not an error here.
-        if (aliasesResponse.ApiCallDetails is { HttpStatusCode: 404 })
-            return result;
-
-        throw new RepositoryException(
-            aliasesResponse.GetErrorMessage($"Error getting aliases for index {index}; refusing to move aliases without knowing what they are"),
-            aliasesResponse.OriginalException());
+        if (indices is null || indices.Count is not 1)
+            throw new RepositoryException($"The alias response did not identify the exact source {index}");
+        var entry = indices.First();
+        if (!String.Equals(entry.Key, index) || entry.Value?.Aliases is null || entry.Value.Aliases.Any(a => a.Value is null))
+            throw new RepositoryException($"Incomplete alias definitions for {index}; refusing to drop alias metadata");
+        return entry.Value.Aliases.ToDictionary(a => a.Key, a => a.Value, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -1458,11 +1303,13 @@ public class ElasticReindexer
     /// point at which the new index starts serving traffic.
     /// </summary>
     /// <exception cref="ReindexIncompleteException">
-    /// The alias update failed, so traffic is still being served by the old index.
+    /// Alias promotion was not confirmed. The server may have applied it; inspect the actual alias state.
     /// </exception>
     private async Task SwitchAliasesAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int progress, CancellationToken cancellationToken)
     {
         var aliases = await GetIndexAliasesAsync(workItem.OldIndex, cancellationToken).AnyContext();
+
+        var existingAliases = new HashSet<string>(aliases.Keys, StringComparer.Ordinal);
 
         // A default definition carries no metadata, which reproduces the plain add this used to build for the
         // primary alias when it wasn't already present on the old index.
@@ -1475,17 +1322,19 @@ public class ElasticReindexer
         var aliasActions = new List<IndexUpdateAliasesAction>();
         foreach (var (alias, definition) in aliases)
         {
-            aliasActions.Add(new IndexUpdateAliasesAction { Remove = new RemoveAction { Alias = alias, Index = workItem.OldIndex } });
+            if (existingAliases.Contains(alias))
+                aliasActions.Add(new IndexUpdateAliasesAction { Remove = new RemoveAction { Alias = alias, Index = workItem.OldIndex, MustExist = true } });
             aliasActions.Add(new IndexUpdateAliasesAction { Add = CreateAddAction(alias, definition, workItem.NewIndex) });
         }
 
         var bulkResponse = await _client.Indices.UpdateAliasesAsync(x => x.Actions(aliasActions), cancellationToken).AnyContext();
-        if (!bulkResponse.IsValidResponse)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!bulkResponse.IsValidResponse || !bulkResponse.Acknowledged)
         {
             _logger.LogErrorRequest(bulkResponse, "Error updating aliases during reindex");
 
             throw new ReindexIncompleteException(workItem.OldIndex, workItem.NewIndex,
-                $"the documents were copied but the aliases ({String.Join(", ", aliases.Keys)}) could not be switched to the new index, so traffic is still being served by {workItem.OldIndex} ({bulkResponse.ElasticsearchServerError})");
+                $"the documents were copied but the aliases ({String.Join(", ", aliases.Keys)}) could not be switched to the new index, the cutover outcome is unconfirmed; inspect both indexes and their aliases before recovery ({bulkResponse.ElasticsearchServerError})");
         }
 
         _logger.LogRequest(bulkResponse);
@@ -1557,54 +1406,18 @@ public class ElasticReindexer
 
     private enum SampleIdStatus { Found, Empty, Failed }
 
-    /// <summary>
-    /// Reads the source's highest assigned sequence number, which is the cheapest date-independent way to tell
-    /// whether the source changed during a copy.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Elasticsearch assigns a monotonically increasing <c>_seq_no</c> to every write on a shard, so comparing
-    /// the maximum across shards before and after a copy detects inserts, same-count updates, and deletes alike
-    /// — none of which document counts reliably reveal. This is a per-shard stats read, not a scan, so it costs
-    /// the same regardless of index size.
-    /// </para>
-    /// <para>
-    /// Taken from shard-level stats rather than a <c>max</c> aggregation on <c>_seq_no</c>, because the
-    /// aggregation only sees live documents: a delete leaves the searchable maximum unchanged while the shard's
-    /// <c>max_seq_no</c> advances. Verified against a live cluster - after deleting a document the aggregation
-    /// still reported 4 while the shard reported 5.
-    /// </para>
-    /// </remarks>
-    /// <returns>The highest sequence number across the index's primary shards, or <c>null</c> if it could not be read.</returns>
-    private async Task<long?> TryGetMaxSequenceNumberAsync(string index, CancellationToken cancellationToken)
+    /// <summary>Reads a generation-bound vector for every primary shard, or reports missing evidence.</summary>
+    private async Task<ReindexSourceCheckpoint?> TryGetSourceCheckpointAsync(string index, CancellationToken cancellationToken)
     {
-        var response = await _client.Indices.StatsAsync((Indices)index, d => d.Level(Level.Shards), cancellationToken).AnyContext();
-        _logger.LogRequest(response);
-
-        if (!response.IsValidResponse)
+        try
         {
-            _logger.LogWarning("Could not read sequence numbers for {Index}: {Error}", index, response.GetErrorMessage("Stats failed"));
+            return await ReindexSourceCheckpoint.ReadAsync(_client, index, cancellationToken).AnyContext();
+        }
+        catch (RepositoryException ex)
+        {
+            _logger.LogWarning(ex, "Could not read complete source checkpoints for {Index}", index);
             return null;
         }
-
-        long? max = null;
-        foreach (var shards in response.Indices?.Values.SelectMany(i => i.Shards?.Values ?? []) ?? [])
-        {
-            foreach (var shard in shards)
-            {
-                if (shard.Routing?.Primary is not true || shard.SeqNo is null)
-                    continue;
-
-                long shardMax = shard.SeqNo.MaxSeqNo;
-                if (max is null || shardMax > max)
-                    max = shardMax;
-            }
-        }
-
-        if (max is null)
-            _logger.LogWarning("Sequence numbers were missing from the shard stats for {Index}", index);
-
-        return max;
     }
 
     /// <summary>
@@ -1613,23 +1426,17 @@ public class ElasticReindexer
     private async Task<string?> TryGetIndexUuidAsync(string index, CancellationToken cancellationToken)
     {
         var response = await _client.Indices.GetSettingsAsync((Indices)index, cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
         _logger.LogRequest(response);
-
-        if (!response.IsValidResponse)
-        {
-            _logger.LogWarning("Could not read the index uuid for {Index}: {Error}", index, response.GetErrorMessage("Get settings failed"));
+        if (response.ApiCallDetails?.HttpStatusCode is 404)
             return null;
-        }
-
-        foreach (var state in response.Settings.Values)
-        {
-            string? uuid = state.Settings?.Index?.Uuid;
-            if (!String.IsNullOrEmpty(uuid))
-                return uuid;
-        }
-
-        _logger.LogWarning("The index uuid was missing from the settings for {Index}", index);
-        return null;
+        if (!response.IsValidResponse || response.Settings is null || response.Settings.Count is not 1)
+            throw new RepositoryException($"Could not establish the exact index generation for {index}; refusing to infer missing completion evidence");
+        var entry = response.Settings.First();
+        string? uuid = entry.Value.Settings?.Index?.Uuid;
+        if (!String.Equals(entry.Key, index) || String.IsNullOrEmpty(uuid))
+            throw new RepositoryException($"The settings did not establish the exact index generation for {index}");
+        return uuid;
     }
 
     /// <summary>
@@ -1751,17 +1558,18 @@ public class ElasticReindexer
         var response = await _client.GetAsync<ReindexCompletion>(GetCompletionId(workItem),
             d => d.Index(GetCompletionIndexName()), cancellationToken).AnyContext();
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode is not 404)
-        {
-            _logger.LogWarning("Could not read the completion record for {OldIndex} -> {NewIndex}: {Error}",
-                workItem.OldIndex, workItem.NewIndex, response.GetErrorMessage("Get failed"));
-            return false;
-        }
+            throw new RepositoryException(response.GetErrorMessage("Could not read completion evidence; refusing to infer that this migration may be replayed"), response.OriginalException());
 
         if (!response.Found || response.Source is null)
             return false;
 
         var completion = response.Source;
+        if (!String.Equals(completion.Alias, workItem.Alias, StringComparison.Ordinal)
+            || !String.Equals(completion.SourceIndex, workItem.OldIndex, StringComparison.Ordinal)
+            || !String.Equals(completion.DestinationIndex, workItem.NewIndex, StringComparison.Ordinal))
+            return false;
         if (!String.Equals(completion.DestinationUuid, destinationUuid, StringComparison.Ordinal))
         {
             _logger.LogWarning("The completion record for {NewIndex} names uuid {RecordedUuid}, but the index now has uuid {CurrentUuid}, so it describes an index generation that no longer exists.",
@@ -1777,26 +1585,6 @@ public class ElasticReindexer
         }
 
         return true;
-    }
-
-    /// <summary>
-    /// Writes the completion record for a quiesced migration whose destination is already promoted.
-    /// </summary>
-    /// <remarks>
-    /// Only meaningful for <see cref="ReindexWorkItem.QuiesceSource"/>, where promotion happens after the copy has
-    /// been reconciled against a blocked source and verified. A promoted destination is therefore evidence the copy
-    /// was complete, and a missing record means only that the process died between the alias switch and the record
-    /// write. Recording it closes that gap instead of leaving the migration permanently ambiguous.
-    /// </remarks>
-    /// <exception cref="InvalidOperationException">The work item did not opt in to quiesce.</exception>
-    internal Task RecordVerifiedCompletionAsync(ReindexWorkItem workItem, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(workItem);
-
-        if (!workItem.QuiesceSource)
-            throw new InvalidOperationException("Completion can only be re-derived from a promoted alias for a quiesced reindex, because that is the only ordering in which promotion implies the copy was verified.");
-
-        return RecordCompletionAsync(workItem, cancellationToken);
     }
 
     /// <summary>
@@ -1825,8 +1613,9 @@ public class ElasticReindexer
 
         _logger.LogRequest(response);
 
-        if (!response.IsValidResponse)
-            return new SampleIdResult(SampleIdStatus.Failed, Error: response.GetErrorMessage("Search failed"), Exception: response.OriginalException());
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!response.IsValidResponse || response.TimedOut || response.Shards is null || response.Shards.Failed > 0)
+            return new SampleIdResult(SampleIdStatus.Failed, Error: response.GetErrorMessage("Search failed or was incomplete"), Exception: response.OriginalException());
 
         if (!response.Hits.Any())
             return new SampleIdResult(SampleIdStatus.Empty);
@@ -1921,6 +1710,8 @@ public class ElasticReindexer
         /// </summary>
         public long Updated { get; init; }
 
+        public long Deleted { get; init; }
+        public long Noops { get; init; }
         public long Failures { get; init; }
         public ReindexOutcome Outcome { get; init; }
 
@@ -2001,6 +1792,12 @@ public class ElasticReindexer
         [JsonPropertyName("noops")]
         public long Noops { get; init; }
 
+        [JsonPropertyName("deleted")]
+        public long Deleted { get; init; }
+
+        [JsonPropertyName("timed_out")]
+        public bool TimedOut { get; init; }
+
         [JsonPropertyName("version_conflicts")]
         public long VersionConflicts { get; init; }
 
@@ -2017,9 +1814,10 @@ public class ElasticReindexer
         public long Updated { get; init; }
         public long Noops { get; init; }
         public long VersionConflicts { get; init; }
+        public long Deleted { get; init; }
 
         /// <summary>Documents the copy actually changed. Drives reported progress.</summary>
-        public long Converged => Created + Updated + Noops;
+        public long Converged => Created + Updated + Noops + Deleted;
 
         /// <summary>
         /// Documents the copy examined, including ones rejected as version conflicts. Drives the stall
@@ -2056,6 +1854,7 @@ public class ElasticReindexer
                 Created = read("created"),
                 Updated = read("updated"),
                 Noops = read("noops"),
+                Deleted = read("deleted"),
                 VersionConflicts = read("version_conflicts")
             };
         }
@@ -2083,4 +1882,38 @@ public class ElasticReindexer
         [JsonPropertyName("type")]
         public string? Type { get; init; }
     }
+    /// <summary>Prevents an unrecorded stale migration from moving an alias backwards after a newer cutover.</summary>
+    private async Task EnsureSourceOwnsAliasAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
+    {
+        var response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.GET,
+            $"/_alias/{Uri.EscapeDataString(workItem.Alias)}", cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (response.ApiCallDetails?.HttpStatusCode is 404)
+            return;
+        using var document = ReindexResponse.Parse(response, "Checking source alias ownership", cancellationToken);
+        var root = document.RootElement;
+        if (!root.TryGetProperty(workItem.OldIndex, out var source)
+            || !ReindexResponse.Required(source, "aliases", JsonValueKind.Object).TryGetProperty(workItem.Alias, out var alias)
+            || alias.ValueKind is not JsonValueKind.Object)
+            throw new ReindexCompletionUnknownException(workItem.Alias, workItem.OldIndex, workItem.NewIndex,
+                "the alias exists but no longer belongs to this physical source; refusing a stale migration");
+    }
+
+    /// <summary>The migration owns only an unpromoted destination; unknown aliases are never disposable.</summary>
+    private async Task EnsureDestinationNotServingTrafficAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
+    {
+        var response = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.GET,
+            $"/{Uri.EscapeDataString(workItem.NewIndex)}/_alias", cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (response.ApiCallDetails?.HttpStatusCode is 404)
+            return;
+        using var document = ReindexResponse.Parse(response, "Checking destination ownership", cancellationToken);
+        var root = document.RootElement;
+        var entry = ReindexResponse.Required(root, workItem.NewIndex, JsonValueKind.Object);
+        var aliases = ReindexResponse.Required(entry, "aliases", JsonValueKind.Object);
+        if (root.EnumerateObject().Count() is not 1 || aliases.EnumerateObject().Any())
+            throw new ReindexCompletionUnknownException(workItem.Alias, workItem.OldIndex, workItem.NewIndex,
+                "the destination is already aliased without matching completion evidence; refusing to recopy live data");
+    }
+
 }

@@ -1,14 +1,27 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 using Foundatio.Serializer;
+using SystemTextJsonSerializer = Foundatio.Serializer.SystemTextJsonSerializer;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class ElasticReindexerTests
 {
+    private static ElasticReindexer CreateValidationReindexer()
+    {
+        var settings = new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://in-memory.invalid:9200")),
+                new SequenceRequestInvoker((500, "{}")))
+            .MaximumRetries(0)
+            .OnRequestCompleted(_ => throw new InvalidOperationException("Input validation must not issue requests."));
+        return new ElasticReindexer(new ElasticsearchClient(settings), new SystemTextJsonSerializer());
+    }
+
     [Fact]
     public void GetNoProgressTimeout_WhenBatchSizeNotSpecified_UsesElasticsearchDefaultBatchSize()
     {
@@ -266,7 +279,7 @@ public sealed class ElasticReindexerTests
     public Task ReindexAsync_WithInfiniteRequestsPerSecond_ThrowsArgumentOutOfRangeException(float requestsPerSecond)
     {
         // Arrange
-        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var reindexer = CreateValidationReindexer();
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = requestsPerSecond };
 
         // Act & Assert
@@ -277,7 +290,7 @@ public sealed class ElasticReindexerTests
     public Task ReindexAsync_WithNaNRequestsPerSecond_ThrowsArgumentOutOfRangeException()
     {
         // Arrange
-        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var reindexer = CreateValidationReindexer();
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = float.NaN };
 
         // Act & Assert
@@ -288,7 +301,7 @@ public sealed class ElasticReindexerTests
     public Task ReindexAsync_WithNonPositiveBatchSize_ThrowsArgumentOutOfRangeException()
     {
         // Arrange
-        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var reindexer = CreateValidationReindexer();
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexBatchSize = 0 };
 
         // Act & Assert
@@ -299,7 +312,7 @@ public sealed class ElasticReindexerTests
     public Task ReindexAsync_WithNonPositiveRequestsPerSecond_ThrowsArgumentOutOfRangeException()
     {
         // Arrange
-        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var reindexer = CreateValidationReindexer();
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = -1 };
 
         // Act & Assert
@@ -312,7 +325,7 @@ public sealed class ElasticReindexerTests
         // Arrange
         // The alias is what the cutover moves. Without it the copy would run to completion and then silently
         // skip the promotion, reporting success while traffic stayed on the old index.
-        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var reindexer = CreateValidationReindexer();
         var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "" };
 
         // Act & Assert
@@ -323,7 +336,7 @@ public sealed class ElasticReindexerTests
     public Task ReindexAsync_WithNullWorkItem_ThrowsArgumentNullException()
     {
         // Arrange
-        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var reindexer = CreateValidationReindexer();
 
         // Act & Assert
         return Assert.ThrowsAsync<ArgumentNullException>(() => reindexer.ReindexAsync(null!, cancellationToken: TestContext.Current.CancellationToken));

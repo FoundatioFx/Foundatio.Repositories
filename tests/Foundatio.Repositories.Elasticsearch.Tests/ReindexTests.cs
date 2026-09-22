@@ -705,19 +705,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
-    /// <summary>
-    /// A quiesced migration whose alias moved but whose completion record is missing is repaired, not escalated.
-    /// </summary>
-    /// <remarks>
-    /// The default ordering has to treat this state as unknown, because the alias moves before the catch-up pass and
-    /// so proves nothing about completeness. Quiesce inverts that: nothing is promoted until the copy has been
-    /// reconciled against a blocked source and verified, so a promoted alias is evidence the copy was complete, and
-    /// the only thing a missing record can mean is that the process died in the gap between the two writes. The right
-    /// response is to record the completion and acknowledge - recopying would write into an index that is already
-    /// serving traffic, and refusing forever would strand a migration that did succeed.
-    /// </remarks>
     [Fact]
-    public async Task QueuedQuiescedReindex_WhenPromotedWithoutCompletionRecord_RecordsCompletionAndAcknowledges()
+    public async Task QueuedQuiescedReindex_WhenPromotedWithoutCompletionRecord_DoesNotFabricateCompletion()
     {
         // Arrange
         using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
@@ -738,8 +727,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
         var workItem = version2Index.CreateReindexWorkItem(1) with { QuiesceSource = true };
 
-        // Simulate a quiesced attempt that reconciled and verified the copy, promoted the alias, then died before
-        // recording the completion.
+        // Alias state does not authenticate whether an earlier attempt used the quiesced protocol.
         await _client.ReindexAsync<Employee>(d => d
             .Source(s => s.Indices(version1Index.VersionedName))
             .Dest(dd => dd.Index(version2Index.VersionedName))
@@ -752,14 +740,14 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
 
-        // Assert - acknowledged rather than abandoned or dead-lettered
-        Assert.Equal(0, disposition.Abandoned);
-        Assert.Equal(0, disposition.Deadletter);
-        Assert.Equal(1, disposition.Completed);
+        // A new quiesce flag cannot authenticate the prior attempt.
+        Assert.Equal(0, disposition.Completed);
+        Assert.True(disposition.Abandoned > 0 || disposition.Deadletter > 0);
+        Assert.IsType<ReindexCompletionUnknownException>(disposition.Result.Error);
 
-        // And completion is now durable, so a further redelivery resolves without re-deriving anything
+        // Both source and destination remain available for operator recovery.
         var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
-        Assert.True(await reindexer.HasCompletionEvidenceAsync(workItem, TestCancellationToken));
+        Assert.False(await reindexer.HasCompletionEvidenceAsync(workItem, TestCancellationToken));
     }
 
     /// <summary>
@@ -965,14 +953,15 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             Enumerable.Range(0, 5).Select(i => new Identity { Id = $"natural-key-{i:D3}" }).ToList());
         await version2Index.ConfigureAsync();
 
-        // Block the completion write by taking the record's name as a closed index, so writes to it fail.
+        // Keep completion reads available so this exercises the final write, not preflight read failure.
         string completionIndex = ElasticReindexer.GetCompletionIndexName();
         await _client.Indices.DeleteAsync(completionIndex, TestCancellationToken);
         await _client.Indices.CreateAsync(completionIndex, TestCancellationToken);
-        await _client.Indices.CloseAsync(completionIndex, TestCancellationToken);
+        var block = await _client.Transport.RequestAsync<StringResponse>(Elastic.Transport.HttpMethod.PUT,
+            $"/{completionIndex}/_settings", PostData.String("""{"index.blocks.write":true}"""), TestCancellationToken);
+        Assert.True(block.ApiCallDetails.HasSuccessfulStatusCode, block.Body);
         await using AsyncDisposableAction cleanup = new(async () =>
         {
-            await _client.Indices.OpenAsync(completionIndex, TestCancellationToken);
             await _client.Indices.DeleteAsync(completionIndex, TestCancellationToken);
         });
 
@@ -985,6 +974,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.Contains("completion could not be recorded", exception.Reason);
+        Assert.Equal(5, (await _client.CountAsync<Identity>(c => c.Indices(version2Index.VersionedName), TestCancellationToken)).Count);
+        Assert.False(await reindexer.HasCompletionEvidenceAsync(workItem, TestCancellationToken));
         Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
@@ -1093,7 +1084,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(storedResponse.Found);
         Assert.Equal(currentUuid, storedResponse.Source!.DestinationUuid);
         Assert.Equal(version2Index.VersionedName, storedResponse.Source.DestinationIndex);
-        Assert.Equal("none", storedResponse.Source.Transformation);
+        Assert.Equal(ElasticReindexer.GetTransformationFingerprint(workItem), storedResponse.Source.Transformation);
     }
 
     /// <summary>
@@ -3551,7 +3542,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task GetWorkItemLockAsync_WhenAliasIsAlreadyLocked_AbandonsWorkItem()
+    public async Task GetWorkItemLockAsync_WhenCallerCancelsWhileAliasIsLocked_PropagatesCancellation()
     {
         // Arrange - hold the reindex lock the direct path uses
         using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
@@ -3563,13 +3554,10 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var handler = new ReindexWorkItemHandler(configuration);
 
-        // Act - a cancelled token stands in for the acquire timeout elapsing
+        // Caller cancellation is not a contention timeout: preserve it for shutdown handling.
         using var cancelledSource = new CancellationTokenSource();
         await cancelledSource.CancelAsync();
-        var workItemLock = await handler.GetWorkItemLockAsync(workItem, cancelledSource.Token);
-
-        // Assert - no lock means the queue redelivers rather than running two reindexes at once
-        Assert.Null(workItemLock);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => handler.GetWorkItemLockAsync(workItem, cancelledSource.Token));
     }
 
     [Fact]
