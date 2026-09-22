@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Jobs;
 using Foundatio.Lock;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
