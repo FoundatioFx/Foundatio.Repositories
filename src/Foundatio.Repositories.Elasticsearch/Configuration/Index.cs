@@ -690,11 +690,12 @@ public class Index : IIndexCompatibility, IHaveLogger
     internal bool IsPotentialCompatibilityErrorName(string sourceIndex)
     {
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
-        ReadOnlySpan<char> candidate = sourceIndex;
-        if (CompatibilityIndexName.TryRemovePrefix(sourceIndex, out ReadOnlySpan<char> canonicalName))
-            candidate = canonicalName;
+        if (IsNativeCompatibilityName(sourceIndex, out bool isErrorIndex))
+            return isErrorIndex;
 
-        return IsNativeCompatibilityName(candidate, out bool isErrorIndex) && isErrorIndex;
+        return CompatibilityIndexName.TryRemovePrefix(sourceIndex, out ReadOnlySpan<char> canonicalName)
+            && IsNativeCompatibilityName(canonicalName, out isErrorIndex)
+            && isErrorIndex;
     }
 
     private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex)
