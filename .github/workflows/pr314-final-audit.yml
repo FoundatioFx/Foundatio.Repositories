@@ -37,51 +37,25 @@ jobs:
           git merge --no-edit origin/main
           python3 ../audit-control/.audit/pr314/apply.py
           git diff 30f6ec4249aff665fd33e8e6ba7602d10d128566 --stat
-          git log -3 --oneline
+          git log -5 --oneline
       - name: Release build
         run: dotnet build Foundatio.Repositories.slnx --configuration Release
-      - name: Repeat deterministic retry tests twenty times
+      - name: Repeat deterministic regression tests twenty times
         run: |
           set -euo pipefail
           for iteration in $(seq 1 20); do
-            echo "Deterministic retry iteration $iteration"
-            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests --configuration Release --no-build --filter-class '*DeleteByQueryRetryTests' --report-trx --results-directory "${{ github.workspace }}/audit-results/retry-$iteration"
+            echo "Deterministic regression iteration $iteration"
+            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests --configuration Release --no-build --filter-class '*DeleteByQueryRetryTests' '*MultiGetResponseValidationTests' --report-trx --results-directory "${{ github.workspace }}/audit-results/repeat-$iteration"
           done
-      - name: Verify tests reject broken accumulation and retry budgets
-        run: |
-          set -euo pipefail
-          target=src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticRepositoryBase.cs
-          cp "$target" /tmp/pr314-original.cs
-          trap 'cp /tmp/pr314-original.cs "$target"' EXIT
-          for mutation in accumulation budget; do
-            cp /tmp/pr314-original.cs "$target"
-            MUTATION="$mutation" python3 - <<'PY'
-          import os
-          from pathlib import Path
-          p = Path('src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticRepositoryBase.cs')
-          s = p.read_text(encoding='utf-8')
-          old, new = ('totalDeleted += response.Deleted ?? 0;', 'totalDeleted = response.Deleted ?? 0;') if os.environ['MUTATION'] == 'accumulation' else ('int maxAttempts = options.GetRetryCount() + 1;', 'int maxAttempts = 1;')
-          assert s.count(old) == 1
-          p.write_text(s.replace(old, new), encoding='utf-8')
-          PY
-            dotnet build tests/Foundatio.Repositories.Elasticsearch.Tests --configuration Release --no-restore
-            set +e
-            dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests --configuration Release --no-build --filter-class '*DeleteByQueryRetryTests' --report-trx --results-directory "${{ github.workspace }}/audit-results/mutation-$mutation"
-            result=$?
-            set -e
-            test "$result" -eq 2
-            echo "Verified $mutation mutant was detected."
-          done
-          cp /tmp/pr314-original.cs "$target"
-          git diff --exit-code
-          dotnet build Foundatio.Repositories.slnx --configuration Release --no-restore
+      - name: Verify regression tests detect deliberate mutations
+        run: python3 ../audit-control/.audit/pr314/verify-mutants.py
       - name: Start Elasticsearch
         run: docker compose up -d --wait elasticsearch
       - name: Full solution tests
         run: dotnet test --solution Foundatio.Repositories.slnx --configuration Release --no-build --report-trx --results-directory '${{ github.workspace }}/audit-results/full'
       - name: Check changed C# formatting
         run: |
-          dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs
+          dotnet format Foundatio.Repositories.slnx --verify-no-changes --no-restore --include tests/Foundatio.Repositories.Elasticsearch.Tests/DeleteByQueryRetryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/MultiGetResponseValidationTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs src/Foundatio.Repositories.Elasticsearch/Extensions/ElasticIndexExtensions.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReadOnlyRepositoryBase.cs src/Foundatio.Repositories.Elasticsearch/Options/ElasticCommandOptions.cs
       - name: Build documentation
         working-directory: source/docs
         run: |
