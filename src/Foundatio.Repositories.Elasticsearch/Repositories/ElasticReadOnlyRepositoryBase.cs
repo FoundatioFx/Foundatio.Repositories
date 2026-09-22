@@ -427,13 +427,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         options = ConfigureOptions(options?.As<T>());
 
         var pointInTime = options.GetPointInTimeState();
-        var continuation = options.SafeGetOption<PointInTimeState?>(SearchAfterQueryExtensions.PointInTimeContinuationKey);
+        var continuation = options.SafeGetOption<SearchAfterPagingState?>(SearchAfterQueryExtensions.SearchAfterContinuationKey);
         try
         {
             await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
-            ValidatePointInTimeContinuation(options, continuation);
+            ValidateSearchAfterContinuation(options, continuation);
             pointInTime = options.GetPointInTimeState();
+            var pagingState = options.GetSearchAfterPagingState();
             var pagingStrategy = GetPagingStrategy(options);
 
             // Don't use caching with paged modes.
@@ -449,7 +450,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 result = await GetCachedQueryResultAsync<FindResults<TResult>>(options, cacheSuffix: cacheSuffix).AnyContext();
                 if (result != null)
                 {
-                    ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options, pointInTime);
+                    ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options, pagingState);
                     return result;
                 }
             }
@@ -494,6 +495,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                         searchDescriptor.IgnoreUnavailable(null);
                         await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
                         pointInTime = options.GetPointInTimeState();
+                        pagingState = pointInTime;
                         break;
                 }
 
@@ -557,7 +559,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
                 await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
 
-            ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options, pointInTime);
+            ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options, pagingState);
 
             return result;
         }
@@ -574,7 +576,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _logger.LogRequest(response);
     }
 
-    private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options, PointInTimeState? pointInTime) where TResult : class, new()
+    private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options, SearchAfterPagingState? pagingState) where TResult : class, new()
     {
         ArgumentNullException.ThrowIfNull(previousResults);
 
@@ -598,32 +600,32 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return results;
         }
 
-        ValidatePointInTimeContinuation(options, pointInTime);
+        ValidateSearchAfterContinuation(options, pagingState);
 
         if (options.ShouldUseSearchAfterPaging())
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
         options.PageNumber(previousResults.Page + 1);
-        if (pointInTime is null)
+        if (pagingState is null)
             return await FindAsAsync<TResult>(query, options).AnyContext();
 
         // Keep the virtual FindAsAsync dispatch while validating the originating session after BeforeQuery.
-        options.Values.Set(SearchAfterQueryExtensions.PointInTimeContinuationKey, pointInTime);
+        options.Values.Set(SearchAfterQueryExtensions.SearchAfterContinuationKey, pagingState);
         try
         {
             return await FindAsAsync<TResult>(query, options).AnyContext();
         }
         finally
         {
-            options.Values.Remove(SearchAfterQueryExtensions.PointInTimeContinuationKey);
+            options.Values.Remove(SearchAfterQueryExtensions.SearchAfterContinuationKey);
         }
     }
 
-    private static void ValidatePointInTimeContinuation(ICommandOptions options, PointInTimeState? continuation)
+    private static void ValidateSearchAfterContinuation(ICommandOptions options, SearchAfterPagingState? continuation)
     {
         if (continuation is not null &&
-            (!options.ShouldUseSearchAfterPagingPointInTime() || !ReferenceEquals(continuation, options.GetPointInTimeState())))
-            throw new QueryValidationException("The point-in-time paging session has been closed or replaced. Start a new search with FindAsync.");
+            (!options.ShouldUseSearchAfterPaging() || options.GetSearchAfterPagingMode() != continuation.Mode || !ReferenceEquals(continuation, options.GetSearchAfterPagingState())))
+            throw new QueryValidationException("The search-after paging session has been closed or replaced. Start a new search with FindAsync.");
     }
 
     public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)

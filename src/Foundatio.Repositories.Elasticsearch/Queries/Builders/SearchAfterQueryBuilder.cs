@@ -21,7 +21,12 @@ namespace Foundatio.Repositories
         PointInTime
     }
 
-    internal sealed class PointInTimeState(string id, bool isRepositoryOwned)
+    internal class SearchAfterPagingState(SearchAfterPagingMode mode)
+    {
+        public SearchAfterPagingMode Mode { get; } = mode;
+    }
+
+    internal sealed class PointInTimeState(string id, bool isRepositoryOwned) : SearchAfterPagingState(SearchAfterPagingMode.PointInTime)
     {
         public string Id { get; set; } = id;
         public bool IsRepositoryOwned { get; set; } = isRepositoryOwned;
@@ -34,7 +39,8 @@ namespace Foundatio.Repositories
         internal const string SearchAfterKey = "@SearchAfter";
         internal const string SearchBeforeKey = "@SearchBefore";
         internal const string PointInTimeStateKey = "@PointInTimeState";
-        internal const string PointInTimeContinuationKey = "@PointInTimeContinuation";
+        internal const string LivePagingStateKey = "@LivePagingState";
+        internal const string SearchAfterContinuationKey = "@SearchAfterContinuation";
         internal const string UnstableSortWarnedKey = "@SearchAfterUnstableSortWarned";
 
         /// <summary>
@@ -49,7 +55,11 @@ namespace Foundatio.Repositories
             if (!enabled)
                 return DisableSearchAfterPaging(options);
 
-            return options.BuildOption(SearchAfterPagingKey, true);
+            options.BuildOption(SearchAfterPagingKey, true);
+            if (options.GetSearchAfterPagingMode() is SearchAfterPagingMode.Live && options.GetSearchAfterPagingState() is null)
+                options.Values.Set(LivePagingStateKey, new SearchAfterPagingState(SearchAfterPagingMode.Live));
+
+            return options;
         }
 
         /// <summary>
@@ -71,8 +81,8 @@ namespace Foundatio.Repositories
             if (options.ShouldUseSearchAfterPaging() && options.GetSearchAfterPagingMode() != mode)
                 ClearSearchAfterPagingSession(options);
 
-            options.BuildOption(SearchAfterPagingKey, true);
-            return options.BuildOption(SearchAfterPagingModeKey, mode);
+            options.BuildOption(SearchAfterPagingModeKey, mode);
+            return options.SearchAfterPaging();
         }
 
         /// <summary>
@@ -179,6 +189,7 @@ namespace Foundatio.Repositories
             options.Values.Remove(SearchAfterKey);
             options.Values.Remove(SearchBeforeKey);
             options.Values.Remove(PointInTimeStateKey);
+            options.Values.Remove(LivePagingStateKey);
             options.Values.Remove(UnstableSortWarnedKey);
         }
 
@@ -219,6 +230,16 @@ namespace Foundatio.Repositories.Options
         public static bool ShouldUseSearchAfterPagingPointInTime(this ICommandOptions options)
         {
             return options.ShouldUseSearchAfterPaging() && options.GetSearchAfterPagingMode() is SearchAfterPagingMode.PointInTime;
+        }
+
+        internal static SearchAfterPagingState? GetSearchAfterPagingState(this ICommandOptions options)
+        {
+            if (!options.ShouldUseSearchAfterPaging())
+                return null;
+
+            return options.GetSearchAfterPagingMode() is SearchAfterPagingMode.PointInTime
+                ? options.GetPointInTimeState()
+                : options.SafeGetOption<SearchAfterPagingState?>(SearchAfterQueryExtensions.LivePagingStateKey);
         }
 
         internal static PointInTimeState? GetPointInTimeState(this ICommandOptions options)
