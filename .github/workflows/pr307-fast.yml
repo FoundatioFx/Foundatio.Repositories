@@ -1,0 +1,90 @@
+name: PR 307 regression proof and candidate staging
+on:
+  push:
+    branches: [audit/pr-307-final-validation-20260922]
+    paths: ['.github/workflows/pr307-fast.yml']
+concurrency:
+  group: pr307-final-candidate-staging
+  cancel-in-progress: true
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  MINVERVERSIONOVERRIDE: 8.0.2-audit.pr307.${{ github.run_id }}
+jobs:
+  stage:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Add regressions and compile the unpatched source
+        run: |
+          mkdir -p .audit/results
+          python .audit/pr307/run.py tests
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/red-build.log
+      - name: Prove the new cases fail without the fixes
+        run: |
+          set +e
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' 2>&1 | tee .audit/results/red.log
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -ne 0
+          grep -Eq 'failed: [1-9][0-9]*' .audit/results/red.log
+      - name: Apply fixes and documentation
+        run: |
+          python .audit/pr307/run.py fix
+          python .audit/pr307/docs.py
+          git diff --check
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/green-build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*TaskResponse_*' '*ErrorLineage_*' | tee .audit/results/green.log
+          dotnet test --project tests/Foundatio.Repositories.Tests/Foundatio.Repositories.Tests.csproj -c Release --no-build | tee .audit/results/core.log
+      - name: Verify source formatting
+        run: |
+          mapfile -t modified < <(git diff --name-only -- '*.cs')
+          mapfile -t added < <(git ls-files --others --exclude-standard -- '*.cs')
+          dotnet format whitespace Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${modified[@]}" "${added[@]}" --verbosity diagnostic 2>&1 | tee .audit/results/format.log
+          git diff --check
+      - name: Package and execute external consumers
+        run: bash .audit/pr307/consumer.sh
+      - name: Materialize clean logical commits on a candidate branch only
+        run: |
+          test "$GITHUB_REF_NAME" = 'audit/pr-307-final-validation-20260922'
+          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskResponseReader.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskCancellation.cs src/Foundatio.Repositories.Elasticsearch/Configuration/Index.cs src/Foundatio.Repositories.Elasticsearch/Configuration/ElasticIndexCompatibilityUpgrader.cs src/Foundatio.Repositories.Elasticsearch/Configuration/IElasticConfigurationCompatibility.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.ErrorLineage.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CancellationEvidence.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.Task.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CutoverSafety.cs docs/guide/index-management.md .agents/skills/foundatio-repositories/references/index-lifecycle.md
+          git diff --cached --binary > .audit/results/candidate.patch
+          git worktree add ../pr307-candidate 13f069f60af1b406ee4dafa4874c1793b5caafba
+          git -C ../pr307-candidate apply ../Foundatio.Repositories/.audit/results/candidate.patch
+          cd ../pr307-candidate
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskResponseReader.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.TaskResponse.cs
+          git commit -m 'fix(reindex): validate wire counters and reject timed-out task results'
+          git add src/Foundatio.Repositories.Elasticsearch/Configuration/Index.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.ErrorLineage.cs
+          git commit -m 'fix(compat): authenticate naturally prefixed error-index lineage'
+          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskCancellation.cs src/Foundatio.Repositories.Elasticsearch/Configuration/ElasticIndexCompatibilityUpgrader.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CancellationEvidence.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.Task.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.CutoverSafety.cs
+          git commit -m 'fix(compat): require positive task termination and preserve cancellation'
+          git add docs/guide/index-management.md .agents/skills/foundatio-repositories/references/index-lifecycle.md src/Foundatio.Repositories.Elasticsearch/Configuration/IElasticConfigurationCompatibility.cs
+          git commit -m 'docs(compat): document strict task and cancellation evidence'
+          test -z "$(git status --porcelain)"
+          git diff --exit-code 13f069f60af1b406ee4dafa4874c1793b5caafba HEAD -- .github
+          test -z "$(git ls-tree -r --name-only HEAD -- .audit)"
+          git push origin HEAD:refs/heads/audit/pr-307-candidate-20260922
+          git log --oneline -4 | tee ../Foundatio.Repositories/.audit/results/candidate-commits.txt
+          git rev-parse HEAD | tee ../Foundatio.Repositories/.audit/results/candidate-sha.txt
+          git bundle create ../Foundatio.Repositories/.audit/results/candidate.bundle 13f069f60af1b406ee4dafa4874c1793b5caafba..HEAD
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr307-windows-regression-proof
+          path: .audit/results
+          retention-days: 7
