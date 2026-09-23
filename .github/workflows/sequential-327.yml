@@ -1,0 +1,141 @@
+name: Sequential PR 327 consistency fixes
+on:
+  push:
+    branches: [audit/pr307-sequential-20260922]
+    paths: ['.github/workflows/sequential-327.yml', '.audit/sequential327/**']
+concurrency:
+  group: sequential-pr327-validation
+  cancel-in-progress: true
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+    working-directory: candidate
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  ELASTICSEARCH_URL: http://localhost:9200
+  FOUNDATIO_TEST_CLUSTER: foundatio-sequential327-${{ github.run_id }}
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: candidate
+          ref: b458dd81d75095428c4d438ed93a32a707739cd9
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build the current PR with seven new regression cases
+        run: |
+          mkdir -p ../evidence
+          git config user.name 'Blake Niemyjski'
+          git config user.email 'bniemyjski@gmail.com'
+          python ../harness/.audit/sequential327/prepare.py tests
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/red-build.log
+      - name: Prove task and launch defects before fixing them
+        run: |
+          set +e
+          timeout 120s dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*ReindexDispatchSafetyTests.Sequential_*' 2>&1 | tee ../evidence/dispatch-red.log
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -eq 2
+          grep -Eq 'failed: 5' ../evidence/dispatch-red.log
+      - name: Fix task evidence and single-attempt dispatch
+        run: |
+          python ../harness/.audit/sequential327/prepare.py dispatch
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/dispatch-build.log
+          timeout 120s dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*ReindexDispatchSafetyTests.Sequential_*' 2>&1 | tee ../evidence/dispatch-green.log
+          grep -Eq 'succeeded: 5' ../evidence/dispatch-green.log
+          git add src/Foundatio.Repositories.Elasticsearch/Extensions/SingleAttemptRequest.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ReindexTaskLease.cs src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Infrastructure/SequenceRequestInvoker.cs tests/Foundatio.Repositories.Elasticsearch.Tests/ReindexDispatchSafetyTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/ReindexRecoveryTests.cs
+          git commit -m 'fix: retain unknown task fences and prevent duplicate reindex launches'
+      - name: Start disposable Elasticsearch 8
+        run: |
+          sudo sysctl -w vm.max_map_count=1048576
+          docker run -d --name sequential327-es -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e action.destructive_requires_name=false -e ingest.geoip.downloader.enabled=false -e cluster.name=$FOUNDATIO_TEST_CLUSTER -e ES_JAVA_OPTS='-Xms1g -Xmx1g' docker.elastic.co/elasticsearch/elasticsearch:8.19.15
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:9200 > ../evidence/server8.json; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json,os
+          s=json.load(open('../evidence/server8.json'))
+          assert s['cluster_name']==os.environ['FOUNDATIO_TEST_CLUSTER']
+          assert s['version']['number']=='8.19.15'
+          PY
+      - name: Prove retired sources incorrectly accept stale writes
+        run: |
+          set +e
+          timeout 180s dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*ReindexRecoveryTests.Sequential_*' 2>&1 | tee ../evidence/retirement-red.log
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -eq 2
+          grep -Eq 'failed: 2' ../evidence/retirement-red.log
+      - name: Retain the durable retirement fence before alias dispatch
+        run: |
+          python ../harness/.audit/sequential327/prepare.py retirement
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/retirement-build.log
+          timeout 180s dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*ReindexRecoveryTests.Sequential_*' 2>&1 | tee ../evidence/retirement-green.log
+          grep -Eq 'succeeded: 2' ../evidence/retirement-green.log
+          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexer.cs src/Foundatio.Repositories.Elasticsearch/Repositories/IndexWriteBlock.cs tests/Foundatio.Repositories.Elasticsearch.Tests/ReindexRecoveryTests.Retirement.cs
+          git commit -m 'fix: retain retired source write fences after cutover intent'
+      - name: Document exact failback and retired-source behavior
+        run: |
+          python ../harness/.audit/sequential327/prepare.py docs
+          python ../harness/.audit/sequential327/api-docs.py
+          git add docs/guide/index-management.md docs/guide/reindex-safety.md docs/guide/troubleshooting.md .agents/skills/foundatio-repositories/references/index-lifecycle.md src/Foundatio.Repositories.Elasticsearch/Configuration/Index.cs src/Foundatio.Repositories.Elasticsearch/Configuration/DailyIndex.cs src/Foundatio.Repositories.Elasticsearch/Jobs/ReindexWorkItem.cs
+          git commit -m 'docs: define task uncertainty and retired-source migration fences'
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/final-build.log
+      - name: Run the complete ES8 suite including prior consistency repairs
+        run: |
+          dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build 2>&1 | tee ../evidence/full8.log
+          docker logs sequential327-es > ../evidence/server8.log 2>&1
+          docker rm -f sequential327-es
+      - name: Validate the same exact candidate on Elasticsearch 9
+        run: |
+          docker run -d --name sequential327-es -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e action.destructive_requires_name=false -e ingest.geoip.downloader.enabled=false -e cluster.name=$FOUNDATIO_TEST_CLUSTER -e ES_JAVA_OPTS='-Xms1g -Xmx1g' docker.elastic.co/elasticsearch/elasticsearch:9.5.0
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:9200 > ../evidence/server9.json; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json,os
+          s=json.load(open('../evidence/server9.json'))
+          assert s['cluster_name']==os.environ['FOUNDATIO_TEST_CLUSTER']
+          assert s['version']['number']=='9.5.0'
+          PY
+          dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build 2>&1 | tee ../evidence/full9.log
+          git diff --check b458dd81d75095428c4d438ed93a32a707739cd9 HEAD
+          mapfile -t changed < <(git diff --name-only b458dd81d75095428c4d438ed93a32a707739cd9 HEAD -- '*.cs')
+          dotnet format whitespace --folder --verify-no-changes --include "${changed[@]}" 2>&1 | tee ../evidence/format.log
+      - name: Stage clean logical commits without changing the PR
+        run: |
+          test -z "$(git status --porcelain)"
+          git diff --exit-code b458dd81d75095428c4d438ed93a32a707739cd9 HEAD -- .github .audit
+          git log --format='%H %s' b458dd81d75095428c4d438ed93a32a707739cd9..HEAD > ../evidence/commits.txt
+          git rev-parse HEAD > ../evidence/candidate-sha.txt
+          git diff b458dd81d75095428c4d438ed93a32a707739cd9 HEAD > ../evidence/candidate.patch
+          git bundle create ../evidence/candidate.bundle HEAD ^b458dd81d75095428c4d438ed93a32a707739cd9
+          git push origin HEAD:refs/heads/audit/pr327-sequential-candidate-${{ github.run_id }}
+      - name: Preserve logs and the actual partial diff on failure
+        if: always()
+        run: |
+          docker logs sequential327-es > ../evidence/server-final.log 2>&1 || true
+          git diff b458dd81d75095428c4d438ed93a32a707739cd9 > ../evidence/working.patch
+          git status --porcelain > ../evidence/status.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sequential-pr327-evidence
+          path: evidence
+          retention-days: 7
