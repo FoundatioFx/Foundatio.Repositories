@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 def replace(path, old, new):
     p=Path(path)
@@ -18,3 +19,21 @@ replace('src/Foundatio.Repositories.Elasticsearch/Jobs/ReindexWorkItem.cs', ''' 
     /// cutover intent, including when the alias response is lost. A full copy is required: StartUtc is unsupported.''')
 replace('docs/guide/troubleshooting.md', 'A fresh attempt can recover a confirmed migration-owned block for the same physical generation.', 'A fresh attempt can recover a confirmed pre-cutover migration-owned block for the same physical generation. A `cutover` intent is not automatically unblocked: retained old sources must reject stale physical-name writers even after successful promotion.')
 replace('docs/guide/troubleshooting.md', 'Explicit release failures propagate on the success path; disposal during another failure logs without masking the original error.', 'Before cutover intent, explicit release failures propagate and disposal during another failure logs without masking the original error. After cutover intent, disposal deliberately retains the retired source fence.')
+
+# Each fact recreates the same physical index names. Durable retirement records intentionally survive
+# deletion, so reset the fixture-owned journals only at a new test boundary on the validated disposable
+# cluster. Do not weaken production generation/ownership checks or clear records during recovery tests.
+fixture='tests/Foundatio.Repositories.Elasticsearch.Tests/ReindexTests.cs'
+replace(fixture, '''        await base.InitializeAsync();
+        await RemoveDataAsync(false);''', '''        await base.InitializeAsync();
+        await RemoveDataAsync(false);
+
+        // These serial fixtures recreate employees/identity index generations between facts. Retired source
+        // records deliberately outlive production index deletion; they must not leak into an unrelated test.
+        // This reset is test-only and follows the disposable-cluster guard, never production recovery.
+        await DisposableClusterGuard.EnsureValidatedAsync(_client, TestCancellationToken);
+        var journals = Indices.Parse(String.Join(',', ReindexSafetyState.Index, ElasticReindexer.GetCompletionIndexName()));
+        var response = await _client.Indices.DeleteAsync(journals, d => d.IgnoreUnavailable(), TestCancellationToken);
+        Assert.True(response.IsValidResponse && response.Acknowledged, response.DebugInformation);''')
+subprocess.run(['git','add',fixture],check=True)
+subprocess.run(['git','commit','-m','test: isolate retained migration journals between index generations'],check=True)
