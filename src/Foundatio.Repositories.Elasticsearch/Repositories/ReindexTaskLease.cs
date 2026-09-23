@@ -80,7 +80,9 @@ internal sealed class ReindexTaskLease : IAsyncDisposable
     {
         var status = await client.Tasks.GetAsync(taskId, cancellationToken).AnyContext();
         cancellationToken.ThrowIfCancellationRequested();
-        if (status.ApiCallDetails?.HttpStatusCode is 404 || status.IsValidResponse && status.Completed)
+        // A task 404 is not positive termination evidence. Elasticsearch can fall back to stored task
+        // results when the owning node is unavailable; a missing result cannot prove the task stopped.
+        if (status.IsValidResponse && status.Completed)
             return true;
         if (!status.IsValidResponse)
             return false;
@@ -89,6 +91,6 @@ internal sealed class ReindexTaskLease : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
         status = await client.Tasks.GetAsync(taskId, cancellationToken).AnyContext();
         cancellationToken.ThrowIfCancellationRequested();
-        return status.ApiCallDetails?.HttpStatusCode is 404 || status.IsValidResponse && status.Completed;
+        return status.IsValidResponse && status.Completed;
     }
 }

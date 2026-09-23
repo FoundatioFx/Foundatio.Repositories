@@ -88,6 +88,53 @@ public sealed class ReindexSafetyTests
     }
 
     [Fact]
+    public async Task ReindexDispatch_UsesForcedNodeSoTransientResponseIsNotRetried()
+    {
+        var pool = new StaticNodePool([
+            new Uri("http://node-1.invalid:9200"),
+            new Uri("http://node-2.invalid:9200"),
+            new Uri("http://node-3.invalid:9200")
+        ]);
+        var invoker = new SequenceRequestInvoker((502, "{}"));
+        var settings = new ElasticsearchClientSettings(pool, invoker).MaximumRetries(2);
+        var client = new ElasticsearchClient(settings);
+        Uri node = ElasticReindexer.SelectSingleDispatchNode(client.Transport.Configuration);
+        var request = new RequestConfiguration { ForceNode = node };
+
+        var response = await client.Transport.RequestAsync<StringResponse>(
+            new EndpointPath(Elastic.Transport.HttpMethod.POST, "/_reindex"),
+            PostData.String("{}"),
+            configureActivity: null,
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(502, response.ApiCallDetails.HttpStatusCode);
+        var bound = new BoundConfiguration(client.Transport.Configuration, request);
+        Assert.Equal(0, bound.MaxRetries);
+        Assert.Equal(node, bound.ForceNode);
+    }
+
+    [Fact]
+    public async Task PriorTask_WhenTaskLookupReturns404_KeepsReplayFenced()
+    {
+        var entry = new ReindexSafetyState.Entry("task", "source", "destination", "alias", String.Empty, TaskId: "node:1");
+        var settings = new ElasticsearchClientSettings(
+                new SingleNodePool(new Uri("http://in-memory.invalid:9200")),
+                new SequenceRequestInvoker(
+                    (200, JsonSerializer.Serialize(new { _source = entry })),
+                    (404, """{"error":{"type":"resource_not_found_exception","reason":"task result unavailable"},"status":404}""")))
+            .MaximumRetries(0);
+
+        var exception = await Assert.ThrowsAsync<ReindexCompletionUnknownException>(() => ReindexTaskLease.AcquireAsync(
+            new ElasticsearchClient(settings),
+            new ReindexWorkItem { Alias = "alias", OldIndex = "source", NewIndex = "destination" },
+            NullLogger.Instance,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("could not be confirmed stopped", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PriorTask_WhenCancellationIsAcknowledgedButStillRunning_KeepsReplayFenced()
     {
         var entry = new ReindexSafetyState.Entry("task", "source", "destination", "alias", String.Empty, TaskId: "node:1");

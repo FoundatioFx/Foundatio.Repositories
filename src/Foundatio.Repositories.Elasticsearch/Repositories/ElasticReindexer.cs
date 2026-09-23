@@ -844,6 +844,20 @@ public class ElasticReindexer
     /// Throws when a copy pass did not copy every document, so an incomplete reindex can never be mistaken
     /// for a successful one by a caller that ignores logs.
     /// </summary>
+    internal static Uri SelectSingleDispatchNode(ITransportConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        Func<Node, bool>? predicate = configuration.NodePredicate;
+        foreach (var node in configuration.NodePool.CreateView())
+        {
+            if (predicate is null || predicate(node))
+                return node.Uri;
+        }
+
+        throw new RepositoryException("No eligible Elasticsearch node is available for a single-dispatch reindex request.");
+    }
+
     private void EnsureCopyCompleted(ReindexWorkItem workItem, ReindexResult result)
     {
         if (result.Outcome is ReindexOutcome.Completed)
@@ -867,6 +881,7 @@ public class ElasticReindexer
         var query = GetResumeQuery(workItem.TimestampField, startTime);
 
         await using var taskLease = await ReindexTaskLease.AcquireAsync(_client, workItem, _logger, cancellationToken).AnyContext();
+        Uri dispatchNode = SelectSingleDispatchNode(_client.Transport.Configuration);
         var result = await _client.ReindexAsync(d =>
         {
             d.Source(src =>
@@ -880,7 +895,11 @@ public class ElasticReindexer
             d.Dest(dest => dest.Index(workItem.NewIndex));
             d.Conflicts(Conflicts.Proceed);
             d.WaitForCompletion(false);
-            d.RequestConfiguration(r => r.MaxRetries(0));
+
+            // Reindex submission is non-idempotent: a retry after Elasticsearch accepted the first request
+            // can create a second untracked task. In the pinned transport, request-local MaxRetries is ignored
+            // unless ForceNode is set, so select one eligible node first and pin this dispatch to it.
+            d.RequestConfiguration(r => r.ForceNode(dispatchNode));
 
             if (workItem.ReindexRequestsPerSecond.HasValue)
                 d.RequestsPerSecond(workItem.ReindexRequestsPerSecond.Value);

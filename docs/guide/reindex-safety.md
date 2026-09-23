@@ -2,6 +2,13 @@
 
 Use this guide when changing index versions, reviewing a migration, or recovering an interrupted copy. It describes the library's migration contract, not an end-to-end transaction across Elasticsearch, application queues, and caches. An atomic alias change is not an atomic copy of a changing index.
 
+
+### Asynchronous task dispatch and termination evidence
+
+Starting `_reindex?wait_for_completion=false` is a non-idempotent dispatch. The migration selects one eligible node and forces the submission to that node so the pinned Elastic transport cannot fail over and submit a second copy after an ambiguous 502/503/504. The durable task-intent record is written before dispatch; a response without a confirmed task id remains an unknown outcome and blocks replay.
+
+Task lookup returning HTTP 404 is also **not** proof of termination. Elasticsearch may consult stored task results when the original task node is unavailable, so a missing stored result cannot authorize replay, destination cleanup, block release, or promotion. Cleanup requires an authoritative terminal task response; otherwise the durable safety record remains for operator reconciliation.
+
 ## Current release gates
 
 This guide describes the implementation at runtime revision `b458dd81`, not unconditional production approval. The [sequential consistency review](https://github.com/FoundatioFx/Foundatio.Repositories/pull/307#issuecomment-5786782362) tracks additional release-blocking work that documentation and the existing single-node test suites do not resolve:
