@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import lzma
+import runpy
 import subprocess
 from pathlib import Path
 
@@ -26,5 +27,6 @@ for entry in entries:
     assert hashlib.sha256(new).hexdigest() == entry['result'], path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(new)
-Path('../candidate-files.json').write_text(json.dumps({e['path']: e['result'] for e in entries}, indent=2) + '\n')
-print(f'Applied {len(entries)} hash-verified files on {BASE}; no workflow files changed.')
+runpy.run_path(str(payload_root / 'threegate-corrections.py'))
+Path('../candidate-files.json').write_text(json.dumps({e['path']: hashlib.sha256(Path(e['path']).read_bytes()).hexdigest() for e in entries}, indent=2) + '\n')
+print(f'Applied {len(entries)} reviewed files on {BASE}; no workflow files changed.')
