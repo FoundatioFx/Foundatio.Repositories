@@ -1,0 +1,33 @@
+name: Sequential migration consistency audit
+on:
+  push:
+    branches: [audit/pr307-sequential-20260922]
+    paths: ['.github/workflows/sequential-audit.yml']
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  source:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Capture exact source history without credentials
+        run: |
+          mkdir evidence
+          git update-ref refs/heads/snapshot-pr307 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          git update-ref refs/heads/snapshot-pr327 b458dd81d75095428c4d438ed93a32a707739cd9
+          git bundle create evidence/migration-sources.bundle snapshot-pr307 snapshot-pr327
+          git bundle verify evidence/migration-sources.bundle
+          git rev-parse snapshot-pr307 snapshot-pr327 origin/main > evidence/revisions.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: migration-pinned-sources
+          path: evidence
+          retention-days: 7
