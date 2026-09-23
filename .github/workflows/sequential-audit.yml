@@ -2,32 +2,112 @@ name: Sequential migration consistency audit
 on:
   push:
     branches: [audit/pr307-sequential-20260922]
-    paths: ['.github/workflows/sequential-audit.yml']
+    paths: ['.github/workflows/sequential-audit.yml', '.audit/sequential/**']
 permissions:
-  contents: read
+  contents: write
 defaults:
   run:
     shell: bash
+    working-directory: candidate
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
 jobs:
-  source:
+  launch:
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: candidate
           ref: 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
           fetch-depth: 0
-          persist-credentials: false
-      - name: Capture exact source history without credentials
-        run: |
-          mkdir evidence
-          git update-ref refs/heads/snapshot-pr307 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
-          git update-ref refs/heads/snapshot-pr327 b458dd81d75095428c4d438ed93a32a707739cd9
-          git bundle create evidence/migration-sources.bundle snapshot-pr307 snapshot-pr327
-          git bundle verify evidence/migration-sources.bundle
-          git rev-parse snapshot-pr307 snapshot-pr327 origin/main > evidence/revisions.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
-          name: migration-pinned-sources
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build original source with launch regressions
+        run: |
+          mkdir -p ../evidence
+          cp ../harness/.audit/sequential/IndexCompatibilityTests.LaunchSafety.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/red-build.log
+      - name: Prove ambiguous launches are retried before the fix
+        run: |
+          set +e
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*WithRetryingTransport_SubmitsOnlyOnce' 2>&1 | tee ../evidence/red.log
+          result=${PIPESTATUS[0]}
+          set -e
+          test "$result" -eq 2
+          grep -Eq 'failed: 3' ../evidence/red.log
+      - name: Disable launch retries and document the boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs')
+          s = p.read_text()
+          old = '                d.RequestConfiguration(request => request.OpaqueId(opaqueId));'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, '''                // An accepted request can lose its response. Retrying may start a second task that is not
+                          // represented by the returned task ID; X-Opaque-Id is correlation, not deduplication.
+                          d.RequestConfiguration(request => request.OpaqueId(opaqueId).MaxRetries(0));'''.replace('\n                          ', '\n                ')))
+          p = Path('docs/guide/index-management.md')
+          s = p.read_text()
+          needle = 'Task copy results are validated independently of application serializer naming policy.'
+          assert s.count(needle) == 1
+          p.write_text(s.replace(needle, 'Asynchronous compatibility-copy submission disables client transport retries. A lost response can hide an accepted task, and retrying could launch a second copy not represented by the returned task ID. `X-Opaque-Id` is correlation, not deduplication. Configure proxies and outer application policies not to replay these submissions; unknown launch outcomes require inspection, not automatic resubmission.\n\n' + needle))
+          p = Path('.agents/skills/foundatio-repositories/references/index-lifecycle.md')
+          s = p.read_text()
+          needle = '**Task evidence is fail-closed:**'
+          assert s.count(needle) == 1
+          p.write_text(s.replace(needle, '**Asynchronous launch:** compatibility reindex submission overrides transport retries to zero. Do not replay ambiguous submissions through proxies or outer resilience policies; the opaque header does not deduplicate tasks.\n\n' + needle))
+          PY
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/green-build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*WithRetryingTransport_SubmitsOnlyOnce' '*Cancellation404*' 2>&1 | tee ../evidence/green.log
+      - name: Provision disposable Elasticsearch
+        run: |
+          sudo sysctl -w vm.max_map_count=1048576
+          docker run -d --name sequential-es -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e action.destructive_requires_name=false -e ingest.geoip.downloader.enabled=false -e cluster.name=foundatio-sequential-${{ github.run_id }} -e ES_JAVA_OPTS='-Xms1g -Xmx1g' docker.elastic.co/elasticsearch/elasticsearch:9.5.0
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:9200 > ../evidence/server.json; then break; fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json
+          x=json.load(open('../evidence/server.json'))
+          assert x['cluster_name'] == 'foundatio-sequential-${{ github.run_id }}'
+          assert x['version']['number'] == '9.5.0'
+          PY
+      - name: Run complete solution tests
+        env:
+          ELASTICSEARCH_URL: http://localhost:9200
+          FOUNDATIO_TEST_CLUSTER: foundatio-sequential-${{ github.run_id }}
+        run: |
+          dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build 2>&1 | tee ../evidence/full-tests.log
+          git diff --check
+          dotnet format whitespace --folder --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs 2>&1 | tee ../evidence/format.log
+      - name: Stage one clean source commit without advancing the PR
+        run: |
+          git config user.name 'Blake Niemyjski'
+          git config user.email 'bniemyjski@gmail.com'
+          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs docs/guide/index-management.md .agents/skills/foundatio-repositories/references/index-lifecycle.md
+          git commit -m 'fix: prevent ambiguous compatibility reindex resubmission'
+          test -z "$(git status --porcelain)"
+          git diff --exit-code 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD -- .github .audit
+          git rev-parse HEAD > ../evidence/candidate-sha.txt
+          git diff 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD > ../evidence/candidate.patch
+          git bundle create ../evidence/candidate.bundle HEAD ^9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          git push origin HEAD:refs/heads/audit/pr307-launch-candidate-${{ github.run_id }}
+      - name: Capture server logs
+        if: always()
+        run: docker logs sequential-es > ../evidence/server.log 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sequential-launch-evidence
           path: evidence
           retention-days: 7
