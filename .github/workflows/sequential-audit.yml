@@ -44,28 +44,9 @@ jobs:
           set -e
           test "$result" -eq 2
           grep -Eq 'failed: 3' ../evidence/red.log
-      - name: Disable launch retries and document the boundary
+      - name: Pin one eligible dispatch node and document the boundary
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs')
-          s = p.read_text()
-          old = '                d.RequestConfiguration(request => request.OpaqueId(opaqueId));'
-          assert s.count(old) == 1
-          p.write_text(s.replace(old, '''                // An accepted request can lose its response. Retrying may start a second task that is not
-                          // represented by the returned task ID; X-Opaque-Id is correlation, not deduplication.
-                          d.RequestConfiguration(request => request.OpaqueId(opaqueId).MaxRetries(0));'''.replace('\n                          ', '\n                ')))
-          p = Path('docs/guide/index-management.md')
-          s = p.read_text()
-          needle = 'Task copy results are validated independently of application serializer naming policy.'
-          assert s.count(needle) == 1
-          p.write_text(s.replace(needle, 'Asynchronous compatibility-copy submission disables client transport retries. A lost response can hide an accepted task, and retrying could launch a second copy not represented by the returned task ID. `X-Opaque-Id` is correlation, not deduplication. Configure proxies and outer application policies not to replay these submissions; unknown launch outcomes require inspection, not automatic resubmission.\n\n' + needle))
-          p = Path('.agents/skills/foundatio-repositories/references/index-lifecycle.md')
-          s = p.read_text()
-          needle = '**Task evidence is fail-closed:**'
-          assert s.count(needle) == 1
-          p.write_text(s.replace(needle, '**Asynchronous launch:** compatibility reindex submission overrides transport retries to zero. Do not replay ambiguous submissions through proxies or outer resilience policies; the opaque header does not deduplicate tasks.\n\n' + needle))
-          PY
+          python ../harness/.audit/sequential/launch.py
           dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/green-build.log
           dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*WithRetryingTransport_SubmitsOnlyOnce' '*Cancellation404*' 2>&1 | tee ../evidence/green.log
       - name: Provision disposable Elasticsearch
@@ -89,12 +70,12 @@ jobs:
         run: |
           dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build 2>&1 | tee ../evidence/full-tests.log
           git diff --check
-          dotnet format whitespace --folder --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs 2>&1 | tee ../evidence/format.log
+          dotnet format whitespace --folder --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Extensions/SingleNodeDispatchExtensions.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs 2>&1 | tee ../evidence/format.log
       - name: Stage one clean source commit without advancing the PR
         run: |
           git config user.name 'Blake Niemyjski'
           git config user.email 'bniemyjski@gmail.com'
-          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs docs/guide/index-management.md .agents/skills/foundatio-repositories/references/index-lifecycle.md
+          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Extensions/SingleNodeDispatchExtensions.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs docs/guide/index-management.md .agents/skills/foundatio-repositories/references/index-lifecycle.md
           git commit -m 'fix: prevent ambiguous compatibility reindex resubmission'
           test -z "$(git status --porcelain)"
           git diff --exit-code 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD -- .github .audit
