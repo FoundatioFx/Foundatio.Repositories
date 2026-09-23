@@ -57,6 +57,7 @@ internal sealed class ElasticReindexTaskRunner
             ReindexRequestsPerSecond = requestsPerSecond
         };
         string opaqueId = GetOpaqueId(sourceIndex, targetIndex);
+        Uri dispatchNode = SelectSingleDispatchNode(_client.Transport.Configuration);
 
         ReindexResponse startResponse;
         try
@@ -73,7 +74,13 @@ internal sealed class ElasticReindexTaskRunner
                 d.Conflicts(Conflicts.Abort);
                 d.Refresh();
                 d.WaitForCompletion(false);
-                d.RequestConfiguration(request => request.OpaqueId(opaqueId));
+
+                // The async submission is non-idempotent. Pin it to one eligible node so the pinned
+                // Elastic Transport cannot fail over and create an untracked sibling task after an
+                // ambiguous response. X-Opaque-Id is correlation only; it is not an idempotency key.
+                d.RequestConfiguration(request => request
+                    .ForceNode(dispatchNode)
+                    .OpaqueId(opaqueId));
 
                 if (requestsPerSecond.HasValue)
                     d.RequestsPerSecond(requestsPerSecond.Value);
@@ -121,6 +128,20 @@ internal sealed class ElasticReindexTaskRunner
 
         ValidateResult(result, workItem);
         return new ElasticReindexTaskResult(result.Total, result.Created);
+    }
+
+    internal static Uri SelectSingleDispatchNode(ITransportConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        Func<Node, bool>? predicate = configuration.NodePredicate;
+        foreach (var node in configuration.NodePool.CreateView())
+        {
+            if (predicate is null || predicate(node))
+                return node.Uri;
+        }
+
+        throw new RepositoryException("No eligible Elasticsearch node is available for a single-dispatch compatibility reindex request.");
     }
 
     internal static void ValidateOptions(int? batchSize, float? requestsPerSecond)

@@ -86,6 +86,31 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task RunCompatibilityReindexAsync_TransientSubmissionIsNotRetriedAcrossNodes()
+    {
+        // Arrange: the transport is globally allowed to retry and the pool has multiple nodes. A transient
+        // response after server acceptance must still result in exactly one POST /_reindex dispatch.
+        var invoker = new SequenceRequestInvoker(
+            new StubResponse(502, """{"error":{"type":"bad_gateway","reason":"response lost"},"status":502}""", Request: "POST /_reindex"));
+        var settings = new ElasticsearchClientSettings(new StaticNodePool([
+                new Uri("http://node-1.invalid:9200"),
+                new Uri("http://node-2.invalid:9200"),
+                new Uri("http://node-3.invalid:9200")
+            ]), invoker)
+            .MaximumRetries(2);
+        var runner = new ElasticReindexTaskRunner(new ElasticsearchClient(settings), TimeProvider.System);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, () => { }, CancellationToken.None));
+
+        // Assert
+        Assert.Contains("start outcome", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(["POST /_reindex"], invoker.Requests);
+        Assert.Equal(0, invoker.RemainingResponses);
+    }
+
+    [Fact]
     public async Task RunCompatibilityReindexAsync_WhenTerminalResponseHasVersionConflict_RejectsExactCopy()
     {
         // Arrange
