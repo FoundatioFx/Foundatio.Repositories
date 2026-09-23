@@ -570,3 +570,20 @@ public class EmployeeIndex : VersionedIndex<Employee>
 | Error | `Failed to get the status {N} times in a row for reindex task ... reindexing {OldIndex} -> {NewIndex}` | Status polling gave up after `MAX_STATUS_FAILS` (10) consecutive failures; reindex progress can no longer be tracked, but the server-side `_reindex` task keeps running |
 
 DailyIndex never emits mapping errors from the built-in configuration path (since `ConfigureAsync` is a no-op).
+
+
+## Consistency hardening: required migration contract
+
+Quiesced migration rejects nonempty transformation scripts before any Elasticsearch request. Arbitrary scripts can change identities, routing, or membership, so count equality is not a transformation-aware verification protocol. Rebuild a fresh destination while writers are stopped or use a separate transformation-aware snapshot/change-replay migration.
+
+Unscripted quiesced reconciliation examines every destination identity with routing preserved, validates every multi-get and bulk item, requires complete scroll/shard/timeout evidence, and rejects both count deficits and surpluses. Failure is never treated as absence. Source checkpoints include the physical UUID and every expected primary shard; a single maximum across shards and a fixed changed-ID sample are not safety proofs. Changed-ID inspection pages with bounded memory rather than stopping at 1,000 results.
+
+After a source is successfully fenced for reconciliation, it remains fenced on success or failure until it is deleted or an operator establishes safe recovery. This intentionally replaces unconditional unblocking in `finally`: a retained retired source must not accept writes from stale clients. A failed/lost alias response does not prove the swap failed. A queued `QuiesceSource` flag also cannot prove that a particular promoted generation was verified; without durable completion evidence, redelivery refuses to acknowledge or recopy.
+
+Copy submission and alias cutover use a single effective transport attempt. The supported Elastic transport ignores local retry limits alone, so these requests select and pin one node through the pool. External proxies must also avoid blind retries. This does not provide idempotency or a durable task-attempt journal after an unknown submission.
+
+The default non-quiesced path remains best effort under live writes, including hard deletes and changes after inspection. Per-shard checks detect specific failures but are not a write barrier. A blocked full rescan is proportional to the entire dataset, not a brief delta-only outage. Low-downtime migration requires durable change capture, ordered/idempotent replay including retained tombstones, an exact final boundary, replica readiness and controlled writer retirement.
+
+Shared release gate: consume the lost-lease repair in FoundatioFx/Foundatio#573, implement generation/attempt-bound durable recovery and stale-controller exclusion, and validate the combined release tree with Repositories #307. Neither a heartbeat nor an audit passing on one branch supplies storage-enforced fencing.
+
+Migration leases now renew on an independent 30-second heartbeat with bounded renewal attempts, not solely on progress callbacks. Renewal failure cancels the linked operation and forbids further guarded work. This requires providers to report loss correctly (Foundatio #573); it is not a fencing token and cannot revoke already-dispatched Elasticsearch requests. Underlying lease release remains owned by the acquisition scope.
