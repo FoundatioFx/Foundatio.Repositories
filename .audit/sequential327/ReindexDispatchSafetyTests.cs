@@ -66,7 +66,7 @@ public sealed class ReindexDispatchSafetyTests
         // Isolate one copy pass so recovery/preflight reads cannot hide a retried launch.
         await (Task)method.Invoke(reindexer, [work, progress, 0, 90, null, TestContext.Current.CancellationToken])!;
 
-        Assert.Single(invoker.Requests.Where(request => request == "POST /_reindex"));
+        Assert.Single(invoker.Requests, request => request == "POST /_reindex");
         Assert.DoesNotContain(invoker.Requests, request => request.StartsWith("DELETE", StringComparison.Ordinal));
     }
 }
