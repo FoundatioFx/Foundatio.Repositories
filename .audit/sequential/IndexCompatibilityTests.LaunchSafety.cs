@@ -3,6 +3,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -37,5 +39,42 @@ public partial class IndexCompatibilityTests
         Assert.Equal(["POST /_reindex"], invoker.Requests);
         Assert.Equal(2, invoker.RemainingResponses);
         Assert.False(terminated);
+    }
+
+    [Fact]
+    public void SingleAttemptRequest_RespectsNodePredicateWithoutChangingGlobalRetries()
+    {
+        using var invoker = new SequenceRequestInvoker([]);
+        using var nodes = new StaticNodePool([
+            new Uri("http://excluded-one:9200"), new Uri("http://allowed:9200"), new Uri("http://excluded-two:9200")]);
+        var settings = new ElasticsearchClientSettings(nodes, invoker)
+            .NodePredicate(node => node.Uri.Host == "allowed")
+            .MaximumRetries(2);
+        var client = new ElasticsearchClient(settings);
+
+        for (int i = 0; i < 3; i++)
+        {
+            IRequestConfiguration request = SingleAttemptRequest.Configure(client, new RequestConfigurationDescriptor());
+            Assert.Equal("allowed", request.ForceNode?.Host);
+            Assert.Equal(0, new BoundConfiguration(settings, request).MaxRetries);
+        }
+
+        Assert.Equal(2, new BoundConfiguration(settings).MaxRetries);
+        Assert.Empty(invoker.Requests);
+    }
+
+    [Fact]
+    public void SingleAttemptRequest_WhenEveryNodeIsExcluded_RefusesBeforeDispatch()
+    {
+        using var invoker = new SequenceRequestInvoker([]);
+        using var nodes = new StaticNodePool([new Uri("http://excluded:9200")]);
+        var settings = new ElasticsearchClientSettings(nodes, invoker).NodePredicate(_ => false);
+        var client = new ElasticsearchClient(settings);
+
+        var exception = Assert.Throws<RepositoryException>(() =>
+            SingleAttemptRequest.Configure(client, new RequestConfigurationDescriptor()));
+
+        Assert.Contains("No eligible", exception.Message);
+        Assert.Empty(invoker.Requests);
     }
 }

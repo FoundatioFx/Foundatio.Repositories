@@ -15,7 +15,7 @@ env:
 jobs:
   launch:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -24,68 +24,88 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           path: candidate
-          ref: 9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          ref: 5434cf80214acc9a989161b968dccf72fdb6a511
           fetch-depth: 0
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Build original source with launch regressions
+      - name: Build reviewed candidate with selection regressions
         run: |
           mkdir -p ../evidence
           cp ../harness/.audit/sequential/IndexCompatibilityTests.LaunchSafety.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/
           dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/red-build.log
-      - name: Prove ambiguous launches are retried before the fix
+      - name: Prove excluded nodes are incorrectly selected before the fix
         run: |
           set +e
-          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*WithRetryingTransport_SubmitsOnlyOnce' 2>&1 | tee ../evidence/red.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method 'SingleAttemptRequest_*' 2>&1 | tee ../evidence/red.log
           result=${PIPESTATUS[0]}
           set -e
           test "$result" -eq 2
-          grep -Eq 'failed: 3' ../evidence/red.log
-      - name: Pin one eligible dispatch node and document the boundary
+          grep -Eq 'failed: 2' ../evidence/red.log
+      - name: Preserve node restrictions on a single dispatch
         run: |
-          python ../harness/.audit/sequential/launch.py
-          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/green-build.log
-          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method '*WithRetryingTransport_SubmitsOnlyOnce' '*Cancellation404*' 2>&1 | tee ../evidence/green.log
-      - name: Provision disposable Elasticsearch
-        run: |
-          sudo sysctl -w vm.max_map_count=1048576
-          docker run -d --name sequential-es -p 127.0.0.1:9200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e action.destructive_requires_name=false -e ingest.geoip.downloader.enabled=false -e cluster.name=foundatio-sequential-${{ github.run_id }} -e ES_JAVA_OPTS='-Xms1g -Xmx1g' docker.elastic.co/elasticsearch/elasticsearch:9.5.0
-          for i in $(seq 1 90); do
-            if curl -fsS http://localhost:9200 > ../evidence/server.json; then break; fi
-            sleep 2
-          done
+          cp ../harness/.audit/sequential/SingleAttemptRequest.cs src/Foundatio.Repositories.Elasticsearch/Extensions/
           python - <<'PY'
-          import json
-          x=json.load(open('../evidence/server.json'))
-          assert x['cluster_name'] == 'foundatio-sequential-${{ github.run_id }}'
-          assert x['version']['number'] == '9.5.0'
+          from pathlib import Path
+          p=Path('docs/guide/index-management.md')
+          s=p.read_text()
+          needle='Task copy results are validated independently of application serializer naming policy.'
+          assert s.count(needle)==1
+          p.write_text(s.replace(needle, "Single-attempt dispatch honors the client's configured node predicate (or Elastic's default predicate) and explicit forced-node setting. When no eligible node exists it fails before submission, rather than bypassing node restrictions. Ordinary requests retain their configured retry behavior.\n\n"+needle))
           PY
-      - name: Run complete solution tests
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/green-build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-method 'SingleAttemptRequest_*' '*WithRetryingTransport_SubmitsOnlyOnce' 'Consistency_*' '*Cancellation404*' 2>&1 | tee ../evidence/green.log
+      - name: Validate full suites sequentially on disposable two-node clusters
         env:
           ELASTICSEARCH_URL: http://localhost:9200
           FOUNDATIO_TEST_CLUSTER: foundatio-sequential-${{ github.run_id }}
         run: |
-          dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build 2>&1 | tee ../evidence/full-tests.log
+          sudo sysctl -w vm.max_map_count=1048576
+          docker network create sequential-net
+          for version in 8.19.15 9.5.0; do
+            for number in 1 2; do
+              port=()
+              if [ "$number" = 1 ]; then port=(-p 127.0.0.1:9200:9200); fi
+              docker run -d --name sequential-es-$number --network sequential-net "${port[@]}" -e node.name=es-$number -e discovery.seed_hosts=sequential-es-1,sequential-es-2 -e cluster.initial_master_nodes=es-1,es-2 -e xpack.security.enabled=false -e action.destructive_requires_name=false -e ingest.geoip.downloader.enabled=false -e cluster.name=$FOUNDATIO_TEST_CLUSTER -e ES_JAVA_OPTS='-Xms768m -Xmx768m' docker.elastic.co/elasticsearch/elasticsearch:$version
+            done
+            for i in $(seq 1 90); do
+              if curl -fsS http://localhost:9200 > ../evidence/server-$version.json; then break; fi
+              sleep 2
+            done
+            curl -fsS 'http://localhost:9200/_cluster/health?wait_for_nodes=2&wait_for_status=green&timeout=90s' > ../evidence/health-$version.json
+            python - "$version" <<'PY'
+          import json,os,sys
+          v=sys.argv[1]
+          info=json.load(open(f'../evidence/server-{v}.json'))
+          health=json.load(open(f'../evidence/health-{v}.json'))
+          assert info['cluster_name']==os.environ['FOUNDATIO_TEST_CLUSTER']
+          assert info['version']['number']==v
+          assert health['number_of_nodes']==2 and not health['timed_out']
+          PY
+            dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build 2>&1 | tee ../evidence/full-$version.log
+            docker logs sequential-es-1 > ../evidence/server-$version.log 2>&1
+            docker rm -f sequential-es-1 sequential-es-2
+          done
           git diff --check
-          dotnet format whitespace --folder --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Extensions/SingleNodeDispatchExtensions.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs 2>&1 | tee ../evidence/format.log
-      - name: Stage one clean source commit without advancing the PR
+          dotnet format whitespace --folder --verify-no-changes --include src/Foundatio.Repositories.Elasticsearch/Extensions/SingleAttemptRequest.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs 2>&1 | tee ../evidence/format.log
+      - name: Stage clean follow-up without advancing the PR
         run: |
           git config user.name 'Blake Niemyjski'
           git config user.email 'bniemyjski@gmail.com'
-          git add src/Foundatio.Repositories.Elasticsearch/Repositories/ElasticReindexTaskRunner.cs src/Foundatio.Repositories.Elasticsearch/Extensions/SingleNodeDispatchExtensions.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs docs/guide/index-management.md .agents/skills/foundatio-repositories/references/index-lifecycle.md
-          git commit -m 'fix: prevent ambiguous compatibility reindex resubmission'
+          git add src/Foundatio.Repositories.Elasticsearch/Extensions/SingleAttemptRequest.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Configuration/IndexCompatibilityTests.LaunchSafety.cs docs/guide/index-management.md
+          git commit -m 'fix: preserve node restrictions for single-attempt migration dispatch'
           test -z "$(git status --porcelain)"
           git diff --exit-code 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD -- .github .audit
+          git log --format='%H %s' 9c681f8ce11b10509aadd2af9dcbbdcaea33200d..HEAD > ../evidence/commits.txt
           git rev-parse HEAD > ../evidence/candidate-sha.txt
           git diff 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD > ../evidence/candidate.patch
           git bundle create ../evidence/candidate.bundle HEAD ^9c681f8ce11b10509aadd2af9dcbbdcaea33200d
-          git push origin HEAD:refs/heads/audit/pr307-launch-candidate-${{ github.run_id }}
-      - name: Capture server logs
+          git push origin HEAD:refs/heads/audit/pr307-sequential-candidate-${{ github.run_id }}
+      - name: Capture remaining server logs
         if: always()
-        run: docker logs sequential-es > ../evidence/server.log 2>&1 || true
+        run: docker logs sequential-es-1 > ../evidence/server-final.log 2>&1 || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
