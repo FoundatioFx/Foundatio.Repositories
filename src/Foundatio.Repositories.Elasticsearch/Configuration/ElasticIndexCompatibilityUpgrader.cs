@@ -50,6 +50,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         "index.verified_before_close"
     };
     private readonly ElasticsearchClient _client;
+    private readonly TimeProvider _timeProvider;
     private readonly ElasticReindexTaskRunner _reindexTaskRunner;
     private readonly ElasticIndexCompatibilityRecovery _recovery;
     private readonly ILogger _logger;
@@ -64,6 +65,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _client = client;
+        _timeProvider = timeProvider;
         _logger = logger ?? NullLogger.Instance;
         _reindexTaskRunner = new ElasticReindexTaskRunner(client, timeProvider, _logger);
         _recovery = new ElasticIndexCompatibilityRecovery(client, lockProvider, _logger);
@@ -74,6 +76,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(compatibility);
 
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(index.CompatibilityUpgradeHealthTimeout, TimeSpan.Zero);
         EnsureCreateFromSupported(compatibility.ServerVersion);
         ElasticReindexTaskRunner.ValidateOptions(index.ReindexBatchSize, index.ReindexRequestsPerSecond);
         string targetIndex = CompatibilityIndexName.Create(compatibility.Name, compatibility.ServerMajor, index.Name);
@@ -95,11 +98,29 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         ArgumentNullException.ThrowIfNull(reindexLock);
         ArgumentNullException.ThrowIfNull(progressCallbackAsync);
 
+        await using var leaseGuard = new ReindexLeaseGuard(reindexLock, _timeProvider);
+        using var guardedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, leaseGuard.LostToken);
+        cancellationToken = guardedCancellation.Token;
+
         string sourceIndex = compatibility.Name;
         string targetIndex = CompatibilityIndexName.Create(sourceIndex, compatibility.ServerMajor, index.Name);
+        bool leaseOwnershipUncertain = false;
+        async Task RenewLeaseAsync()
+        {
+            try
+            {
+                await leaseGuard.RenewAsync().AnyContext();
+            }
+            catch
+            {
+                leaseOwnershipUncertain = true;
+                throw;
+            }
+        }
+
         async Task ReportProgressAsync(int progress, string? message)
         {
-            await reindexLock.RenewAsync().AnyContext();
+            await RenewLeaseAsync().AnyContext();
             _logger.LogInformation("Compatibility upgrade {SourceIndex} -> {TargetIndex} progress {Progress}%: {Message}", sourceIndex, targetIndex, progress, message);
             try
             {
@@ -113,6 +134,8 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             {
                 _logger.LogWarning(ex, "Compatibility upgrade {SourceIndex} -> {TargetIndex} progress {Progress}% callback failed", sourceIndex, targetIndex, progress);
             }
+
+            await RenewLeaseAsync().AnyContext();
         }
 
         bool workflowAttempted = false;
@@ -127,11 +150,13 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             ValidateSource(sourceState);
 
             workflowAttempted = true;
+            await RenewLeaseAsync().AnyContext();
             await AddWorkflowMarkerAsync(sourceIndex, false, cancellationToken).AnyContext();
             await AddWriteBlockAsync(sourceIndex, cancellationToken).AnyContext();
             await RefreshAsync(sourceIndex, cancellationToken).AnyContext();
             await ReportProgressAsync(5, $"Blocked writes to {sourceIndex}").AnyContext();
 
+            await RenewLeaseAsync().AnyContext();
             await CreateTargetAsync(sourceIndex, targetIndex, cancellationToken).AnyContext();
             bool isErrorIndex = sourceState.Aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias);
             await AddWorkflowMarkerAsync(targetIndex, isErrorIndex, cancellationToken).AnyContext();
@@ -146,6 +171,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
             // Only acknowledged setup or confirmed termination of this attempt's exact task permits cleanup.
             canResetCurrentAttempt = false;
+            await RenewLeaseAsync().AnyContext();
             var reindexResult = await _reindexTaskRunner.RunCompatibilityReindexAsync(
                 sourceIndex,
                 targetIndex,
@@ -165,7 +191,8 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             canResetCurrentAttempt = false;
             await RestoreTargetSettingsAsync(targetIndex, sourceState.Settings, cancellationToken).AnyContext();
             canResetCurrentAttempt = true;
-            await WaitForTargetHealthAsync(targetIndex, cancellationToken).AnyContext();
+            await CompatibilityTargetHealth.WaitAsync(_client, targetIndex, _timeProvider,
+                index.CompatibilityUpgradeHealthTimeout, RenewLeaseAsync, cancellationToken).AnyContext();
             await ReportProgressAsync(92, $"Validated {reindexResult.Total:N0} documents and restored index settings").AnyContext();
             targetState = await GetIndexStateAsync(targetIndex, cancellationToken).AnyContext();
             if (!JsonDefinitionsMatch(sourceState.Mapping, targetState.Mapping)
@@ -209,7 +236,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             // the client observes a timeout or cancellation. Never delete the destination after that point until
             // the resulting topology has been positively established.
             canResetCurrentAttempt = false;
-            var cutoverResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(aliasActions), cancellationToken).AnyContext();
+            await RenewLeaseAsync().AnyContext();
+            var cutoverResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(aliasActions)
+                .RequestConfiguration(r => SingleAttemptRequest.Configure(_client, r)), cancellationToken).AnyContext();
             if (cutoverResponse.IsValidResponse && cutoverResponse.Acknowledged)
                 _logger.LogRequest(cutoverResponse);
             else
@@ -225,7 +254,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 throw new RepositoryException($"Compatibility cutover for '{sourceIndex}' is in an unexpected state; do not retry or delete either index without manual inspection.");
             }
 
+            await RenewLeaseAsync().AnyContext();
             await RemoveWriteBlockAsync(targetIndex, cancellationToken).AnyContext();
+            await RenewLeaseAsync().AnyContext();
             await RemoveWorkflowMarkerAsync(targetIndex, cancellationToken).AnyContext();
 
             index.MappingResolver.RefreshMapping();
@@ -236,6 +267,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             if (!workflowAttempted)
                 throw;
 
+            if (leaseOwnershipUncertain || leaseGuard.Failure is not null)
+                throw new RepositoryException($"Compatibility upgrade for '{sourceIndex}' lost confirmed lease ownership. No automatic reset, unblocking, or recovery was attempted; inspect the retained artifacts.", upgradeException);
+
             var originalCancellation = GetOriginalCancellation(upgradeException);
             Exception CreateRecoveryFailure(string message, Exception cause)
             {
@@ -244,7 +278,8 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                     : new OperationCanceledException(message, cause, originalCancellation.CancellationToken);
             }
 
-            using var recoveryCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var recoveryCancellation = CancellationTokenSource.CreateLinkedTokenSource(leaseGuard.LostToken);
+            recoveryCancellation.CancelAfter(TimeSpan.FromSeconds(30));
             IndexCompatibilityUpgradeStatus status;
             try
             {
@@ -261,6 +296,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             {
                 try
                 {
+                    await RenewLeaseAsync().AnyContext();
                     await _recovery.ResetCurrentAttemptAsync(index, sourceIndex, recoveryCancellation.Token).AnyContext();
                 }
                 catch (Exception recoveryException)
@@ -283,6 +319,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                         upgradeException);
                 }
 
+                await RenewLeaseAsync().AnyContext();
                 await _recovery.RecoverUnderLockAsync(index, sourceIndex, recoveryCancellation.Token).AnyContext();
                 index.MappingResolver.RefreshMapping();
                 _logger.LogWarning(upgradeException, "Compatibility cutover {SourceIndex} -> {TargetIndex} committed despite a lost or failed client response; recovery finished the marked destination", sourceIndex, targetIndex);
@@ -648,22 +685,6 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             _logger,
             "Unable to remove the write block from compatibility destination {TargetIndex}",
             $"Compatibility cutover completed, but the write block could not be removed from destination index '{targetIndex}'. The source was replaced successfully; inspect and unblock the destination before resuming writes.",
-            targetIndex);
-    }
-
-    private async Task WaitForTargetHealthAsync(string targetIndex, CancellationToken cancellationToken)
-    {
-        var response = await _client.Cluster.HealthAsync(d => d
-            .Indices(targetIndex)
-            .WaitForStatus(HealthStatus.Yellow)
-            .WaitForNoInitializingShards()
-            .WaitForNoRelocatingShards()
-            .Timeout("30s"), cancellationToken).AnyContext();
-        response.EnsureValid(
-            r => r.IsValidResponse && !r.TimedOut && r.Status is HealthStatus.Yellow or HealthStatus.Green,
-            _logger,
-            "Compatibility destination {TargetIndex} did not reach the required shard health",
-            $"Compatibility destination index '{targetIndex}' did not make all primary shards available after restoring replicas.",
             targetIndex);
     }
 

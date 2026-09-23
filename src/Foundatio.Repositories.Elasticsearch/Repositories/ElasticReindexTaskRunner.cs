@@ -73,7 +73,7 @@ internal sealed class ElasticReindexTaskRunner
                 d.Conflicts(Conflicts.Abort);
                 d.Refresh();
                 d.WaitForCompletion(false);
-                d.RequestConfiguration(request => request.OpaqueId(opaqueId));
+                d.RequestConfiguration(request => SingleAttemptRequest.Configure(_client, request).OpaqueId(opaqueId));
 
                 if (requestsPerSecond.HasValue)
                     d.RequestsPerSecond(requestsPerSecond.Value);
