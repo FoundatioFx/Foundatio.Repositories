@@ -1,4 +1,4 @@
-"""Prepare one documentation-only commit after validation; never update a branch."""
+"""Prepare verified source/tests and documentation commits; never move a branch."""
 import hashlib
 import json
 import os
@@ -6,68 +6,47 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
-BASE = 'b458dd81d75095428c4d438ed93a32a707739cd9'
+BASE = '63bfaf4a7d546fc24a5e8225996c24ae9fbff16f'
 ROOT = 'https://api.github.com/repos/FoundatioFx/Foundatio.Repositories'
-EXPECTED = {
-    '.agents/skills/foundatio-repositories/SKILL.md',
-    '.agents/skills/foundatio-repositories/references/index-lifecycle.md',
-    'docs/guide/index-management.md',
-    'docs/guide/jobs.md',
-    'docs/guide/reindex-safety.md',
-    'docs/guide/troubleshooting.md',
-}
 
 def api(path, data=None):
-    request = urllib.request.Request(
-        ROOT + path,
+    request = urllib.request.Request(ROOT + path,
         data=None if data is None else json.dumps(data).encode(),
-        headers={
-            'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
-            'Accept': 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
-            'Content-Type': 'application/json',
-        },
-    )
+        headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                 'Accept': 'application/vnd.github+json',
+                 'X-GitHub-Api-Version': '2022-11-28',
+                 'Content-Type': 'application/json'})
     with urllib.request.urlopen(request, timeout=60) as response:
         return json.load(response)
 
 pr = api('/pulls/327')
-assert pr['head']['sha'] == BASE, 'PR moved during validation; reconcile before preparing a commit.'
-assert pr['head']['ref'] == 'fix/reindex-data-loss-phase0'
-assert pr['state'] == 'open'
+assert pr['state'] == 'open' and pr['head']['ref'] == 'fix/reindex-data-loss-phase0'
+assert pr['head']['sha'] == BASE, 'PR advanced; reconcile instead of overwriting.'
 subprocess.run(['git', 'add', 'src', 'tests', 'docs', '.agents'], check=True)
-subprocess.run(['git', 'diff', '--cached', '--check', BASE], check=True)
-paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z', BASE]).decode().strip('\0').split('\0')
-assert set(paths) == EXPECTED, paths
-assert all(Path(path).is_file() for path in paths)
-subprocess.run(['git', 'diff', '--cached', '--quiet', BASE, '--', 'src', 'tests', '.github', 'AGENTS.md'], check=True)
-expected_tree = subprocess.check_output(['git', 'write-tree']).decode().strip()
+subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().strip('\0').split('\0')
+expected = json.loads(Path('../candidate-files.json').read_text())
+assert sorted(paths) == sorted(expected)
+for path in paths:
+    assert Path(path).parts[0] in ('src', 'tests', 'docs', '.agents')
+    assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected[path], path
+
+messages = [
+    'fix(reindex): exclude stale controllers and retain uncertain write fences\n\nUse effective single-node transport dispatch for asynchronous copy and alias mutations. Require positive, identity-bound task termination and use relocation-aware reindex status on Elasticsearch 9.5+. Never steal a prior controller or infer termination from task 404.\n\nReuse the safety journal for non-expiring conditional admission across alias/source/destination resources and maintenance. Cache lease expiry cannot authorize overlapping controllers. Retain source write blocks after final reconciliation starts, including committed and uncertain cutover. Add multi-node transport, cache-lease expiry, maintenance, competing-controller, and retired-source regressions.',
+    'docs(reindex): define conservative recovery and verification evidence\n\nDocument single dispatch, durable no-takeover admission, maintenance coordination, retained retired-source fences, and manual recovery after uncertainty. Distinguish journal admission from server-side fencing, preserve the pinned provider limitation, and specify evidence needed for a real deployment case study. No workflow or publishing changes.'
+]
+groups = [[p for p in paths if p.startswith(('src/', 'tests/'))], [p for p in paths if p.startswith(('docs/', '.agents/'))]]
+parent = BASE
 base_tree = api('/git/commits/' + BASE)['tree']['sha']
-entries = []
-manifest = {
-    'base_sha': BASE,
-    'validation_run': os.environ['GITHUB_RUN_ID'],
-    'commits': [],
-    'files': {},
-    'tested_tree': expected_tree,
-}
-for path in sorted(paths):
-    content = Path(path).read_bytes()
-    manifest['files'][path] = hashlib.sha256(content).hexdigest()
-    entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'content': content.decode()})
-tree = api('/git/trees', {'base_tree': base_tree, 'tree': entries})['sha']
-assert tree == expected_tree, 'Prepared tree differs from the validated source.'
-message = (
-    'docs(reindex): tighten operating contract and recovery guidance\n\n'
-    'Correct stale replay, handler-constructor, sequence-number, and cancellation claims across the guides and agent reference. '
-    'Define verified cutover without claiming checksum validation or universal lease fencing.\n\n'
-    'Document exclusive destinations, scripts and ingest-pipeline limits, producer retry/idempotency requirements, '
-    'full second-pass outage costs, read-only diagnostics, state lifecycles, and least-privilege rollout checks. '
-    'Keep all workflow files, audit infrastructure, runtime code, and dependencies unchanged.'
-)
-commit = api('/git/commits', {'message': message, 'tree': tree, 'parents': [BASE]})['sha']
-manifest['commits'].append({'sha': commit, 'title': message.splitlines()[0], 'tree': tree, 'files': sorted(paths)})
-manifest['head_sha'] = commit
+manifest = {'base_sha': BASE, 'validation_run': os.environ['GITHUB_RUN_ID'], 'commits': [], 'files': expected}
+for message, files in zip(messages, groups):
+    assert files
+    tree = api('/git/trees', {'base_tree': base_tree, 'tree': [
+        {'path': p, 'mode': '100644', 'type': 'blob', 'content': Path(p).read_text()} for p in files]})['sha']
+    commit = api('/git/commits', {'message': message, 'tree': tree, 'parents': [parent]})['sha']
+    manifest['commits'].append({'sha': commit, 'tree': tree, 'title': message.splitlines()[0], 'files': files})
+    parent, base_tree = commit, tree
+manifest['head_sha'] = parent
 Path('../commits.json').write_text(json.dumps(manifest, indent=2) + '\n')
-Path('../reviewed.patch').write_bytes(subprocess.check_output(['git', 'diff', '--cached', '--binary', BASE]))
-print('Prepared one unreferenced documentation commit. No branch or workflow was changed by this job.')
+Path('../reviewed.patch').write_bytes(subprocess.check_output(['git', 'diff', '--cached', '--binary']))
+print('Prepared two unreferenced commits after validation; no branch moved.')
