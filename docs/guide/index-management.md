@@ -1243,6 +1243,8 @@ if (compatibility.Any(c => c.State == IndexCompatibilityState.RequiresReindex) &
 
 #### Maintenance-window contract
 
+Single-attempt dispatch honors the client's configured node predicate (or Elastic's default predicate) and explicit forced-node setting. When no eligible node exists it fails before submission, rather than bypassing node restrictions. Ordinary requests retain their configured retry behavior.
+
 Task copy results are validated independently of application serializer naming policy. Counters must be nonnegative integers; booleans, numeric strings, fractional values, and overflow are rejected rather than coerced. A completed task with `timed_out: true` is not accepted as a successful copy, even when its counters appear complete.
 
 Progress callbacks report 0–100 percent separately for each physical index and are awaited. Ordinary callback exceptions are logged without interrupting the compatibility upgrade; `OperationCanceledException` and lock-renewal failures still propagate through evidence-based handling. The batch is not transactional — an error or cancellation does not undo indexes already upgraded, and cancellation can be reported by final verification after a cutover commits. Inspect the original physical source before retrying rather than assuming an exception means nothing changed.
