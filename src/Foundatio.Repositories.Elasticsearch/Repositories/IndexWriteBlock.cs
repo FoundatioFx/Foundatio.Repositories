@@ -38,6 +38,7 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
     private readonly bool _wasAlreadyBlocked;
     private readonly TimeSpan _releaseTimeout;
     private bool _releaseAttempted;
+    private bool _retained;
 
     private static readonly TimeSpan DefaultReleaseTimeout = TimeSpan.FromSeconds(30);
 
@@ -239,9 +240,12 @@ internal sealed class IndexWriteBlock : IAsyncDisposable
         }
     }
 
+    /// <summary>Keeps the fence on a retired or uncertain source until deliberate operator recovery.</summary>
+    public void Retain() => _retained = true;
+
     private bool TryBeginRelease()
     {
-        if (_releaseAttempted)
+        if (_releaseAttempted || _retained)
             return false;
 
         _releaseAttempted = true;

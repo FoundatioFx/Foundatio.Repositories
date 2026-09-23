@@ -297,6 +297,8 @@ public class VersionedIndex : Index, IVersionedIndex
         await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
         if (lease is null)
             return;
+        using var guardedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.LostToken);
+        cancellationToken = guardedCancellation.Token;
 
         var reindexWorkItem = CreateReindexWorkItem(lease.CurrentVersion);
 
@@ -309,16 +311,27 @@ public class VersionedIndex : Index, IVersionedIndex
     /// </summary>
     protected sealed class ReindexLease : IAsyncDisposable
     {
-        public ReindexLease(ILock reindexLock, int currentVersion)
+        private readonly ILock _lease;
+        private readonly ReindexLeaseGuard _guard;
+
+        public ReindexLease(ILock reindexLock, int currentVersion) : this(reindexLock, currentVersion, TimeProvider.System) { }
+
+        internal ReindexLease(ILock reindexLock, int currentVersion, TimeProvider timeProvider)
         {
-            Lock = reindexLock;
+            _lease = reindexLock;
+            _guard = new ReindexLeaseGuard(reindexLock, timeProvider);
             CurrentVersion = currentVersion;
         }
 
-        public ILock Lock { get; }
+        public ILock Lock => _guard;
+        public CancellationToken LostToken => _guard.LostToken;
         public int CurrentVersion { get; }
 
-        public ValueTask DisposeAsync() => Lock.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            await _guard.DisposeAsync().AnyContext();
+            await _lease.DisposeAsync().AnyContext();
+        }
     }
 
     /// <summary>
@@ -394,12 +407,11 @@ public class VersionedIndex : Index, IVersionedIndex
             return null;
         }
 
-        return new ReindexLease(reindexLock, currentVersion);
+        return new ReindexLease(reindexLock, currentVersion, Configuration.TimeProvider);
     }
 
     /// <summary>
-    /// Wraps the caller's progress callback so the reindex lock is renewed on every progress report, which
-    /// is what keeps a migration longer than the lock's TTL from having the lock expire underneath it.
+    /// Checks lease ownership at progress boundaries in addition to independent bounded heartbeat renewal.
     /// </summary>
     protected Func<int, string?, Task> CreateReindexProgressCallback(ILock reindexLock, Func<int, string?, Task>? progressCallbackAsync)
     {

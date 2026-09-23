@@ -705,19 +705,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
-    /// <summary>
-    /// A quiesced migration whose alias moved but whose completion record is missing is repaired, not escalated.
-    /// </summary>
-    /// <remarks>
-    /// The default ordering has to treat this state as unknown, because the alias moves before the catch-up pass and
-    /// so proves nothing about completeness. Quiesce inverts that: nothing is promoted until the copy has been
-    /// reconciled against a blocked source and verified, so a promoted alias is evidence the copy was complete, and
-    /// the only thing a missing record can mean is that the process died in the gap between the two writes. The right
-    /// response is to record the completion and acknowledge - recopying would write into an index that is already
-    /// serving traffic, and refusing forever would strand a migration that did succeed.
-    /// </remarks>
     [Fact]
-    public async Task QueuedQuiescedReindex_WhenPromotedWithoutCompletionRecord_RecordsCompletionAndAcknowledges()
+    public async Task QueuedQuiescedReindex_WhenPromotedWithoutCompletionRecord_RefusesToInventCompletionEvidence()
     {
         // Arrange
         using var configuration = new VersionedEmployeeElasticConfiguration(2, _workItemQueue, _cache, _messageBus, Log);
@@ -752,14 +741,14 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Act
         var disposition = await RunReindexThroughQueueAsync(configuration, workItem);
 
-        // Assert - acknowledged rather than abandoned or dead-lettered
-        Assert.Equal(0, disposition.Abandoned);
+        // Assert - a work-item flag cannot establish what verified this physical generation
+        Assert.Equal(1, disposition.Abandoned);
         Assert.Equal(0, disposition.Deadletter);
-        Assert.Equal(1, disposition.Completed);
+        Assert.Equal(0, disposition.Completed);
 
-        // And completion is now durable, so a further redelivery resolves without re-deriving anything
+        // No completion evidence is fabricated from alias topology.
         var reindexer = new ElasticReindexer(_client, _configuration.Serializer, Log.CreateLogger<ElasticReindexer>());
-        Assert.True(await reindexer.HasCompletionEvidenceAsync(workItem, TestCancellationToken));
+        Assert.False(await reindexer.HasCompletionEvidenceAsync(workItem, TestCancellationToken));
     }
 
     /// <summary>
@@ -1284,16 +1273,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Contains("\"mutated\":\"yes\"", final.Body);
     }
 
-    /// <summary>
-    /// A failure while the source is blocked must not leave the source read-only.
-    /// </summary>
-    /// <remarks>
-    /// The block persists on the index, so an exception between applying and releasing it would leave the
-    /// application unable to write to the index it is still serving from - a worse outcome than the race the block
-    /// was closing.
-    /// </remarks>
     [Fact]
-    public async Task QuiescedReindex_WhenReconcileFails_RestoresWritesToTheSource()
+    public async Task QuiescedReindex_WhenReconcileFails_RetainsFenceForOperatorRecovery()
     {
         // Arrange
         var version1Index = new VersionedEmployeeIndex(_configuration, 1);
@@ -1325,11 +1306,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             return Task.CompletedTask;
         }, TestCancellationToken));
 
-        // Assert - the failure surfaced and the source accepts writes again
+        // Assert - failure does not automatically reopen an uncertain source.
         Assert.NotNull(exception);
         var write = await _client.IndexAsync(EmployeeGenerator.Default,
             i => i.Index(version1Index.VersionedName).Id("after-the-failure"), TestCancellationToken);
-        Assert.True(write.IsValidResponse);
+        Assert.False(write.IsValidResponse);
+        Assert.Equal(403, write.ApiCallDetails.HttpStatusCode);
 
         // And the alias was never promoted, so traffic never saw the unreconciled copy
         Assert.DoesNotContain(99, observed);

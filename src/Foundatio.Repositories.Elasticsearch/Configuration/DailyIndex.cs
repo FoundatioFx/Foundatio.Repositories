@@ -245,6 +245,8 @@ public class DailyIndex : VersionedIndex
         await using var lease = await TryAcquireReindexLeaseAsync(cancellationToken).AnyContext();
         if (lease is null)
             return;
+        using var guardedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.LostToken);
+        cancellationToken = guardedCancellation.Token;
 
         var indexes = await GetIndexesAsync(lease.CurrentVersion).AnyContext();
         if (indexes.Count == 0)

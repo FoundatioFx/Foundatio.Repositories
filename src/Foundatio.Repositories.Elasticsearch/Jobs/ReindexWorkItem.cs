@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
@@ -37,29 +37,16 @@ public record ReindexWorkItem
     public float? ReindexRequestsPerSecond { get; init; }
 
     /// <summary>
-    /// Blocks writes to the source index while the copy is reconciled, then promotes the alias only after the
-    /// destination is proven to match. Defaults to <c>false</c>, which preserves the historical ordering where the
-    /// alias is promoted before the catch-up pass runs.
+    /// Reconciles an unscripted copy behind a source write fence before alias promotion. Defaults to false.
+    /// Nonempty transformation scripts are rejected before any Elasticsearch request in this mode.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>This blocks writes to the source index, and the block lasts until the reindex finishes.</b> The duration
-    /// is proportional to how much changed during the copy, but it is not bounded and it is not "brief" on a large
-    /// index. Reads are unaffected throughout. Do not enable this without knowing that the application can tolerate
-    /// rejected writes (<c>403 cluster_block_exception</c>) for that period.
-    /// </para>
-    /// <para>
-    /// What it buys is that the alias never points at a destination that has not been reconciled. With the default
-    /// ordering the alias moves first, which leaves three windows in which live traffic and the catch-up pass
-    /// interfere: an update landing after the cutover can be overwritten by the older source copy, a delete can be
-    /// resurrected from the source, and - for models with neither a timestamp field nor ObjectId ids - an update to
-    /// a pre-existing document is never caught up at all. A blocked source cannot change, so the catch-up pass can
-    /// be run to convergence and verified before anything is promoted.
-    /// </para>
-    /// <para>
-    /// This is the only setting that makes a reindex safe for a model whose documents are updated in place. For
-    /// append-only data the default ordering is usually sufficient.
-    /// </para>
+    /// The blocked reconciliation scans the whole source and destination, so outage cost is not delta-only.
+    /// Gate application writers and drain accepted work first. Routing and complete item/shard evidence are
+    /// required, and both count deficits and surpluses refuse promotion. Retained source generations stay
+    /// blocked on success or failure until deletion or deliberate operator recovery. A lost cutover response
+    /// does not establish which generation serves traffic; a work-item flag does not prove completion.
+    /// This does not implement online change replay, automatic crash takeover, or storage-enforced fencing.
     /// </remarks>
     public bool QuiesceSource { get; init; }
 }

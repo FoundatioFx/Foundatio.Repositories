@@ -102,7 +102,10 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         var workItem = context.GetData<ReindexWorkItem>();
         ArgumentNullException.ThrowIfNull(workItem);
 
-        var disposition = await GetRedeliveryDispositionAsync(workItem, context.CancellationToken).AnyContext();
+        await using var guard = context.WorkItemLock is null ? null : new ReindexLeaseGuard(context.WorkItemLock, TimeProvider.System);
+        using var guardedCancellation = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken, guard?.LostToken ?? CancellationToken.None);
+        var cancellationToken = guardedCancellation.Token;
+        var disposition = await GetRedeliveryDispositionAsync(workItem, cancellationToken).AnyContext();
         switch (disposition)
         {
             case RedeliveryDisposition.AlreadyCompleted:
@@ -121,21 +124,9 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
                 throw new ReindexCompletionUnknownException(workItem.Alias, workItem.OldIndex, workItem.NewIndex,
                     "the alias already points at the destination but no completion record vouches for this migration");
 
-            case RedeliveryDisposition.PromotedAfterVerification:
-                // Under quiesce the alias only moves after the copy has been reconciled against a blocked source
-                // and verified, so a promoted destination means the copy was complete. The missing record means the
-                // process died between the alias switch and the record write, which is a gap worth closing rather
-                // than an outcome worth escalating. Recopying would be actively wrong here - the destination is
-                // already serving traffic - and refusing forever would strand a migration that did succeed.
-                Log.LogWarning("Queued reindex of {OldIndex} -> {NewIndex} found alias {Alias} already promoted by a quiesced migration with no completion record. The copy was verified before promotion, so recording its completion and acknowledging.",
-                    workItem.OldIndex, workItem.NewIndex, workItem.Alias);
-                await _reindexer.RecordVerifiedCompletionAsync(workItem, context.CancellationToken).AnyContext();
-                await context.ReportProgressAsync(100, "Already reindexed").AnyContext();
-                return;
-
             case RedeliveryDisposition.SafeToStart:
             default:
-                await _reindexer.ReindexAsync(workItem, context.ReportProgressAsync, context.CancellationToken).AnyContext();
+                await _reindexer.ReindexAsync(workItem, context.ReportProgressAsync, cancellationToken).AnyContext();
                 return;
         }
     }
@@ -154,19 +145,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         /// <summary>
         /// The destination is promoted but nothing vouches for the migration, so the outcome is unknown.
         /// </summary>
-        /// <remarks>
-        /// Only reachable on the default ordering, where the alias moves before the catch-up pass and promotion
-        /// therefore proves nothing about completeness. Under
-        /// <see cref="ReindexWorkItem.QuiesceSource"/> this state becomes
-        /// <see cref="PromotedAfterVerification"/>.
-        /// </remarks>
-        PromotedButUnconfirmed,
-
-        /// <summary>
-        /// The destination is promoted by a quiesced migration, so the copy was verified before promotion even
-        /// though the completion record is missing.
-        /// </summary>
-        PromotedAfterVerification
+        PromotedButUnconfirmed
     }
 
     /// <summary>
@@ -180,8 +159,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     /// describes whether this particular destination has been promoted.
     /// </para>
     /// <para>
-    /// When no record matches, promotion is checked against the exact destination in the work item. The
-    /// quiesced recovery path below retains its separate completion-record recovery behavior.
+    /// When no record matches, promotion is checked against the exact destination in the work item. A work-item flag is not evidence that the promoted generation was actually verified.
     /// </para>
     /// </remarks>
     private async Task<RedeliveryDisposition> GetRedeliveryDispositionAsync(ReindexWorkItem workItem, CancellationToken cancellationToken)
@@ -192,9 +170,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         if (!await IsAlreadyPromotedAsync(_client, workItem, cancellationToken).AnyContext())
             return RedeliveryDisposition.SafeToStart;
 
-        return workItem.QuiesceSource
-            ? RedeliveryDisposition.PromotedAfterVerification
-            : RedeliveryDisposition.PromotedButUnconfirmed;
+        return RedeliveryDisposition.PromotedButUnconfirmed;
     }
 
     /// <summary>
