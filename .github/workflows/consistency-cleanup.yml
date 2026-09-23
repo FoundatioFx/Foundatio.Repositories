@@ -1,0 +1,104 @@
+name: Reindex cleanup consistency
+on:
+  push:
+    branches: [audit/pr-307-final-validation-20260922]
+    paths: [.github/workflows/consistency-cleanup.yml]
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: harness
+          ref: 12bf9dd544a76df804f54bfe13d3daf37a6bf123
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: product
+          ref: 091b2ba0a6c24806568c42897c1078f0b00dae5c
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build complete candidate and stage logical changes locally
+        working-directory: product
+        run: |
+          set -euo pipefail
+          mkdir -p ../evidence
+          for script in pr327-evidence pr327-runtime pr327-tests pr327-integration pr327-followup; do python ../harness/.audit/consistency/$script.py .; done
+          python ../harness/.audit/consistency/lease-guard.py . 327
+          python ../harness/.audit/consistency/finalize.py . 327
+          git add -N .
+          mapfile -t paths < <(git diff --name-only -- '*.cs')
+          dotnet format whitespace . --folder --include "${paths[@]}" > ../evidence/format-baseline.log 2>&1
+          git config user.name 'Blake Niemyjski'
+          git config user.email 'bniemyjski@gmail.com'
+          git add src tests
+          git reset -- tests/Foundatio.Repositories.Elasticsearch.Tests/ReadOnlyRepositoryTests.cs tests/Foundatio.Repositories.Elasticsearch.Tests/RepositoryTests.cs
+          git diff --cached --check
+          git commit -m 'fix: require routed reconciliation and independent migration leases'
+          git add tests
+          git commit -m 'test: remove node-order and unbounded-writer assumptions'
+          git add docs .agents
+          git commit -m 'docs: reconcile migration recovery and outstanding protocol gates'
+          python ../harness/.audit/consistency/cleanup-fences.py .
+          git add -N .
+          mapfile -t paths < <(git diff --name-only -- '*.cs')
+          dotnet format whitespace . --folder --include "${paths[@]}" > ../evidence/format-apply.log 2>&1
+          dotnet format whitespace . --folder --verify-no-changes --include "${paths[@]}" > ../evidence/format-verify.log 2>&1
+          git diff --check
+          dotnet build Foundatio.Repositories.slnx -c Release | tee ../evidence/build.log
+          dotnet test --project tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release --no-build --filter-class '*ReindexCleanupFenceTests' '*ReindexConsistencyEvidenceTests' '*ReindexLeaseGuardTests' '*IndexWriteBlockTests' '*IndexWriteBlockResponseTests' | tee ../evidence/focused.log
+          git add src tests docs .agents
+          git commit -m 'fix: retain ambiguous migration blocks and unverified cleanup sources'
+      - name: Validate full suites on isolated two-node ES8 and ES9
+        working-directory: product
+        run: |
+          set -euo pipefail
+          sudo sysctl -w vm.max_map_count=1048576
+          docker network create consistency-net
+          for version in 8.19.15 9.5.0; do
+            export FOUNDATIO_TEST_CLUSTER="cleanup-${{ github.run_id }}-$version"
+            for node in 1 2; do
+              docker run -d --name consistency-es$node --network consistency-net -p 127.0.0.1:$((9199+node)):9200 -e node.name=consistency-es$node -e cluster.name=$FOUNDATIO_TEST_CLUSTER -e discovery.seed_hosts=consistency-es1,consistency-es2 -e cluster.initial_master_nodes=consistency-es1,consistency-es2 -e xpack.security.enabled=false -e ingest.geoip.downloader.enabled=false -e ES_JAVA_OPTS='-Xms768m -Xmx768m' docker.elastic.co/elasticsearch/elasticsearch:$version
+            done
+            for n in $(seq 1 90); do curl -fsS http://localhost:9200 > /dev/null && break; sleep 2; done
+            curl -fsS 'http://localhost:9200/_cluster/health?wait_for_nodes=2&timeout=60s' > ../evidence/health-$version.json
+            python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["number_of_nodes"] == 2 and not d["timed_out"],d' ../evidence/health-$version.json
+            dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build | tee ../evidence/full-$version.log
+            docker logs consistency-es1 > ../evidence/server-$version.log 2>&1
+            docker rm -f consistency-es1 consistency-es2
+          done
+      - name: Publish only the validated clean candidate branch
+        working-directory: product
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          git diff --exit-code 091b2ba0a6c24806568c42897c1078f0b00dae5c HEAD -- .github
+          test -z "$(git ls-tree -r --name-only HEAD -- .audit)"
+          git push origin HEAD:refs/heads/audit/pr327-cleanup-consistency-${{ github.run_id }}
+          git log -4 --format='%H %s' | tee ../evidence/commits.txt
+          git diff --binary 091b2ba0a6c24806568c42897c1078f0b00dae5c HEAD > ../evidence/candidate.patch
+          git bundle create ../evidence/candidate.bundle HEAD
+      - name: Capture diagnostics
+        if: always()
+        working-directory: product
+        run: |
+          mkdir -p ../evidence
+          docker logs consistency-es1 > ../evidence/server-final.log 2>&1 || true
+          git add -N .
+          git diff --binary 091b2ba0a6c24806568c42897c1078f0b00dae5c > ../evidence/working.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pr327-cleanup-consistency
+          path: evidence
+          retention-days: 7
