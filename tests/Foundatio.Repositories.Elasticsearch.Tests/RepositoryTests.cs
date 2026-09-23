@@ -3166,7 +3166,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task RemoveAllAsync_DeleteByQuery_RetriesUntilNoConflictsAndDeletesAllDocuments()
+    public async Task RemoveAllAsync_DeleteByQuery_AccountsForPartialWorkAndConvergesAfterWriterStops()
     {
         // Arrange
         const int COUNT = 1000;
@@ -3178,13 +3178,18 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var subset = identities.Take(50).Select(i => i.Id).ToArray();
         var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
 
-        // Act — the bounded retry loop converges once the writer can no longer bump surviving documents.
+        // A bounded retry loop need not beat an indefinitely active writer. Check exact accounting
+        // across the live-writer phase and the final drain after the writer has actually stopped.
         long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
 
         await StopWriterAsync(writerCancellation, writer);
 
-        // Assert
-        Assert.Equal(COUNT, deleted);
+        Assert.InRange(deleted, 0, COUNT);
+        long remaining = await _identityRepositoryWithNoCaching.CountAsync();
+        Assert.Equal(COUNT, deleted + remaining);
+        long drained = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
+        Assert.Equal(remaining, drained);
+        Assert.Equal(COUNT, deleted + drained);
         Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
     }
 

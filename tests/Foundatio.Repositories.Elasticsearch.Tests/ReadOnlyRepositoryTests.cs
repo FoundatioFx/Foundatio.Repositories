@@ -689,9 +689,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
 
     private async Task<long> GetCurrentScrollCountAsync()
     {
-        var stats = await _client.Nodes.StatsAsync();
-        var nodeStats = stats.Nodes!.First().Value;
-        return nodeStats.Indices!.Search!.ScrollCurrent;
+        var stats = await _client.Nodes.StatsAsync(cancellationToken: TestCancellationToken);
+        Assert.True(stats.IsValidResponse, stats.DebugInformation);
+        Assert.NotNull(stats.Nodes);
+        Assert.NotEmpty(stats.Nodes);
+        // A scroll can live on either primary or replica node. Count the whole cluster rather than
+        // depending on the first node in an unordered response to happen to host this test's context.
+        return stats.Nodes.Values.Sum(node => node.Indices!.Search!.ScrollCurrent);
     }
 
     [Fact]
