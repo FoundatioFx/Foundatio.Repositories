@@ -1455,3 +1455,14 @@ These strategies do not reconcile every concurrent update or delete. The offline
 ### Unique Index Names
 
 `ElasticConfiguration.AddIndex()` enforces unique logical index names (case-insensitive). That alone does not reserve every generated physical name. Explicit compatibility planning additionally rejects destinations claimed by another registration's logical/native/error names or time-series aliases, including uncreated registrations outside the requested batch.
+
+
+### Compatibility durability and uncertain ownership
+
+Compatibility cutover now waits for the specific destination to become green after its original replica settings are restored. Yellow is not sufficient: unassigned replicas cannot replace the redundancy of a source about to be deleted. `Index.CompatibilityUpgradeHealthTimeout` defaults to 30 minutes and must be positive. Bounded health polls renew the lease while waiting. Green with zero configured replicas still provides no redundancy; the migration preserves the configured policy rather than creating one.
+
+Compatibility asynchronous copy submission and cutover disable client transport retries. Proxies must not retry these non-idempotent operations either. `X-Opaque-Id` correlates task lineage, not an idempotency key. Unknown submissions and task 404s retain uncertainty. A failed lease renewal forbids automatic reset, recovery and unblocking; the source and target remain for inspection. The Foundatio dependency must also surface a failed compare-and-renew: a heartbeat is not a storage-enforced fencing token, and cannot revoke requests already dispatched.
+
+The supported Elastic transport does not honor a request-local `MaxRetries(0)` on its own. Non-idempotent compatibility submissions are pinned to one node selected through the pool, which also makes the effective retry count zero. A multi-node regression asserts only one submission occurs despite a globally retrying client. This does not control retries by external proxies.
+
+Migration leases now renew on an independent 30-second heartbeat with bounded renewal attempts, not solely on progress callbacks. Renewal failure cancels the linked operation and forbids further guarded work. This requires providers to report loss correctly (Foundatio #573); it is not a fencing token and cannot revoke already-dispatched Elasticsearch requests. Underlying lease release remains owned by the acquisition scope.
