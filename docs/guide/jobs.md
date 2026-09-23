@@ -225,20 +225,22 @@ services.AddJob<MyMigrationJob>();
 Handles reindexing operations as background work items with automatic lock renewal and progress reporting:
 
 ```csharp
-public class ReindexWorkItem
+public record ReindexWorkItem
 {
-    public string OldIndex { get; set; }
-    public string NewIndex { get; set; }
-    public string Alias { get; set; }
-    public string Script { get; set; }        // Painless script for data transformation
-    public bool DeleteOld { get; set; }       // Delete old index after successful reindex
-    public bool QuiesceSource { get; set; }   // Opt in to blocking source writes before reconciliation
-    public string TimestampField { get; set; } // Field for incremental reindex
-    public DateTime? StartUtc { get; set; }   // Start time for incremental reindex
-    public int? ReindexBatchSize { get; set; }          // Documents per internal bulk batch (default: 1000)
-    public float? ReindexRequestsPerSecond { get; set; } // Throttle in docs/sec (default: unlimited)
+    public required string OldIndex { get; init; }
+    public required string NewIndex { get; init; }
+    public required string Alias { get; init; }
+    public string? Script { get; init; }
+    public bool DeleteOld { get; set; }
+    public bool QuiesceSource { get; init; }
+    public string? TimestampField { get; init; }
+    public DateTime? StartUtc { get; init; }
+    public int? ReindexBatchSize { get; init; }
+    public float? ReindexRequestsPerSecond { get; init; }
 }
 ```
+
+This is the work-item shape, not another type to define in your application. `QuiesceSource` defaults to `false`; quiesced execution rejects `StartUtc`. See [Reindex Safety and Recovery](/guide/reindex-safety) for the complete operating contract.
 
 **Features:**
 - **Configuration-aware execution**: Construct it with your `IElasticConfiguration` (`new ReindexWorkItemHandler(configuration)`) to use its `TimeProvider`, logging, and alias lock. The `(client, serializer, lockProvider, loggerFactory)` constructor also checks durable completion and exact destination aliases; it does not require a registered index configuration to recognize a duplicate.
@@ -264,44 +266,42 @@ A queue worker must dequeue `ReindexWorkItem`s and dispatch them to a registered
 **Usage:**
 
 ```csharp
-// Queue a reindex work item
+// Destination mappings/settings and a registered queue worker must already be configured.
 await queue.EnqueueAsync(new ReindexWorkItem
 {
     OldIndex = "employees-v1",
     NewIndex = "employees-v2",
     Alias = "employees",
     Script = "ctx._source.department = ctx._source.dept; ctx._source.remove('dept');",
-    DeleteOld = true,
-    TimestampField = "updatedUtc",  // Enable two-pass reindex
+    QuiesceSource = true,
+    DeleteOld = false,              // Retain the source for explicit acceptance
+    TimestampField = "updatedUtc",  // Used only by non-quiesced catch-up
     ReindexBatchSize = 200,          // Lower this if large documents trip indexing pressure limits
     ReindexRequestsPerSecond = 500   // Optional: throttle to reduce load on a busy cluster
 });
 ```
 
+This mutable-data example blocks writes only during final reconciliation and cutover. Producers must retain failed operations and [retry confirmed migration write blocks safely](/guide/reindex-safety#retry-rejected-application-writes-safely); retrying every HTTP 403 or an entire partially successful bulk batch is incorrect. The destination must be migration-exclusive, especially when a script causes it to be emptied before the final pass.
+
 See [Throttling Reindex Load](/guide/index-management#throttling-reindex-load) and [Reindex Rejected Due to Indexing Pressure](/guide/troubleshooting#reindex-rejected-due-to-indexing-pressure) for why you'd set these.
 
 ## Reindex Progress Monitoring
 
-The `ElasticReindexer` provides detailed progress reporting during reindex operations:
+The `ElasticReindexer` provides progress reporting during reindex operations. Callbacks run inside the migration and participate in lock renewal. Keep them fast and reliable; optional telemetry/UI failures must not throw through the callback. Callback failure can occur after an irreversible alias change or durable completion.
 
 ### Progress Callback
 
 ```csharp
-await configuration.ReindexAsync(async (progress, message) =>
+await configuration.ReindexAsync((progress, message) =>
 {
-    // progress: 0-100 percentage
-    // message: Status description
-
     _logger.LogInformation("Reindex {Progress}%: {Message}", progress, message);
-
-    // Update metrics or UI
-    await UpdateProgressMetricAsync(progress);
+    return Task.CompletedTask;
 });
 ```
 
 ### Progress Stages
 
-The default, non-quiesced ordering reports the following stages. With `QuiesceSource = true`, reconciliation and verification run before alias promotion; do not use a percentage alone as evidence that a migration has completed.
+The following percentages describe the default, non-quiesced path; they are not a stable transaction-state API. With `QuiesceSource = true`, the source is blocked after the first pass, then fully recopied/reconciled and verified before promotion. Do not acknowledge application work, start destructive cleanup, or infer rollback from a percentage. See [outcome handling](/guide/reindex-safety#cancellation-and-outcome-handling).
 
 | Progress | Stage |
 |----------|-------|

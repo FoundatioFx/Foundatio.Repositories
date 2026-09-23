@@ -411,13 +411,13 @@ The destination could not be trusted as a complete replica of the source, so the
 |-----------------|---------------|------------|
 | documents failed to copy, or a copy task error | Elasticsearch rejected documents — usually a mapping conflict or indexing pressure | Fix the mapping or lower `ReindexBatchSize`; see [Mapping Conflicts](#mapping-conflicts) and [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) |
 | the source changed and no catch-up pass is possible | The model has no timestamp field and non-ObjectId ids, and the source was written to during the copy | Set `QuiesceSourceOnReindex`, add `IHaveDates`, or migrate when writes are stopped |
-| documents changed that the catch-up pass cannot reach | The model uses ObjectId ids and a **pre-existing** document was updated in place during the copy — the id-range catch-up encodes creation time only | Set `QuiesceSourceOnReindex`; this is the only way to catch in-place updates |
-| the destination is short of the quiesced source | Under `QuiesceSourceOnReindex`, verification found fewer documents in the destination than in the blocked source | Retry; a shortfall against a blocked source is not a race, so investigate the copy logs for rejected documents |
+| documents changed that the catch-up pass cannot reach | The model uses ObjectId ids and a **pre-existing** document was updated in place during the copy — the id-range catch-up encodes creation time only | Use quiescence, reliable update timestamps, or externally stop writes; creation-time ranges do not discover old-ID updates |
+| unexpected final output count | Quiesced output differs from the final task's expected count, including intentional no-ops/deletes | Investigate missing/extra documents, routing, and transformations; confirm the source still owns its aliases and prior tasks stopped before retrying |
 | the source kept changing while blocked | Under `QuiesceSourceOnReindex`, one or more primary checkpoint values changed despite the write block | Inspect competing migrations and operator changes to the block; direct physical-index writes are blocked too |
 
 **Solutions:**
 
-1. **The old index is always retained and the alias is not moved** when this is thrown before cutover, so the refusal is recoverable — nothing was lost. Fix the cause and retry.
+1. **Establish the cutover state before retrying.** Failure before any promotion request leaves the source authoritative, but an alias request with a lost or cancelled response may already have applied. Confirm physical aliases, task termination, and block ownership; an exception alone does not prove rollback. Then fix the cause and retry only if the replay gates permit it.
 
 2. **If you are refused because of live writes**, the structural fix is to quiesce the source:
 
@@ -432,7 +432,7 @@ public class EmployeeIndex : VersionedIndex<Employee>
 }
 ```
 
-   This blocks writes for the duration of the copy. See [Quiescing writes for a verified cutover](./index-management.md#quiescing-writes-for-a-verified-cutover) before enabling it.
+   This keeps the first pass writable and blocks writes during the full final copy, deletion reconciliation, verification, and cutover. See [Quiescing writes for a verified cutover](./index-management.md#quiescing-writes-for-a-verified-cutover) before enabling it.
 
 3. **Do not suppress it globally.** If a specific deployment must proceed anyway, catch it explicitly and alert:
 
@@ -447,7 +447,7 @@ catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is ReindexInco
 }
 ```
 
-4. **Check whether the alias already moved.** With the default (non-quiesced) ordering, a failure raised by the catch-up pass happens *after* cutover, so the destination is already serving reads and may be short. Compare `NewIndex` against the current alias target before assuming the old index is still being queried. A retry cannot fix this — migrate to a fresh index version instead.
+4. **If the alias moved, do not replay the old source over the live destination.** Default-mode catch-up failures can happen after promotion. Quiesced alias-response, callback, or completion-write failures can also occur after promotion. Preserve both indexes and decide recovery from authoritative data; creating a fresh version from an already-incomplete destination alone does not recover missing records. See the [recovery decision table](/guide/reindex-safety#cancellation-and-outcome-handling).
 
 5. **Find what was left behind** using the technique in [Finding the documents that were left behind](./index-management.md#finding-the-documents-that-were-left-behind).
 
@@ -470,7 +470,7 @@ This also applies to **quiesced** work items: the current flag does not prove ho
 
 **Solutions:**
 
-1. **Nothing was replayed, rolled back, or deleted.** Both indexes are left exactly as found — the library deliberately neither reports success (which would record a possibly short index as finished) nor copies again (which would write into an index already serving live traffic).
+1. **The replay guard does not authorize another copy into a live destination.** It does not prove that no earlier side effect occurred: a previous task may still be writing, or promotion may already have succeeded. Read the exception reason and durable state before intervening; never fabricate completion from alias state.
 
 2. **Inspect the actual membership and content.** Counts below are only a starting point, not evidence of equality:
 
@@ -480,7 +480,7 @@ curl "localhost:9200/employees-v1/_count"
 curl "localhost:9200/employees-v2/_count"
 ```
 
-3. **Then decide deliberately:** accept the destination, or migrate to a fresh index version to get a verified copy. If the source has already been cleaned up, the destination is all that remains.
+3. **Then decide deliberately:** accept an independently inspected destination and retire the stale queue item using application operations, or recover into a fresh destination using authoritative application data/backups. Do not assume a new index version can reconstruct records missing from its chosen source.
 
 4. **For a pre-existing migration with no record**, this only surfaces on redelivery of a stale work item. Startup is unaffected and nothing is scanned automatically — discard the stale item once you have confirmed the migration did complete.
 
@@ -623,8 +623,8 @@ Index migrations throw the following, which inherit from `RepositoryException` r
 
 | Exception | When Thrown | Retryable? |
 |-----------|------------|------------|
-| `ReindexIncompleteException` | A reindex did not copy every document, or the copy could not be verified as a complete replica | Yes when raised **before** cutover (the old index is retained) — see [ReindexIncompleteException](#reindexincompleteexception). No when raised after cutover; migrate to a fresh version |
-| `ReindexCompletionUnknownException` | A destination is already promoted but no completion record proves the migration finished | No — this needs a decision, not a retry. See [ReindexCompletionUnknownException](#reindexcompletionunknownexception) |
+| `ReindexIncompleteException` | Copy, verification, or promotion could not be confirmed | Inspect aliases and task/block state first. A pre-promotion failure may permit retry; an ambiguous/promoted destination requires recovery, not blind replay |
+| `ReindexCompletionUnknownException` | Missing completion or ambiguous task/block ownership | No blind replay; use [ReindexCompletionUnknownException](#reindexcompletionunknownexception) and the durable-state recovery runbook |
 
 ### Partial Failures on Bulk Operations
 
@@ -661,7 +661,7 @@ The repository automatically retries transient Elasticsearch errors:
 - `DuplicateDocumentException` — **not** retried by the resilience policy
 
 ::: info Reindex task-status polling uses its own backoff
-This resilience policy covers the initial reindex kickoff request. Once reindexing has started, progress is monitored by repeatedly polling the Elasticsearch task status API, which is a plain "did this succeed" response rather than a thrown exception — so it isn't covered by the policy above. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.
+Do not wrap a whole migration or asynchronous reindex kickoff in an unconditional retry policy. Dispatch can succeed even when its response is lost; replay must first pass the durable task and completion checks. The reindexer requests `MaxRetries(0)` locally, but the pinned transport does not reliably honor that request on multi-node pools; do not assume a kickoff was dispatched only once. This is a [current release gate](/guide/reindex-safety#current-release-gates), not a guarantee supplied by the task journal. Task-status polling is separate from dispatch and migration retries. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.
 :::
 
 ## Aggregation Warnings

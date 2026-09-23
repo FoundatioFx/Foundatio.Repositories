@@ -1385,7 +1385,7 @@ is performing the same migration, so the loser logs and skips.
 A retried reindex recopies the source from the beginning. It previously narrowed the copy to documents newer
 than the newest document already in the destination, which could permanently skip documents an interrupted pass
 never reached. Recopying converges because reindex writes by document id, but a retry now costs a full copy
-rather than an incremental one. Pass `ReindexWorkItem.StartUtc` if you need to bound a pass explicitly.
+rather than an incremental one. An explicit `ReindexWorkItem.StartUtc` bounds a default-mode pass only; it is rejected with quiescence and is not a safe substitute for a full-copy retry.
 
 ### A copy that cannot catch up is refused if its source changed
 
@@ -1482,7 +1482,7 @@ The dedicated add-block API waits for in-flight writes. Reads continue; writes t
 
 The final pass is a **full rescan**, not only a timestamp delta. This catches old-ID updates and soft-delete flags even when timestamps do not advance. For unscripted copies, every destination `(id, routing)` is checked against the source, regardless of relative counts; confirmed absences are deleted, and partial lookup/bulk failures prevent promotion. For scripted copies, the unpromoted destination is cleared before the final scripted copy, removing stale first-pass output when a document becomes a no-op, a scripted deletion, or a hard deletion.
 
-The final gate requires complete task accounting, exact expected output cardinality (including intentional no-ops/deletions), and unchanged per-primary source checkpoints. `StartUtc` is rejected in quiesced mode because partial copying cannot establish this full-source contract.
+The final gate requires complete task accounting, exact expected output cardinality (including intentional no-ops/deletions), and unchanged per-primary source checkpoints. This is not a content checksum or validation of business transformation semantics. The destination must be exclusive to the migration, and identity-changing/default ingest pipelines require explicit review. `StartUtc` is rejected in quiesced mode because partial copying cannot establish this full-source contract. See [preconditions](/guide/reindex-safety#preconditions-and-unsupported-combinations).
 
 ```csharp
 public class EmployeeIndex : VersionedIndex<Employee>
@@ -1491,6 +1491,7 @@ public class EmployeeIndex : VersionedIndex<Employee>
         : base(configuration, "employees", 2)
     {
         QuiesceSourceOnReindex = true;
+        DiscardIndexesOnReindex = false; // Retain the source until application acceptance
     }
 }
 ```
@@ -1528,12 +1529,11 @@ MaxIndexAge = TimeSpan.FromDays(90);
 DiscardExpiredIndexes = true;
 ```
 
-### 4. Use Aliases for Zero-Downtime Migrations
+<a id="4-use-aliases-for-zero-downtime-migrations"></a>
 
-```csharp
-// Alias always points to current version
-// Applications use alias, not versioned index name
-```
+### 4. Use Aliases for Cutover, Not as a Write-Consistency Guarantee
+
+Write through logical aliases rather than cached physical index names. An atomic alias update avoids an intermediate alias configuration; it does not serialize document copying with concurrent writes. For mutable data, enable quiescence or stop writes externally. Quiescence preserves read availability but rejects source writes during final reconciliation. See [Reindex Safety and Recovery](/guide/reindex-safety).
 
 ### 5. Test Reindex Scripts
 
@@ -1547,7 +1547,7 @@ AddReindexScript(2, @"
 
 ## Concurrency Safety
 
-Reindexing is protected by a distributed lock keyed on the index alias to prevent concurrent reindex operations from corrupting data.
+Reindexing uses a lock keyed on the index alias. It is distributed only when its provider uses shared infrastructure, and the operating contract requires exclusive ownership for the entire migration. Journal ownership checks do not fence every Elasticsearch mutation from a worker whose lease has expired. Keep callbacks and requests bounded and treat lease loss as a recovery event; see [production prerequisites](/guide/reindex-safety#production-prerequisites-and-acceptance).
 
 ### Lock Strategy
 
@@ -1567,7 +1567,9 @@ Using the alias as the lock key ensures that sequential version transitions (v1â
 
 ### Lock Renewal for Long-Running Reindexes
 
-For indexes with millions of documents that take hours to reindex, the lock is automatically renewed on every progress callback (every 1-10 seconds during the polling loop). This prevents lock expiration during legitimate long-running operations.
+Progress callbacks execute inline. Avoid slow or throwing telemetry calls; a callback exception after cutover does not undo the alias change. Request/callback stalls must remain within the renewal budget.
+
+The lock is renewed when progress is reported. Normal task polls are frequent, but failed requests, backoff, and user callbacks can delay renewal; this is not an independent heartbeat. Do not assume that the nominal polling interval bounds every pause or makes a lost lease safe.
 
 ### Crash Recovery
 
