@@ -1,0 +1,132 @@
+name: Validate replica-capable PR 307 CI
+on:
+  push:
+    branches: [audit/pr307-sequential-20260922]
+    paths: ['.github/workflows/sequential-ci-profile.yml']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 3af1fccb513a4bfaa2c4c6fcaf468c2de7529c69
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Add an isolated two-node test profile and preserve publishing configuration
+        run: |
+          mkdir -p ../evidence
+          cat > docker-compose.ci.yml <<'YAML'
+          # Disposable two-node test cluster. Keep docker-compose.yml's development services unchanged.
+          x-elasticsearch: &elasticsearch
+            image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION:-9.5.0}
+            environment: &environment
+              cluster.name: foundatio-repositories-ci
+              discovery.seed_hosts: elasticsearch,elasticsearch-secondary
+              cluster.initial_master_nodes: es-1,es-2
+              xpack.security.enabled: 'false'
+              action.destructive_requires_name: 'false'
+              ingest.geoip.downloader.enabled: 'false'
+              ES_JAVA_OPTS: '-Xms768m -Xmx768m'
+            healthcheck:
+              test: ['CMD-SHELL', 'curl -fsS "http://localhost:9200/_cluster/health?wait_for_nodes=2&wait_for_status=green&timeout=1s" > /dev/null']
+              interval: 2s
+              timeout: 5s
+              retries: 90
+              start_period: 20s
+          services:
+            elasticsearch:
+              <<: *elasticsearch
+              environment:
+                <<: *environment
+                node.name: es-1
+              ports:
+                - '127.0.0.1:9200:9200'
+            elasticsearch-secondary:
+              <<: *elasticsearch
+              environment:
+                <<: *environment
+                node.name: es-2
+          YAML
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/build.yml')
+          old=p.read_text()
+          needle="      minimum-major-minor: '8.0'"
+          assert old.count(needle)==1
+          addition='\n      compose-command: >-\n        sudo sysctl -w vm.max_map_count=1048576 &&\n        docker compose -f docker-compose.ci.yml up -d --wait --wait-timeout 180'
+          p.write_text(old.replace(needle,needle+addition))
+          assert p.read_text().replace(addition,'')==old
+          p=Path('docs/design/reindex-consistency.md')
+          text=p.read_text()
+          text+='''
+          ## Replica-capable test cluster
+
+          Compatibility upgrades restore the configured replicas and require destination green health before deleting the source. The CI workflow therefore uses the disposable two-node `docker-compose.ci.yml` profile, not the one-node development profile. The default development services, package feeds, secrets, and publishing conditions are unchanged. Startup readiness failures stop CI instead of being ignored.
+
+          Run `docker compose -f docker-compose.ci.yml up -d --wait --wait-timeout 180`, execute the Release solution tests, and stop the disposable cluster with `docker compose -f docker-compose.ci.yml down -v`. On Linux set `vm.max_map_count=1048576` before startup. `ELASTICSEARCH_VERSION` selects a supported test version; the default is 9.5.0. Never point the destructive repository tests at an application cluster.
+          '''
+          p.write_text(text)
+          PY
+          git diff --check
+          docker compose -f docker-compose.ci.yml config --quiet
+      - name: Build and start the exact CI profile
+        run: |
+          dotnet build Foundatio.Repositories.slnx -c Release 2>&1 | tee ../evidence/build.log
+          sudo sysctl -w vm.max_map_count=1048576
+          docker compose -f docker-compose.ci.yml up -d --wait --wait-timeout 180
+          curl -fsS http://localhost:9200 > ../evidence/server.json
+          curl -fsS http://localhost:9200/_cluster/health > ../evidence/health.json
+          python - <<'PY'
+          import json
+          s=json.load(open('../evidence/server.json'))
+          h=json.load(open('../evidence/health.json'))
+          assert s['cluster_name']=='foundatio-repositories-ci' and s['version']['number']=='9.5.0'
+          assert h['number_of_nodes']==2 and h['status']=='green' and not h['timed_out']
+          PY
+      - name: Test using the same profile as ordinary CI
+        env:
+          ELASTICSEARCH_URL: http://localhost:9200
+          FOUNDATIO_TEST_CLUSTER: foundatio-repositories-ci
+        run: |
+          dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build 2>&1 | tee ../evidence/full-tests.log
+          grep -Eq 'succeeded: 1187' ../evidence/full-tests.log
+          git diff --check
+      - name: Stage the CI-only follow-up after successful validation
+        run: |
+          git config user.name 'Blake Niemyjski'
+          git config user.email 'bniemyjski@gmail.com'
+          git add docker-compose.ci.yml .github/workflows/build.yml docs/design/reindex-consistency.md
+          git commit -m 'ci: validate compatibility upgrades with configured replicas'
+          test -z "$(git status --porcelain)"
+          git diff --exit-code 3af1fccb513a4bfaa2c4c6fcaf468c2de7529c69 HEAD -- docker-compose.yml src tests
+          test -z "$(git ls-tree -r --name-only HEAD -- .audit)"
+          git rev-parse HEAD > ../evidence/candidate-sha.txt
+          git log --format='%H %s' 9c681f8ce11b10509aadd2af9dcbbdcaea33200d..HEAD > ../evidence/commits.txt
+          git diff 9c681f8ce11b10509aadd2af9dcbbdcaea33200d HEAD > ../evidence/candidate.patch
+          git bundle create ../evidence/candidate.bundle HEAD ^9c681f8ce11b10509aadd2af9dcbbdcaea33200d
+          git push origin HEAD:refs/heads/audit/pr307-ci-candidate-${{ github.run_id }}
+      - name: Preserve diagnostic evidence
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml logs --no-color > ../evidence/server.log 2>&1 || true
+          git diff > ../evidence/working.patch
+          docker compose -f docker-compose.ci.yml down -v || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sequential-pr307-ci-evidence
+          path: ../evidence
+          retention-days: 7
