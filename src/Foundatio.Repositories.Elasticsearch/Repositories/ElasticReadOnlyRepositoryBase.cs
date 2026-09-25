@@ -171,6 +171,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         // Build MultiGetOperation objects for each ID
         var itemsForMultiGet = itemsToFind.Where(i => i.Routing != null || !HasParent).ToList();
+        IReadOnlyCollection<MultiGetError> itemErrors = [];
         if (itemsForMultiGet.Count > 0)
         {
             var docOperations = itemsForMultiGet
@@ -192,6 +193,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (!multiGetResults.IsValidResponse)
                 throw new DocumentException(multiGetResults.GetErrorMessage("Error getting documents"), multiGetResults.OriginalException());
 
+            itemErrors = options.ShouldThrowOnMultiGetErrors() ? multiGetResults.GetItemErrors(docOperations, _logger) : [];
+
             foreach (var findHit in multiGetResults.ToFindHits(_logger))
             {
                 hits.Add(findHit);
@@ -203,7 +206,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
             var findOptions = options.Clone();
-            findOptions.PageLimit(1000);
+            // Only the outer batch read may cache results, after all item errors have been resolved.
+            findOptions.Cache(false).ReadCache(false).PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
             do
             {
@@ -216,6 +220,17 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                     }
                 }
             } while (await response.NextPageAsync().AnyContext());
+        }
+
+        if (itemErrors.Count > 0)
+        {
+            var stillMissingIds = new HashSet<string>(itemsToFind.Select(id => id.Value));
+            var unresolvedErrors = itemErrors.Where(e => e.Id is null || stillMissingIds.Contains(e.Id.ToString())).ToList();
+            if (unresolvedErrors.Count > 0)
+            {
+                string message = String.Join("; ", unresolvedErrors.Select(e => $"id={e.Id}, index={e.Index}, type={e.Error?.Type}, reason={e.Error?.Reason}"));
+                throw new DocumentException($"Error getting documents: {message}");
+            }
         }
 
         if (IsCacheEnabled && options.ShouldUseCache())

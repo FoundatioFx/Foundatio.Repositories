@@ -15,6 +15,26 @@ namespace Foundatio.Repositories
         internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
         internal const string TrackTotalHitsKey = "@TrackTotalHits";
+        internal const string ThrowOnMultiGetErrorsKey = "@ThrowOnMultiGetErrors";
+
+        /// <summary>
+        /// Makes <c>GetByIdsAsync</c> throw a <see cref="DocumentException"/> for Elasticsearch
+        /// multi-get item errors that remain unresolved after any applicable fallback query.
+        /// Disabled by default; ordinary <c>found: false</c> results are not item errors.
+        /// </summary>
+        /// <remarks>
+        /// Time-series and parent/child repositories may recover documents through a search fallback.
+        /// Unresolved item errors are aggregated before returning results or writing document and
+        /// not-found cache entries. The fallback does not read or write query-result cache entries.
+        /// Incomplete or mismatched MGET responses are rejected before fallback and cache writes.
+        /// Found items must include a source; projected sources may omit their ID property.
+        /// Existing document cache reads, consistency settings, and soft-delete filters still apply;
+        /// this option does not guarantee fresh results, an atomic snapshot, or proof of absence.
+        /// </remarks>
+        public static T ThrowOnMultiGetErrors<T>(this T options, bool enabled = true) where T : ICommandOptions
+        {
+            return options.BuildOption(ThrowOnMultiGetErrorsKey, enabled);
+        }
 
         public static T TrackTotalHits<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -151,6 +171,15 @@ namespace Foundatio.Repositories.Options
         public static bool ShouldUseSnapshotPaging(this ICommandOptions options)
         {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SnapshotPagingKey, false);
+        }
+
+        /// <summary>
+        /// Gets whether <c>GetByIdsAsync</c> should throw for unresolved multi-get item errors.
+        /// Returns <c>false</c> by default. See <see cref="SetElasticOptionsExtensions.ThrowOnMultiGetErrors{T}"/>.
+        /// </summary>
+        public static bool ShouldThrowOnMultiGetErrors(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.ThrowOnMultiGetErrorsKey, false);
         }
 
         public static bool HasSnapshotScrollId(this ICommandOptions options)

@@ -198,11 +198,13 @@ await repository.GetByIdAsync(id, o => o.CacheExpiresIn(TimeSpan.FromMinutes(30)
 await repository.GetByIdAsync(id, o => o.CacheExpiresAt(DateTime.UtcNow.AddHours(1)));
 
 // Read from cache only (don't write)
-await repository.GetByIdAsync(id, o => o.ReadCache());
+await repository.GetByIdAsync(id, o => o.Cache(false).ReadCache());
 
-// Disable caching for this operation
-await repository.GetByIdAsync(id, o => o.Cache(false));
+// Disable both document/result cache reads and writes, including explicit ReadCache()
+await repository.GetByIdAsync(id, o => o.Cache(false).ReadCache(false));
 ```
+
+`ReadCache(bool)` explicitly controls reads independently of cache writes and takes precedence over `Cache()`. The parameterless `ReadCache()` is equivalent to `ReadCache(true)`; it does not disable writes that were already enabled.
 
 ### Validation Options
 
@@ -326,6 +328,27 @@ await repository.FindAsync(query, o => o.AsyncQueryId(
     autoDelete: true));
 ```
 
+### Multi-Get Error Options
+
+```csharp
+// Throw for MGET item errors that remain unresolved after any applicable fallback
+await repository.GetByIdsAsync(ids, o => o.ThrowOnMultiGetErrors());
+
+// Also bypass existing document/result cache entries for this read
+await repository.GetByIdsAsync(ids, o => o
+    .ThrowOnMultiGetErrors()
+    .Cache(false)
+    .ReadCache(false));
+```
+
+The option defaults to `false`; `ThrowOnMultiGetErrors(false)` restores the default behavior. Ordinary `found: false` results are not errors. For time-series and parent/child repositories, any applicable search fallback runs first. A document recovered by that fallback does not cause a strict-mode exception. Remaining item errors are aggregated into one `DocumentException` with ID, index, type, and reason details.
+
+Strict reads also require one MGET response item per requested operation, in request order, with matching response IDs. Null items, mismatched response IDs (including unexpected duplicates), found documents without a source, and missing documents with an unexpected source throw `DocumentException` before fallback or cache writes. Projected sources may omit their ID property; correlation uses Elasticsearch response metadata. This validation does not run for the default non-strict path.
+
+The internal fallback does not read or write query-result cache entries. Document results and not-found markers are cached by the outer operation only after unresolved-error validation succeeds, using the caller's cache policy. A strict-mode item-error exception does not write those entries or evict pre-existing cache entries.
+
+Strict mode is error handling, not a freshness or transaction guarantee. Existing positive document cache hits can satisfy a read without contacting Elasticsearch. Search fallback still obeys consistency and soft-delete options and is not a real-time multi-get. For cleanup or other irreversible decisions, handle `DocumentException` without treating the batch as missing, and separately account for filters, refresh visibility, and concurrent changes between validation and mutation.
+
 ### Combining Options
 
 ```csharp
@@ -384,6 +407,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 | Validation | true | N/A | `.SkipValidation()`, `.Validation()` |
 | Soft Deletes | ActiveOnly | N/A | `.IncludeSoftDeletes()`, `.SoftDeleteMode()` |
 | Version Check | true | N/A | `.SkipVersionCheck()`, `.VersionCheck()` |
+| Multi-Get Errors | false | N/A | `.ThrowOnMultiGetErrors()` |
 
 ## Next Steps
 
