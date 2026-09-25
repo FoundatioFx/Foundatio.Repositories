@@ -85,5 +85,12 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase
         }
     }
 
-    public override ValueTask DisposeAsync() => base.DisposeAsync();
+    public override ValueTask DisposeAsync()
+    {
+        _configuration.Dispose();
+        _workItemQueue.Dispose();
+        _messageBus.Dispose();
+        _cache.Dispose();
+        return base.DisposeAsync();
+    }
 }
