@@ -190,18 +190,34 @@ public class Index : IIndex, IHaveLogger
 
     /// <summary>
     /// The number of documents Elasticsearch reads and writes per internal bulk batch while reindexing via
-    /// <see cref="ReindexAsync"/>. Defaults to null, which uses the Elasticsearch reindex API default of 1000.
+    /// <see cref="ReindexAsync(Func{int, string, Task}, CancellationToken)"/>. Defaults to null, which uses the Elasticsearch reindex API default of 1000.
     /// Lower this if reindexing large documents triggers "rejected execution of coordinating operation" errors
     /// from indexing pressure limits.
     /// </summary>
     public int? ReindexBatchSize { get; set; }
 
     /// <summary>
-    /// Throttles <see cref="ReindexAsync"/> to approximately this many documents per second. Defaults to null,
+    /// Throttles <see cref="ReindexAsync(Func{int, string, Task}, CancellationToken)"/> to approximately this many documents per second. Defaults to null,
     /// which uses the Elasticsearch reindex API default of unlimited. Combine with <see cref="ReindexBatchSize"/>
     /// to reduce load on a cluster that is rejecting reindex requests due to indexing pressure limits.
     /// </summary>
     public float? ReindexRequestsPerSecond { get; set; }
+
+    /// <summary>
+    /// Blocks writes to each source index while <see cref="ReindexAsync(Func{int, string, Task}, CancellationToken)"/> reconciles the copy, promoting the alias
+    /// only after the destination is proven to match. Defaults to <c>false</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The first pass remains writable. Writes are blocked for the full final copy and verification</b>, so the outage grows with index size.
+    /// Reads keep working. See <see cref="ReindexWorkItem.QuiesceSource"/> for the full trade-off.
+    /// </para>
+    /// <para>
+    /// For a time-series index the block is applied per partition and released before the next one starts, so the
+    /// write outage covers a single partition at a time rather than the whole migration.
+    /// </para>
+    /// </remarks>
+    public bool QuiesceSourceOnReindex { get; set; }
 
     public virtual async Task DeleteAsync()
     {
@@ -379,8 +395,32 @@ public class Index : IIndex, IHaveLogger
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException());
     }
 
-    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+    private readonly AsyncLocal<CancellationToken> _reindexCancellation = new();
+
+    /// <summary>The token for the current cancellation-aware call, scoped to its async execution context.</summary>
+    protected CancellationToken ReindexCancellationToken => _reindexCancellation.Value;
+
+    /// <summary>Dispatches through the original virtual method so existing consumer overrides still run.</summary>
+    /// <remarks>The async-local scope keeps concurrent and nested calls from sharing cancellation state.</remarks>
+    public virtual async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var previous = _reindexCancellation.Value;
+        _reindexCancellation.Value = cancellationToken;
+        try
+        {
+            await ReindexAsync(progressCallbackAsync).AnyContext();
+        }
+        finally
+        {
+            _reindexCancellation.Value = previous;
+        }
+    }
+
+    /// <summary>Reindexes using the original virtual method signature.</summary>
+    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync)
+    {
+        var cancellationToken = ReindexCancellationToken;
         var reindexWorkItem = new ReindexWorkItem
         {
             OldIndex = Name,
@@ -392,8 +432,8 @@ public class Index : IIndex, IHaveLogger
             ReindexRequestsPerSecond = ReindexRequestsPerSecond
         };
 
-        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
-        return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, Configuration.TimeProvider, Configuration.ResiliencePolicyProvider, _logger);
+        return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync, cancellationToken);
     }
 
     protected virtual string? GetTimeStampField()

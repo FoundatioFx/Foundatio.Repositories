@@ -370,6 +370,15 @@ public async Task GetByIdAsync_WithInvalidId_ReturnsNull(string id)
 - Inherit from `ElasticRepositoryTestBase` which provides `_configuration`, `_cache`, `_client`
 - Use `RemoveDataAsync()` to clean state between tests
 - Keep integration tests separate from unit tests
+- **The suite is destructive before any test body runs.** `RemoveDataAsync()` deletes indexes, so
+  `DisposableClusterGuard` refuses to run unless the target cluster carries a provisioning marker. An empty
+  cluster (a fresh CI container) is marked automatically; a cluster that already holds indexes is refused
+  unless `FOUNDATIO_TEST_CLUSTER` is set to **that cluster's own `cluster_name`**, which the refusal message
+  tells you. The opt-in names the cluster it approves on purpose — a blanket value would stay set in your
+  shell and then authorize whatever cluster the tests reached next.
+- **Check which cluster you are actually pointed at.** The default is `elastic.localtest.me:9200`, which
+  resolves to `127.0.0.1`, so any unrelated Elasticsearch on port 9200 becomes the target. Set
+  `ELASTICSEARCH_URL` when you run more than one cluster locally.
 
 ### Running Tests
 

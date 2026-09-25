@@ -394,6 +394,112 @@ See [Throttling Reindex Load](./index-management.md#throttling-reindex-load) for
 
 If you configure a low `ReindexRequestsPerSecond` to work around this, note that the reindex's stall-detection timeout (10 minutes by default) automatically extends to accommodate the resulting longer pause between batches, so throttling to avoid indexing pressure rejections won't itself cause the reindex to be cancelled as falsely "stalled."
 
+## Reindex Failures
+
+### ReindexIncompleteException
+
+**Symptoms:**
+
+- `ConfigureIndexesAsync()` or `ReindexAsync()` throws `ReindexIncompleteException`, or `ElasticConfiguration.ReindexAsync()` throws an `AggregateException` containing one. **Startup fails** rather than proceeding.
+- The message names both indexes and a reason: `Reindex of employees-v1 -> employees-v2 did not complete: {reason}`.
+
+**Cause:**
+
+The destination could not be trusted as a complete replica of the source, so the library refused to treat the migration as successful. The `Reason` distinguishes the cases:
+
+| Reason mentions | What happened | What to do |
+|-----------------|---------------|------------|
+| documents failed to copy, or a copy task error | Elasticsearch rejected documents — usually a mapping conflict or indexing pressure | Fix the mapping or lower `ReindexBatchSize`; see [Mapping Conflicts](#mapping-conflicts) and [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) |
+| the source changed and no catch-up pass is possible | The model has no timestamp field and non-ObjectId ids, and the source was written to during the copy | Set `QuiesceSourceOnReindex`, add `IHaveDates`, or migrate when writes are stopped |
+| documents changed that the catch-up pass cannot reach | The model uses ObjectId ids and a **pre-existing** document was updated in place during the copy — the id-range catch-up encodes creation time only | Use quiescence, reliable update timestamps, or externally stop writes; creation-time ranges do not discover old-ID updates |
+| unexpected final output count | Quiesced output differs from the final task's expected count, including intentional no-ops/deletes | Investigate missing/extra documents, routing, and transformations; confirm the source still owns its aliases and prior tasks stopped before retrying |
+| the source kept changing while blocked | Under `QuiesceSourceOnReindex`, one or more primary checkpoint values changed despite the write block | Inspect competing migrations and operator changes to the block; direct physical-index writes are blocked too |
+
+**Solutions:**
+
+1. **Establish the cutover state before retrying.** Failure before any promotion request leaves the source authoritative, but an alias request with a lost or cancelled response may already have applied. Confirm physical aliases, task termination, and block ownership; an exception alone does not prove rollback. Then fix the cause and retry only if the replay gates permit it.
+
+2. **If you are refused because of live writes**, the structural fix is to quiesce the source:
+
+```csharp
+public class EmployeeIndex : VersionedIndex<Employee>
+{
+    public EmployeeIndex(IElasticConfiguration configuration)
+        : base(configuration, "employees", 2)
+    {
+        QuiesceSourceOnReindex = true; // blocks writes to the source while it is reconciled
+    }
+}
+```
+
+   This keeps the first pass writable and blocks writes during the full final copy, deletion reconciliation, verification, and cutover. See [Quiescing writes for a verified cutover](./index-management.md#quiescing-writes-for-a-verified-cutover) before enabling it.
+
+3. **Do not suppress it globally.** If a specific deployment must proceed anyway, catch it explicitly and alert:
+
+```csharp
+try
+{
+    await configuration.ReindexAsync();
+}
+catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is ReindexIncompleteException))
+{
+    logger.LogCritical(ex, "Index migration incomplete; indexes may be missing documents");
+}
+```
+
+4. **If the alias moved, do not replay the old source over the live destination.** Default-mode catch-up failures can happen after promotion. Quiesced alias-response, callback, or completion-write failures can also occur after promotion. Preserve both indexes and decide recovery from authoritative data; creating a fresh version from an already-incomplete destination alone does not recover missing records. See the [recovery decision table](/guide/reindex-safety#cancellation-and-outcome-handling).
+
+5. **Find what was left behind** using the technique in [Finding the documents that were left behind](./index-management.md#finding-the-documents-that-were-left-behind).
+
+### ReindexCompletionUnknownException
+
+**Symptoms:**
+
+- A queued reindex work item fails with `Reindex of {source} -> {destination} for alias {alias} cannot be confirmed complete: {reason}`.
+- The alias already points at the destination version.
+- The work item is abandoned and eventually dead-letters rather than being acknowledged.
+
+**Cause:**
+
+The destination was already promoted, but no completion record exists in the `foundatio-reindex-completions` index, so there is no trustworthy evidence the migration ever finished. Completion is **never** inferred from alias state or document counts. Two situations produce this:
+
+- A first attempt failed *after* the alias cutover, which advances the version without finishing the work.
+- The migration completed before this library recorded completion evidence, and a stale work item for it was redelivered.
+
+This also applies to **quiesced** work items: the current flag does not prove how the earlier alias promotion happened. Missing completion is never fabricated. Unknown task dispatch or ambiguous block ownership can also raise this exception before promotion; inspect the exception reason and durable safety records.
+
+**Solutions:**
+
+1. **The replay guard does not authorize another copy into a live destination.** It does not prove that no earlier side effect occurred: a previous task may still be writing, or promotion may already have succeeded. Read the exception reason and durable state before intervening; never fabricate completion from alias state.
+
+2. **Inspect the actual membership and content.** Counts below are only a starting point, not evidence of equality:
+
+```bash
+# Compare counts; the source may still exist
+curl "localhost:9200/employees-v1/_count"
+curl "localhost:9200/employees-v2/_count"
+```
+
+3. **Then decide deliberately:** accept an independently inspected destination and retire the stale queue item using application operations, or recover into a fresh destination using authoritative application data/backups. Do not assume a new index version can reconstruct records missing from its chosen source.
+
+4. **For a pre-existing migration with no record**, this only surfaces on redelivery of a stale work item. Startup is unaffected and nothing is scanned automatically — discard the stale item once you have confirmed the migration did complete.
+
+### An index is stuck read-only after a reindex
+
+A source write block is a persistent Elasticsearch setting, not a client session. A failed cleanup or terminated process can leave `403 cluster_block_exception` responses after the worker exits.
+
+Check the physical source's UUID, aliases, and `index.blocks.write`, then correlate its `foundatio-reindex-safety` block entry and task state. A fresh attempt can recover a confirmed migration-owned block for the same physical generation. A pre-existing unowned block is treated as operator-owned and preserved. A pending/unconfirmed block intent, mismatched UUID, or another owner requires an explicit operator decision.
+
+```bash
+curl "localhost:9200/employees-v1/_settings?filter_path=**.uuid,**.blocks"
+curl "localhost:9200/employees-v1/_alias"
+curl "localhost:9200/_tasks?actions=*reindex&detailed=true"
+```
+
+**Do not clear every block or delete safety records merely to make retries proceed.** First stop competing workers and confirm no earlier task can still write. Only clear a setting after establishing that the block is yours and no operator still requires it. A stuck block on a retained old source does not prove that the live alias is read-only.
+
+In-process cleanup uses an independent bounded timeout. Explicit release failures propagate on the success path; disposal during another failure logs without masking the original error. Automatic recovery handles proven ownership, not arbitrary cluster-state ambiguity. See the [recovery runbook](/guide/reindex-safety).
+
 ## Notification Issues
 
 ### EntityChanged Not Received
@@ -498,7 +604,7 @@ curl http://localhost:9200/employees/_stats
 | `version_conflict_engine_exception` | Concurrent modification | Implement retry or skip version check |
 | `search_phase_execution_exception` | Query error | Check query syntax |
 | `circuit_breaking_exception` | Memory limit | Reduce batch size |
-| `cluster_block_exception` | Cluster read-only | Check disk space |
+| `cluster_block_exception` | Cluster read-only, or the index is write-blocked by an in-progress quiesced reindex | Check disk space; if a reindex is running with `QuiesceSourceOnReindex`, writes to the source are rejected until it completes — see [Quiescing writes](./index-management.md#quiescing-writes-for-a-verified-cutover). If no reindex is running, the block may have been left behind: see [An index is stuck read-only after a reindex](#an-index-is-stuck-read-only-after-a-reindex) |
 | `es_rejected_execution_exception` ("rejected execution of coordinating operation") | Indexing pressure limit exceeded, often during reindex of large documents | Lower `ReindexBatchSize`/`ReindexRequestsPerSecond`, see [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) |
 
 ## Repository Exception Types
@@ -512,6 +618,13 @@ Foundatio.Repositories uses typed exceptions so callers can handle specific fail
 | `DocumentNotFoundException` | `PatchAsync` when the target document doesn't exist (HTTP 404) | No — verify the document ID |
 | `DocumentValidationException` | Any write operation when document validation fails | No — fix the document data |
 | `DocumentException` | Other Elasticsearch errors not covered above | Depends on the underlying cause |
+
+Index migrations throw the following, which inherit from `RepositoryException` rather than `DocumentException`:
+
+| Exception | When Thrown | Retryable? |
+|-----------|------------|------------|
+| `ReindexIncompleteException` | Copy, verification, or promotion could not be confirmed | Inspect aliases and task/block state first. A pre-promotion failure may permit retry; an ambiguous/promoted destination requires recovery, not blind replay |
+| `ReindexCompletionUnknownException` | Missing completion or ambiguous task/block ownership | No blind replay; use [ReindexCompletionUnknownException](#reindexcompletionunknownexception) and the durable-state recovery runbook |
 
 ### Partial Failures on Bulk Operations
 
@@ -548,7 +661,7 @@ The repository automatically retries transient Elasticsearch errors:
 - `DuplicateDocumentException` — **not** retried by the resilience policy
 
 ::: info Reindex task-status polling uses its own backoff
-This resilience policy covers the initial reindex kickoff request. Once reindexing has started, progress is monitored by repeatedly polling the Elasticsearch task status API, which is a plain "did this succeed" response rather than a thrown exception — so it isn't covered by the policy above. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.
+Do not wrap a whole migration or asynchronous reindex kickoff in an unconditional retry policy. Dispatch can succeed even when its response is lost; replay must first pass the durable task and completion checks. The reindexer requests `MaxRetries(0)` locally, but the pinned transport does not reliably honor that request on multi-node pools; do not assume a kickoff was dispatched only once. This is a [current release gate](/guide/reindex-safety#current-release-gates), not a guarantee supplied by the task journal. Task-status polling is separate from dispatch and migration retries. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.
 :::
 
 ## Aggregation Warnings

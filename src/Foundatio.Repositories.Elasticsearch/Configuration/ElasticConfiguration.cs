@@ -42,7 +42,13 @@ public class ElasticConfiguration : IElasticConfiguration
     public const string ConfigureIndexesResourceName = "configure-indexes";
     private int _disposed;
 
-    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
+    /// <summary>Retains the original constructor signature for already-compiled consumers.</summary>
+    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue, ICacheClient? cacheClient, IMessageBus? messageBus, ITextSerializer? serializer, TimeProvider? timeProvider, IResiliencePolicyProvider? resiliencePolicyProvider, ILoggerFactory? loggerFactory)
+        : this(workItemQueue, cacheClient, messageBus, serializer, timeProvider, resiliencePolicyProvider, loggerFactory, null)
+    {
+    }
+
+    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null, ILockProvider? lockProvider = null)
     {
         _workItemQueue = workItemQueue;
         TimeProvider = timeProvider ?? TimeProvider.System;
@@ -65,8 +71,14 @@ public class ElasticConfiguration : IElasticConfiguration
         _shouldDisposeMessageBus = messageBus is null;
         messageBus ??= new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         MessageBus = messageBus;
-        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+        _lockProvider = lockProvider ?? new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+
+        // Reindex serialization is only as distributed as the cache behind the lock provider. With the
+        // in-memory default, two processes each believe they hold the reindex lock and can both copy and flip
+        // the same alias, so warn rather than let a single-process guarantee pass for a distributed one.
+        if (lockProvider is null && cacheClient is null)
+            _logger.LogWarning("No cache client or lock provider configured, so index locks only serialize within this process. Configure a distributed cache (e.g. Redis) before running more than one instance, or index migrations can overlap.");
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository?>(CreateCustomFieldDefinitionRepository);
         _client = new Lazy<ElasticsearchClient>(CreateElasticClient);
@@ -246,15 +258,23 @@ public class ElasticConfiguration : IElasticConfiguration
         }
     }
 
-    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
+    /// <summary>Retains the original CLR signature for already-compiled consumers.</summary>
+    public Task ReindexAsync(IEnumerable<IIndex>? indexes, Func<int, string?, Task>? progressCallbackAsync)
+        => ReindexAsync(indexes, progressCallbackAsync, CancellationToken.None);
+
+    /// <summary>Reindexes outdated indexes, stopping before further work when the caller cancels.</summary>
+    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (indexes is null)
             indexes = Indexes;
 
         var outdatedIndexes = new List<IVersionedIndex>();
         foreach (var versionedIndex in indexes.OfType<IVersionedIndex>())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+            cancellationToken.ThrowIfCancellationRequested();
             if (versionedIndex.Version <= currentVersion)
                 continue;
 
@@ -264,24 +284,40 @@ public class ElasticConfiguration : IElasticConfiguration
         if (outdatedIndexes.Count == 0)
             return;
 
-        foreach (var outdatedIndex in outdatedIndexes)
+        List<Exception>? failures = null;
+        try
         {
-            try
+            foreach (var outdatedIndex in outdatedIndexes)
             {
-                await ResiliencePolicy.ExecuteAsync(async _ =>
+                // Whole-migration replay is unsafe after an ambiguous cutover, regardless of exception type.
+                // Recovery must inspect durable completion and task/block state, not merely the index version.
+                try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await outdatedIndex.ReindexAsync((progress, message) =>
-                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask)
+                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask, cancellationToken)
                         .AnyContext();
-                }).AnyContext();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Reindex of {IndexName} did not complete; automatic replay was not attempted", outdatedIndex.Name);
+                    (failures ??= []).Add(ex);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to begin reindex for {IndexName} after retries", outdatedIndex.Name);
-            }
-        }
 
-        await TryRemoveCacheMarkerAsync().AnyContext();
+            if (failures is { Count: > 0 })
+                throw new AggregateException($"{failures.Count} of {outdatedIndexes.Count} index(es) failed to reindex.", failures);
+        }
+        finally
+        {
+            // A cancelled migration may already have changed aliases. Do not let the recent-configuration
+            // marker suppress the next configuration/recovery attempt. Cleanup does not inherit cancellation.
+            await TryRemoveCacheMarkerAsync().AnyContext();
+        }
     }
 
     private string GetConfigureIndexesCacheKey()
@@ -333,8 +369,10 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             await _configureIndexesCache.RemoveAllAsync().AnyContext();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
+            // Cache-provider cancellation is also a cleanup failure, not a replacement for the migration's
+            // original exception. The cache operation does not receive the migration's cancellation token.
             _logger.LogWarning(ex, "Error removing configure-indexes cache marker: {Message}", ex.Message);
         }
     }
