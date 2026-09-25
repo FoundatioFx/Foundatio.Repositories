@@ -173,7 +173,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         if (nonAnalyzed || isStringRange)
         {
-            ValidateNonAnalyzedField(resolver, resolvedField, condition);
+            await ValidateNonAnalyzedFieldAsync(resolver, resolvedField, condition).AnyContext();
         }
 
         switch (condition.Operator)
@@ -214,7 +214,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                 }
             case ComparisonOperator.Contains:
                 {
-                    if (!resolver.IsPropertyAnalyzed(resolvedField))
+                    if (!await resolver.IsPropertyAnalyzedAsync(resolvedField).AnyContext())
                     {
                         throw new QueryValidationException(
                             $"""
@@ -234,7 +234,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                 }
             case ComparisonOperator.NotContains:
                 {
-                    if (!resolver.IsPropertyAnalyzed(resolvedField))
+                    if (!await resolver.IsPropertyAnalyzedAsync(resolvedField).AnyContext())
                     {
                         throw new QueryValidationException(
                             $"""
@@ -267,9 +267,9 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         }
     }
 
-    private static void ValidateNonAnalyzedField(ElasticMappingResolver resolver, string resolvedField, FieldCondition condition)
+    private static async Task ValidateNonAnalyzedFieldAsync(ElasticMappingResolver resolver, string resolvedField, FieldCondition condition)
     {
-        if (resolver.IsPropertyAnalyzed(resolvedField))
+        if (await resolver.IsPropertyAnalyzedAsync(resolvedField).AnyContext())
         {
             bool isRange = condition.Operator is ComparisonOperator.GreaterThan
                 or ComparisonOperator.GreaterThanOrEqual
@@ -421,7 +421,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
     private static async Task<string> ResolveFieldAsync<T>(QueryBuilderContext<T> ctx, ElasticMappingResolver resolver, Field field, bool nonAnalyzed) where T : class, new()
     {
-        string resolved = resolver.GetResolvedField(field);
+        string resolved = await resolver.GetResolvedFieldAsync(field).AnyContext();
 
         if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
         {
@@ -432,7 +432,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         if (nonAnalyzed)
         {
-            string? nonAnalyzedField = resolver.GetNonAnalyzedFieldName(resolved);
+            string? nonAnalyzedField = await resolver.GetNonAnalyzedFieldNameAsync(resolved).AnyContext();
             if (nonAnalyzedField is not null)
                 resolved = nonAnalyzedField;
         }

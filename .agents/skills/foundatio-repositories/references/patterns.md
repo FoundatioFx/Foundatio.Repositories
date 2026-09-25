@@ -290,14 +290,15 @@ All index configurations use `.Dynamic(false)`, which disables Elasticsearch's a
 After adding a mapping for a previously unmapped field, only **newly saved/indexed documents** will be searchable on that field. To make existing documents searchable:
 
 - **Foundatio migration** -- create a `MigrationBase` subclass that uses `PatchAllAsync` or `BatchProcessAsync` to touch all affected documents (recommended for production).
-- **`PatchAllAsync`** with a no-op `ScriptPatch` (e.g., `ctx.op = 'none'` -- still triggers re-index of `_source`).
 - **Elasticsearch Update By Query API** with no script: `POST /{index}/_update_by_query` re-indexes every document in place.
+
+A script that explicitly skips a write does **not** backfill a new mapping. Do not use `ctx.op = 'none'` for this purpose; update-by-query uses `ctx.op = 'noop'` to skip a document. Leave the indexing operation enabled when re-indexing `_source`.
 
 For `DailyIndex`/`MonthlyIndex`, you must also apply the mapping to existing physical indexes before the update-by-query will help.
 
 **Trade-off for Daily/Monthly indexes**: Rolling forward (doing nothing to old partitions and waiting for retention to cycle out old data) is often the cheapest strategy.
 
-**Mapping resolver cache**: After applying a manual PUT Mapping, the in-process `ElasticMappingResolver` auto-refreshes from the server within ~60 seconds. To force immediate recognition, call `index.MappingResolver.RefreshMapping()`.
+**Mapping resolver cache**: The in-process `ElasticMappingResolver` retains a snapshot; it does not refresh on a 60-second timer. Unresolved fields can trigger reloads with a five-second cooldown, which is not a freshness guarantee. After Elasticsearch acknowledges a known mapping change, call `index.MappingResolver.RefreshMapping()` so the next lookup reloads the mapping. This is also required for changes to an already-resolved alias. Resolver invalidation does not backfill existing documents. See [Mapping Resolver Cache](index-lifecycle.md#mapping-resolver-cache).
 
 ### Checklist: Adding a Queryable Model Field
 

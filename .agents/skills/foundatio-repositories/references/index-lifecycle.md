@@ -337,10 +337,23 @@ var results = await repository.FindAsync(q => q.Index("logs-last-7-days"));
 
 | Cache layer | Lifetime | How to invalidate |
 |---|---|---|
-| `ElasticMappingResolver` field cache | Auto-refreshes ~60 seconds | `index.MappingResolver.RefreshMapping()` |
+| `ElasticMappingResolver` field cache | Snapshot lifetime; unresolved fields trigger reloads with a five-second cooldown | `index.MappingResolver.RefreshMapping()` |
 | `_isEnsured` flag (Index/VersionedIndex) | Process lifetime | App restart or index deletion |
 | `_ensuredDates` (DailyIndex) | Process lifetime per-date | `DeleteAsync(name)` or `Dispose()` |
-| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed) | Expires automatically; or `ConfigureIndexesAsync(force: true)` |
+| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed) | Expires automatically; pass explicit indexes to bypass the configuration-level lock and cache |
+
+Daily/monthly resolvers asynchronously discover the newest partition using names and aliases only, then load
+that partition's mapping. Concurrent lookups share one load per resolver. Index disposal cancels active mapping
+I/O without initializing an unused resolver. Keep indexes long-lived and do not invalidate after every write.
+The cooldown is not a freshness guarantee, and successful lookups do not trigger periodic refreshes. Use
+`RefreshMapping()` after known mapping changes, including changes to an already-resolved alias. Mappings from
+historical partitions are not merged into the newest partition's mapping.
+
+A caller's cancellation token cancels its wait without canceling a shared load needed by other callers.
+Disposing the resolver cancels the shared mapping I/O. Failed or empty reloads retain the last usable snapshot;
+explicit `RefreshMapping()` invalidates that snapshot so the next lookup loads again.
+
+Structured sort, field-condition, include/exclude, date-range, and paging query builders await mapping resolution. Async custom builders should use `GetResolvedFieldsAsync`, `ResolveFieldNameAsync`, and `ResolveFieldSortAsync` to preserve boosts and sort settings. Protected GET/multi-GET request configuration hooks remain synchronous for compatibility.
 
 ## Index Operations
 
@@ -351,12 +364,16 @@ Creates indexes and updates mappings. Protected by distributed lock + cache mark
 ```csharp
 await configuration.ConfigureIndexesAsync();
 
-// Bypass cache marker (after structural changes)
-await configuration.ConfigureIndexesAsync(force: true);
+// Explicit indexes bypass the configuration-level lock and cache marker.
+// Disable enqueueing when a queue worker is not configured; reindex separately.
+await configuration.ConfigureIndexesAsync(configuration.Indexes, beginReindexingOutdated: false);
 
-// Configure specific indexes (bypasses lock and cache)
-await configuration.ConfigureIndexesAsync([myIndex]);
+// Configure specific indexes using the same explicit-selection path.
+await configuration.ConfigureIndexesAsync([myIndex], beginReindexingOutdated: false);
 ```
+
+There is no `force` parameter. Explicit selection does not update existing daily/monthly partition mappings;
+those indexes still follow the manual mapping lifecycle described above.
 
 ### MaintainIndexesAsync
 
@@ -476,7 +493,7 @@ public class EmployeeIndex : VersionedIndex<Employee>
 | Error | `Error updating index ({name}) mappings.` | PUT Mapping failed |
 | Error | `Error updating index ({name}) mappings. Changing existing fields requires a new index version.` | Tried to change existing field type on VersionedIndex |
 | Warning | `Adding new analyzer/tokenizer/filter to existing index (requires close/reopen)` | New analysis component needs index close/reopen |
-| Error | `Error getting task status while reindexing: {OldIndex} -> {NewIndex}` | Task status poll failed (e.g. `es_rejected_execution_exception` from indexing pressure); retried with exponential backoff (1s, doubling, capped at 30s) |
+| Error | `Error getting task status while reindexing: {OldIndex} -> {NewIndex}` | Task status poll failed (e.g. `es_rejected_execution_exception` from indexing pressure); retried with exponential backoff (1s, doubling, capped to 30s) |
 | Error | `Failed to get the status {N} times in a row for reindex task ... reindexing {OldIndex} -> {NewIndex}` | Status polling gave up after `MAX_STATUS_FAILS` (10) consecutive failures; reindex progress can no longer be tracked, but the server-side `_reindex` task keeps running |
 
 DailyIndex never emits mapping errors from the built-in configuration path (since `ConfigureAsync` is a no-op).

@@ -8,3 +8,5 @@ jobs:
     with:
       new-test-runner: true
       minimum-major-minor: '8.0'
+      # Node-wide scroll assertions require a cluster without Kibana background work.
+      compose-command: docker compose up --detach --wait --wait-timeout 120 elasticsearch

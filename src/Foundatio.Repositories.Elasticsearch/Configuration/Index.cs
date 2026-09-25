@@ -32,6 +32,7 @@ public class Index : IIndex, IHaveLogger
     private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
     private readonly Lazy<ElasticQueryParser> _queryParser;
     private readonly Lazy<ElasticMappingResolver> _mappingResolver;
+    private ElasticMappingResolver? _ownedMappingResolver;
     private readonly Lazy<QueryFieldResolver?> _fieldResolver;
     private readonly ConcurrentDictionary<string, ICustomFieldType> _customFieldTypes = new();
     private readonly AsyncLock _lock = new();
@@ -47,7 +48,7 @@ public class Index : IIndex, IHaveLogger
         Configuration = configuration;
         _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
         _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
-        _mappingResolver = new Lazy<ElasticMappingResolver>(CreateMappingResolver);
+        _mappingResolver = new Lazy<ElasticMappingResolver>(CreateOwnedMappingResolver);
         _fieldResolver = new Lazy<QueryFieldResolver?>(CreateQueryFieldResolver);
         _logger = configuration.LoggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
@@ -88,6 +89,15 @@ public class Index : IIndex, IHaveLogger
     }
 
     protected virtual void ConfigureQueryBuilder(ElasticQueryBuilder builder) { }
+
+    private ElasticMappingResolver CreateOwnedMappingResolver()
+    {
+        var resolver = CreateMappingResolver();
+        Interlocked.Exchange(ref _ownedMappingResolver, resolver);
+        if (Volatile.Read(ref _disposed) != 0)
+            Interlocked.Exchange(ref _ownedMappingResolver, null)?.Dispose();
+        return resolver;
+    }
 
     protected virtual ElasticMappingResolver CreateMappingResolver()
     {
@@ -415,6 +425,7 @@ public class Index : IIndex, IHaveLogger
 
         _disposedCancellationTokenSource.Cancel();
         _disposedCancellationTokenSource.Dispose();
+        Interlocked.Exchange(ref _ownedMappingResolver, null)?.Dispose();
     }
 }
 
