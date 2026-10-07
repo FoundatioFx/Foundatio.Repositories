@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Lock;
@@ -122,17 +123,38 @@ public class MigrationManager
                 {
                     var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
                     if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
-                        await _resiliencePolicy.ExecuteAsync(async ct =>
+                    {
+                        LockException? lockLost = null;
+                        var attemptResult = await _resiliencePolicy.ExecuteAsync(async ct =>
                         {
-                            await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
+                            // A lost lock cannot be regained by retrying, so keep it out of the resilience policy
+                            try
+                            {
+                                await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
+                            }
+                            catch (LockException ex)
+                            {
+                                lockLost = ex;
+                                return MigrationResult.Failed;
+                            }
+
                             if (ct.IsCancellationRequested)
                                 return MigrationResult.Cancelled;
 
                             await migrationInfo.Migration.RunAsync(context).AnyContext();
                             return MigrationResult.Success;
                         }, cancellationToken).AnyContext();
+
+                        if (lockLost is not null)
+                            ExceptionDispatchInfo.Throw(lockLost);
+
+                        if (attemptResult is MigrationResult.Cancelled)
+                            return MigrationResult.Cancelled;
+                    }
                     else
+                    {
                         await migrationInfo.Migration.RunAsync(context).AnyContext();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -147,8 +169,15 @@ public class MigrationManager
 
                 await MarkMigrationCompleteAsync(migrationInfo).AnyContext();
 
-                // renew migration lock
-                await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
+                try
+                {
+                    await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
+                }
+                catch (LockException ex)
+                {
+                    _logger.LogError(ex, "Lost migration lock after completing migration {Id}, stopping remaining migrations", migrationInfo.Migration.GetId());
+                    return MigrationResult.Failed;
+                }
             }
         }
         finally
