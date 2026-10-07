@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Lock;
@@ -44,6 +45,9 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         serviceCollection.AddSingleton<FailingMigration>();
         serviceCollection.AddSingleton<FailingResumableMigration>();
         serviceCollection.AddSingleton<RepeatableMigration>();
+        serviceCollection.AddSingleton<LockLosingVersionedMigration>();
+        serviceCollection.AddSingleton<CountingVersion3Migration>();
+        serviceCollection.AddSingleton<LockLosingResumableMigration>();
         _serviceProvider = serviceCollection.BuildServiceProvider();
         _migrationManager = new MigrationManager(_serviceProvider, _migrationStateRepository, _lockProvider, Log);
     }
@@ -265,6 +269,119 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.NotNull(migrationState.CompletedUtc);
         Assert.Null(migrationState.ErrorMessage);
     }
+
+    [Fact]
+    public async Task RunMigrationsAsync_WhenLockLostDuringResumableMigration_FailsWithoutRetrying()
+    {
+        // Arrange
+        await AddCompletedVersion1MigrationAsync();
+        var lockProvider = new RenewalCountingLockProvider(_lockProvider);
+        var migrationManager = new MigrationManager(_serviceProvider, _migrationStateRepository, lockProvider, Log);
+        migrationManager.AddMigration<LockLosingResumableMigration>();
+        var migration = _serviceProvider.GetRequiredService<LockLosingResumableMigration>();
+        migration.LockProvider = _lockProvider;
+
+        // Act
+        var result = await migrationManager.RunMigrationsAsync(TestCancellationToken);
+
+        // Assert
+        Assert.Equal(MigrationResult.Failed, result);
+        Assert.Equal(1, migration.Attempts);
+        Assert.Equal(2, lockProvider.RenewAttempts);
+
+        await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
+        var migrationState = await _migrationStateRepository.GetByIdAsync("4");
+        Assert.NotNull(migrationState);
+        Assert.Null(migrationState.CompletedUtc);
+        Assert.NotNull(migrationState.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RunMigrationsAsync_WhenLockLostBetweenMigrations_FailsWithoutRunningNextMigration()
+    {
+        // Arrange
+        await AddCompletedVersion1MigrationAsync();
+        _migrationManager.AddMigration<LockLosingVersionedMigration>();
+        _migrationManager.AddMigration<CountingVersion3Migration>();
+        var migration = _serviceProvider.GetRequiredService<LockLosingVersionedMigration>();
+        migration.LockProvider = _lockProvider;
+        var nextMigration = _serviceProvider.GetRequiredService<CountingVersion3Migration>();
+
+        // Act
+        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
+
+        // Assert
+        Assert.Equal(MigrationResult.Failed, result);
+        Assert.Equal(0, nextMigration.Runs);
+
+        await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
+        var migrations = await _migrationStateRepository.GetAllAsync();
+        Assert.DoesNotContain(migrations.Documents, d => d.Id == "3");
+    }
+
+    private Task AddCompletedVersion1MigrationAsync()
+    {
+        return _migrationStateRepository.AddAsync(new MigrationState
+        {
+            Id = "1",
+            Version = 1,
+            MigrationType = MigrationType.Versioned,
+            StartedUtc = DateTime.UtcNow,
+            CompletedUtc = DateTime.UtcNow
+        });
+    }
+}
+
+public class LockLosingVersionedMigration : MigrationBase
+{
+    public LockLosingVersionedMigration()
+    {
+        MigrationType = MigrationType.Versioned;
+        Version = 2;
+    }
+
+    public ILockProvider LockProvider { get; set; } = null!;
+
+    public override Task RunAsync(MigrationContext context)
+    {
+        return LockProvider.ReleaseAsync(context.Lock.Resource);
+    }
+}
+
+public class CountingVersion3Migration : MigrationBase
+{
+    public CountingVersion3Migration()
+    {
+        MigrationType = MigrationType.Versioned;
+        Version = 3;
+    }
+
+    public int Runs { get; set; }
+
+    public override Task RunAsync(MigrationContext context)
+    {
+        Runs++;
+        return Task.CompletedTask;
+    }
+}
+
+public class LockLosingResumableMigration : MigrationBase
+{
+    public LockLosingResumableMigration()
+    {
+        MigrationType = MigrationType.VersionedAndResumable;
+        Version = 4;
+    }
+
+    public ILockProvider LockProvider { get; set; } = null!;
+    public int Attempts { get; set; }
+
+    public override async Task RunAsync(MigrationContext context)
+    {
+        Attempts++;
+        await LockProvider.ReleaseAsync(context.Lock.Resource);
+        throw new ApplicationException("Transient failure");
+    }
 }
 
 public class VersionedWithoutVersionMigration : MigrationBase
@@ -372,5 +489,51 @@ public class RepeatableMigration : MigrationBase
     {
         Runs++;
         return Task.CompletedTask;
+    }
+}
+
+public sealed class RenewalCountingLockProvider(ILockProvider inner) : ILockProvider
+{
+    private int _renewAttempts;
+
+    public int RenewAttempts => _renewAttempts;
+
+    public async Task<ILock> AcquireAsync(string resource, TimeSpan? timeUntilExpires = null, bool releaseOnDispose = true, CancellationToken cancellationToken = default)
+    {
+        return new RenewalCountingLock(await inner.AcquireAsync(resource, timeUntilExpires, releaseOnDispose, cancellationToken), this);
+    }
+
+    public async Task<ILock?> TryAcquireAsync(string resource, TimeSpan? timeUntilExpires = null, bool releaseOnDispose = true, CancellationToken cancellationToken = default)
+    {
+        var lockInstance = await inner.TryAcquireAsync(resource, timeUntilExpires, releaseOnDispose, cancellationToken);
+        return lockInstance is null ? null : new RenewalCountingLock(lockInstance, this);
+    }
+
+    public Task<bool> IsLockedAsync(string resource) => inner.IsLockedAsync(resource);
+    public Task ReleaseAsync(string resource, string lockId) => inner.ReleaseAsync(resource, lockId);
+    public Task ReleaseAsync(string resource) => inner.ReleaseAsync(resource);
+
+    public Task RenewAsync(string resource, string lockId, TimeSpan? timeUntilExpires = null)
+    {
+        Interlocked.Increment(ref _renewAttempts);
+        return inner.RenewAsync(resource, lockId, timeUntilExpires);
+    }
+
+    private sealed class RenewalCountingLock(ILock inner, RenewalCountingLockProvider provider) : ILock
+    {
+        public string LockId => inner.LockId;
+        public string Resource => inner.Resource;
+        public DateTime AcquiredTimeUtc => inner.AcquiredTimeUtc;
+        public TimeSpan TimeWaitedForLock => inner.TimeWaitedForLock;
+        public int RenewalCount => inner.RenewalCount;
+
+        public Task RenewAsync(TimeSpan? timeUntilExpires = null)
+        {
+            Interlocked.Increment(ref provider._renewAttempts);
+            return inner.RenewAsync(timeUntilExpires);
+        }
+
+        public Task ReleaseAsync() => inner.ReleaseAsync();
+        public ValueTask DisposeAsync() => inner.DisposeAsync();
     }
 }
