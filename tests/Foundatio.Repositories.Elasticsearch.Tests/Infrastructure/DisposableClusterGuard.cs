@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -55,18 +56,18 @@ public static class DisposableClusterGuard
     public const string OptInVariable = "FOUNDATIO_TEST_CLUSTER";
 
     private static readonly SemaphoreSlim _validationLock = new(1, 1);
-    private static Task? _validation;
+    private static readonly ConditionalWeakTable<ElasticsearchClient, Task> _validations = new();
 
     /// <summary>
-    /// Validates once per process, before anything destructive runs. Subsequent calls reuse the first
-    /// result, including a failure - a suite that was refused once stays refused.
+    /// Validates once per client, before anything destructive runs. Subsequent calls for that client
+    /// reuse the first result, including a failure. A different client must validate its own target.
     /// </summary>
     public static Task EnsureValidatedAsync(ElasticsearchClient client, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(client);
 
-        if (_validation is not null)
-            return _validation;
+        if (_validations.TryGetValue(client, out var validation))
+            return validation;
 
         return EnsureValidatedSlowAsync(client, Environment.GetEnvironmentVariable(OptInVariable), cancellationToken);
     }
@@ -74,16 +75,21 @@ public static class DisposableClusterGuard
     private static async Task EnsureValidatedSlowAsync(ElasticsearchClient client, string? optIn, CancellationToken cancellationToken)
     {
         await _validationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Task? validation;
         try
         {
-            _validation ??= ValidateAsync(client, optIn, cancellationToken);
+            if (!_validations.TryGetValue(client, out validation))
+            {
+                validation = ValidateAsync(client, optIn, cancellationToken);
+                _validations.Add(client, validation);
+            }
         }
         finally
         {
             _validationLock.Release();
         }
 
-        await _validation.ConfigureAwait(false);
+        await validation.ConfigureAwait(false);
     }
 
     /// <summary>

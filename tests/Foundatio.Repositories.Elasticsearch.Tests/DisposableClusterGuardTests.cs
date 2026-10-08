@@ -20,13 +20,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 /// <remarks>
 /// Runs entirely against an in-memory transport. It never contacts a real cluster - demonstrating the
 /// guard by pointing it at an unrelated cluster would risk the exact data loss it prevents. The opt-in
-/// value is passed to <see cref="DisposableClusterGuard.ValidateAsync"/> directly, so these tests never
-/// mutate the process environment and cannot poison a concurrently-initializing integration suite.
+/// value is passed to <see cref="DisposableClusterGuard.ValidateAsync"/> directly, and tests of
+/// <see cref="DisposableClusterGuard.EnsureValidatedAsync"/> use markers whose outcome does not depend
+/// on opt-in, so these tests never mutate the process environment.
 /// </remarks>
 public sealed class DisposableClusterGuardTests
 {
     private const string MatchingMarker = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"foundatio-repositories-integration-tests"}}""";
     private const string MissingMarker = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":false}""";
+    private const string ForeignMarker = """{"_index":"foundatio-disposable-test-cluster","_id":"marker","found":true,"_source":{"purpose":"someone-elses-production-cluster"}}""";
+    private const string UnreadableMarker = """{"error":{"reason":"cluster unavailable"}}""";
 
     /// <summary>Name of the cluster the populated-cluster fixtures below report from <c>GET /</c>.</summary>
     private const string ClusterName = "some-disposable-cluster";
@@ -75,6 +78,81 @@ public sealed class DisposableClusterGuardTests
 
         var destructive = observed.Where(r => _destructiveEndpoint.IsMatch(r)).ToList();
         Assert.True(destructive.Count is 0, $"Guard issued destructive request(s): {String.Join(" | ", destructive)}");
+    }
+
+    [Fact]
+    public Task EnsureValidatedAsync_AfterValidClient_RefusesForeignClient()
+        => AssertClientValidationIsIndependentAsync((200, ForeignMarker), "belongs to something else", validFirst: true);
+
+    [Fact]
+    public Task EnsureValidatedAsync_AfterValidClient_RefusesUnreadableClient()
+        => AssertClientValidationIsIndependentAsync((503, UnreadableMarker), "could not read the disposable-cluster marker", validFirst: true);
+
+    [Fact]
+    public Task EnsureValidatedAsync_AfterForeignClient_AllowsValidClient()
+        => AssertClientValidationIsIndependentAsync((200, ForeignMarker), "belongs to something else", validFirst: false);
+
+    [Fact]
+    public Task EnsureValidatedAsync_AfterUnreadableClient_AllowsValidClient()
+        => AssertClientValidationIsIndependentAsync((503, UnreadableMarker), "could not read the disposable-cluster marker", validFirst: false);
+
+    private static async Task AssertClientValidationIsIndependentAsync((int StatusCode, string Body) refusedResponse, string expectedMessage, bool validFirst)
+    {
+        // Arrange
+        var (validClient, validRequests) = CreateObservedClient((200, MatchingMarker));
+        var (refusedClient, refusedRequests) = CreateObservedClient(refusedResponse);
+
+        // Act
+        if (validFirst)
+            await DisposableClusterGuard.EnsureValidatedAsync(validClient, TestContext.Current.CancellationToken);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.EnsureValidatedAsync(refusedClient, TestContext.Current.CancellationToken));
+
+        if (!validFirst)
+            await DisposableClusterGuard.EnsureValidatedAsync(validClient, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Contains(expectedMessage, ex.Message);
+        string expectedRequest = $"GET /{DisposableClusterGuard.MarkerIndex}/_doc/{DisposableClusterGuard.MarkerId}";
+        Assert.Equal(expectedRequest, Assert.Single(validRequests));
+        Assert.Equal(expectedRequest, Assert.Single(refusedRequests));
+        AssertNoDestructiveRequests(validRequests);
+        AssertNoDestructiveRequests(refusedRequests);
+    }
+
+    [Fact]
+    public async Task EnsureValidatedAsync_SameClient_ReusesSuccessfulValidation()
+    {
+        // Arrange
+        var (client, requests) = CreateObservedClient((200, MatchingMarker), (200, ForeignMarker));
+
+        // Act
+        await DisposableClusterGuard.EnsureValidatedAsync(client, TestContext.Current.CancellationToken);
+        await DisposableClusterGuard.EnsureValidatedAsync(client, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Single(requests);
+        AssertNoDestructiveRequests(requests);
+    }
+
+    [Fact]
+    public async Task EnsureValidatedAsync_SameClient_ReusesFailedValidation()
+    {
+        // Arrange
+        var (client, requests) = CreateObservedClient((200, ForeignMarker), (200, MatchingMarker));
+
+        // Act
+        var first = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.EnsureValidatedAsync(client, TestContext.Current.CancellationToken));
+        var second = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.EnsureValidatedAsync(client, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Contains("belongs to something else", first.Message);
+        Assert.Same(first, second);
+        Assert.Single(requests);
+        AssertNoDestructiveRequests(requests);
     }
 
     [Fact]
