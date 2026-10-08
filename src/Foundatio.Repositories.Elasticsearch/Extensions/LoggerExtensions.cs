@@ -32,6 +32,43 @@ public static class LoggerExtensions
         }
     }
 
+    internal static void LogRequest(this ILogger logger, ElasticsearchStringResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
+    {
+        if (elasticResponse is null || !logger.IsEnabled(logLevel))
+            return;
+
+        var apiCall = elasticResponse.ApiCallDetails;
+        if (apiCall?.RequestBodyInBytes is not null)
+        {
+            string body = JsonUtility.Normalize(Encoding.UTF8.GetString(apiCall.RequestBodyInBytes));
+            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri?.PathAndQuery, body);
+        }
+        else if (apiCall is not null)
+        {
+            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri?.PathAndQuery);
+        }
+    }
+
+    internal static void LogErrorRequest(this ILogger logger, ElasticsearchStringResponse? elasticResponse, string message, params object?[] args)
+    {
+        if (!logger.IsEnabled(LogLevel.Error))
+            return;
+
+        if (elasticResponse is null)
+        {
+            logger.LogError(message, args);
+            return;
+        }
+
+        elasticResponse.TryGetOriginalException(out var originalException);
+        var allArgs = new object?[args.Length + 1];
+        args.CopyTo(allArgs, 0);
+        allArgs[^1] = String.IsNullOrWhiteSpace(elasticResponse.Body)
+            ? elasticResponse.DebugInformation
+            : elasticResponse.Body;
+        logger.LogError(originalException, message + ": {ElasticError}", allArgs);
+    }
+
     public static void LogErrorRequest(this ILogger logger, ElasticsearchResponse? elasticResponse, string message, params object?[] args)
     {
         LogErrorRequest(logger, null, elasticResponse, message, args);
@@ -39,19 +76,28 @@ public static class LoggerExtensions
 
     public static void LogErrorRequest(this ILogger logger, Exception? ex, ElasticsearchResponse? elasticResponse, string message, params object?[] args)
     {
-        if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
+        if (!logger.IsEnabled(LogLevel.Error))
             return;
+
+        if (elasticResponse is null)
+        {
+            logger.LogError(ex, message, args);
+            return;
+        }
 
         var originalException = elasticResponse.ApiCallDetails?.OriginalException;
 
-        AggregateException? aggEx = null;
-        if (ex is not null && originalException is not null)
-            aggEx = new AggregateException(ex, originalException);
+        Exception? logException = ex switch
+        {
+            null => originalException,
+            _ when originalException is null => ex,
+            _ => new AggregateException(ex, originalException)
+        };
 
         var allArgs = new object[args.Length + 1];
         args.CopyTo(allArgs, 0);
         allArgs[^1] = elasticResponse.GetErrorMessage();
-        logger.LogError(aggEx ?? originalException, message + ": {ElasticError}", allArgs);
+        logger.LogError(logException, message + ": {ElasticError}", allArgs);
     }
 }
 
