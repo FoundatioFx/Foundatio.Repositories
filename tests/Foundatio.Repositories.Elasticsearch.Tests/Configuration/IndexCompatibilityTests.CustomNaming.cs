@@ -135,6 +135,34 @@ public partial class IndexCompatibilityTests
         Assert.Equal(2, configuration.RequestCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteAsync_WithWrappedCanonicalNameOwnedBySibling_RejectsInsteadOfDeletingSibling(bool siblingFirst)
+    {
+        // Arrange
+        var invoker = new SequenceRequestInvoker(
+            new StubResponse(200, """{"reindexed-v9-events-v2":{"aliases":{"events":{},"events-v2":{}}}}""", Request: "GET /_alias/events"),
+            new StubResponse(400, """
+                {"error":{"type":"illegal_argument_exception","reason":"index [events-v2] matches an alias, specify the corresponding concrete indices instead."},"status":400}
+                """, Request: "DELETE /events-v2,events-v2-error"),
+            new StubResponse(200, """{"reindexed-v9-events-v2":{"aliases":{"events":{},"events-v2":{}}}}""", Request: "GET /events-v2,events-v2-error"),
+            new StubResponse(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-events-v2"));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        using var events = new VersionedIndex<object>(configuration, "events", 2);
+        using var sibling = new Index<object>(configuration, "events-v2");
+        configuration.AddIndex(siblingFirst ? sibling : events);
+        configuration.AddIndex(siblingFirst ? events : sibling);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() => events.DeleteAsync());
+
+        // Assert
+        Assert.Contains("belongs to another registered index", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(["GET /_alias/events", "DELETE /events-v2,events-v2-error", "GET /events-v2,events-v2-error"], invoker.Requests);
+        Assert.Equal(1, invoker.RemainingResponses);
+    }
+
     [Fact]
     public async Task GetIndexesAsync_WithCustomNaming_UsesVirtualDateAndVersionParsers()
     {

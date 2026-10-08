@@ -474,13 +474,11 @@ public class Index : IIndexCompatibility, IHaveLogger
     private ReadOnlySpan<char> ValidateCompatibilityDeleteTarget(string concreteIndex, IReadOnlyDictionary<string, Alias>? aliases)
     {
         ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(concreteIndex, Name);
-        if (canonicalName.Length == concreteIndex.Length)
-        {
-            if (IsNativelyClaimedByOtherConfiguredIndex(canonicalName))
-                throw new RepositoryException($"Index '{concreteIndex}' belongs to another registered index and cannot be deleted through '{Name}'.");
+        if (IsNativelyClaimedByOtherConfiguredIndex(canonicalName))
+            throw new RepositoryException($"Index '{concreteIndex}' belongs to another registered index and cannot be deleted through '{Name}'.");
 
+        if (canonicalName.Length == concreteIndex.Length)
             return canonicalName;
-        }
 
         string canonicalAlias = canonicalName.ToString();
         if (!aliases.HasCanonicalCompatibilityAlias(canonicalAlias))

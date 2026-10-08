@@ -97,7 +97,8 @@ public partial class IndexCompatibilityTests
                 new Uri("http://node-2.invalid:9200"),
                 new Uri("http://node-3.invalid:9200")
             ]), invoker)
-            .MaximumRetries(2);
+            .MaximumRetries(2)
+            .DisablePing();
         var runner = new ElasticReindexTaskRunner(new ElasticsearchClient(settings), TimeProvider.System);
 
         // Act
