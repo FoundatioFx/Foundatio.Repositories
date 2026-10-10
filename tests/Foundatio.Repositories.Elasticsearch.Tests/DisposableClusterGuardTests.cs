@@ -64,7 +64,7 @@ public sealed class DisposableClusterGuardTests
         var pool = new SingleNodePool(new Uri("http://in-memory.invalid:9200"));
         var settings = new ElasticsearchClientSettings(pool, new SequencedRequestInvoker(responses))
             .DisableDirectStreaming()
-            .OnRequestCompleted(details => requests.Enqueue($"{details.HttpMethod} {details.Uri?.AbsolutePath ?? "(no uri)"}"));
+            .OnRequestCompleted(details => requests.Enqueue($"{details.HttpMethod} {details.Uri?.PathAndQuery ?? "(no uri)"}"));
 
         return (new ElasticsearchClient(settings), requests);
     }
@@ -279,22 +279,89 @@ public sealed class DisposableClusterGuardTests
         await DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken);
 
         // Assert
+        Assert.Contains("expand_wildcards=all", requests.ElementAt(1));
+        Assert.Equal(3, requests.Count);
+        Assert.StartsWith($"PUT /{DisposableClusterGuard.MarkerIndex}/_doc/{DisposableClusterGuard.MarkerId}", requests.Last());
         AssertNoDestructiveRequests(requests);
     }
 
-    [Fact]
-    public async Task ValidateAsync_WhenClusterHasOnlySystemIndexes_AdoptsWithoutOptIn()
+    [Theory]
+    [InlineData("closed-customers")]
+    [InlineData("hidden-customers")]
+    [InlineData(".customer-data")]
+    [InlineData(".security-7")]
+    [InlineData(".kibana_1")]
+    public async Task ValidateAsync_WhenClusterHasClosedHiddenOrDotIndexes_RefusesWithoutOptIn(string indexName)
     {
-        // Arrange: dot-prefixed system indexes are Elasticsearch's own bookkeeping, not user data.
+        // Arrange: the complete inventory may contain closed, hidden, or dot-prefixed indexes.
         var (client, requests) = CreateObservedClient(
             (404, MissingMarker),
-            (200, """{".security-7":{"aliases":{},"mappings":{},"settings":{}},".kibana_1":{"aliases":{},"mappings":{},"settings":{}}}"""),
+            (200, $$"""
+                {
+                    "{{indexName}}": { "aliases": {}, "mappings": {}, "settings": {} }
+                }
+                """),
+            (200, ClusterInfo));
+
+        // Act
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Contains("may be a real environment", ex.Message);
+        Assert.Contains(indexName, ex.Message);
+        Assert.Contains("expand_wildcards=all", requests.ElementAt(1));
+        Assert.Equal(3, requests.Count);
+        Assert.All(requests, request => Assert.StartsWith("GET ", request));
+        AssertNoDestructiveRequests(requests);
+    }
+
+    [Theory]
+    [InlineData("closed-customers")]
+    [InlineData("hidden-customers")]
+    [InlineData(".customer-data")]
+    public async Task ValidateAsync_WhenClusterHasClosedHiddenOrDotIndexes_AdoptsWithMatchingOptIn(string indexName)
+    {
+        // Arrange
+        var (client, requests) = CreateObservedClient(
+            (404, MissingMarker),
+            (200, $$"""
+                {
+                    "{{indexName}}": { "aliases": {}, "mappings": {}, "settings": {} }
+                }
+                """),
+            (200, ClusterInfo),
             (201, MarkerWritten));
 
         // Act
-        await DisposableClusterGuard.ValidateAsync(client, optIn: null, TestContext.Current.CancellationToken);
+        await DisposableClusterGuard.ValidateAsync(client, ClusterName, TestContext.Current.CancellationToken);
 
         // Assert
+        Assert.Contains("expand_wildcards=all", requests.ElementAt(1));
+        Assert.Equal(4, requests.Count);
+        Assert.StartsWith($"PUT /{DisposableClusterGuard.MarkerIndex}/_doc/{DisposableClusterGuard.MarkerId}", requests.Last());
+        AssertNoDestructiveRequests(requests);
+    }
+
+    [Theory]
+    [InlineData(403)]
+    [InlineData(503)]
+    public async Task ValidateAsync_WhenIndexInventoryIsUnreadable_RefusesWithoutWritingMarker(int statusCode)
+    {
+        // Arrange: even a matching opt-in cannot authorize an unreadable inventory.
+        var (client, requests) = CreateObservedClient(
+            (404, MissingMarker),
+            (statusCode, """{"error":{"reason":"index inventory unavailable"}}"""));
+
+        // Act
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DisposableClusterGuard.ValidateAsync(client, ClusterName, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Contains("index list could not be read", ex.Message);
+        Assert.Contains("expand_wildcards=all", requests.ElementAt(1));
+        Assert.Equal(2, requests.Count);
+        Assert.All(requests, request => Assert.StartsWith("GET ", request));
         AssertNoDestructiveRequests(requests);
     }
 

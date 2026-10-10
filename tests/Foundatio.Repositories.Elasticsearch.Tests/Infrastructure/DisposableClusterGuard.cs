@@ -147,14 +147,14 @@ public static class DisposableClusterGuard
     }
 
     /// <summary>
-    /// Writes the marker onto a cluster holding no user indexes. An empty cluster cannot be someone's
+    /// Writes the marker onto a cluster holding no indexes. An empty cluster cannot be someone's
     /// populated environment, which is what makes self-provisioning safe and lets a fresh CI container
     /// work without configuration. Adopting a <em>populated</em> unmarked cluster is the mistake this
     /// guard exists to prevent, so it requires <see cref="OptInVariable"/> to name that specific cluster.
     /// </summary>
     private static async Task ProvisionAsync(ElasticsearchClient client, string? optIn, CancellationToken cancellationToken)
     {
-        var existing = await client.Indices.GetAsync(Indices.Parse("*"), d => d.IgnoreUnavailable(), cancellationToken).ConfigureAwait(false);
+        var existing = await client.Indices.GetAsync(Indices.Parse("*"), d => d.ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable(), cancellationToken).ConfigureAwait(false);
         if (!existing.IsValidResponse)
         {
             throw new InvalidOperationException(
@@ -168,12 +168,12 @@ public static class DisposableClusterGuard
                 """);
         }
 
-        var userIndexes = existing.Indices is null
+        var indexNames = existing.Indices is null
             ? []
-            : existing.Indices.Keys.Select(i => i.ToString()).Where(n => !String.IsNullOrEmpty(n) && !n.StartsWith('.')).ToList();
+            : existing.Indices.Keys.Select(i => i.ToString()).Where(n => !String.IsNullOrEmpty(n)).ToList();
 
-        if (userIndexes.Count > 0)
-            await RequireOptInNamingThisClusterAsync(client, optIn, userIndexes, cancellationToken).ConfigureAwait(false);
+        if (indexNames.Count > 0)
+            await RequireOptInNamingThisClusterAsync(client, optIn, indexNames, cancellationToken).ConfigureAwait(false);
 
         var marker = new DisposableClusterMarker
         {
@@ -206,7 +206,7 @@ public static class DisposableClusterGuard
     /// cluster name is read only on this path, so the common cases cost no extra request, and an unreadable
     /// name fails closed.
     /// </remarks>
-    private static async Task RequireOptInNamingThisClusterAsync(ElasticsearchClient client, string? optIn, List<string> userIndexes, CancellationToken cancellationToken)
+    private static async Task RequireOptInNamingThisClusterAsync(ElasticsearchClient client, string? optIn, List<string> indexNames, CancellationToken cancellationToken)
     {
         var info = await client.InfoAsync(cancellationToken).ConfigureAwait(false);
         string? clusterName = info.IsValidResponse ? info.ClusterName : null;
@@ -215,7 +215,7 @@ public static class DisposableClusterGuard
         {
             throw new InvalidOperationException(
                 $"""
-                Refusing to run destructive integration tests: the target cluster has no disposable marker, already holds {userIndexes.Count} user index(es), and its cluster name could not be read, so the opt-in cannot be verified against it.
+                Refusing to run destructive integration tests: the target cluster has no disposable marker, already holds {indexNames.Count} index(es), and its cluster name could not be read, so the opt-in cannot be verified against it.
 
                 Status : {info.ApiCallDetails?.HttpStatusCode.ToString() ?? "(no response)"}
                 Error  : {info.ElasticsearchServerError?.Error?.Reason ?? info.ApiCallDetails?.OriginalException?.Message ?? "unknown"}
@@ -229,10 +229,10 @@ public static class DisposableClusterGuard
 
         throw new InvalidOperationException(
             $"""
-            Refusing to run destructive integration tests: the target cluster has no disposable marker and already holds {userIndexes.Count} user index(es), so it may be a real environment.
+            Refusing to run destructive integration tests: the target cluster has no disposable marker and already holds {indexNames.Count} index(es), so it may be a real environment.
 
             Cluster name : {clusterName}
-            First few    : {String.Join(", ", userIndexes.Take(10))}
+            First few    : {String.Join(", ", indexNames.Take(10))}
             {OptInVariable} : {(String.IsNullOrEmpty(optIn) ? "(not set)" : optIn)}
 
             Unmarked clusters are only adopted automatically when empty. The opt-in must name the cluster it
