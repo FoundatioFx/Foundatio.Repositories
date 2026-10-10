@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
@@ -25,7 +26,15 @@ public interface IIndex : IDisposable
     Task EnsureIndexAsync(object? target);
     Task MaintainAsync(bool includeOptionalTasks = true);
     Task DeleteAsync();
-    Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null);
+    /// <summary>Reindexes using the original CLR contract, including third-party implementations.</summary>
+    Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync);
+
+    /// <summary>Reindexes with cancellation. Legacy implementations are checked before invocation.</summary>
+    Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ReindexAsync(progressCallbackAsync);
+    }
     string CreateDocumentId(object document);
     string[] GetIndexesByQuery(IRepositoryQuery query);
     string GetIndex(object target);
