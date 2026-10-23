@@ -79,6 +79,8 @@ public static class ElasticIndexExtensions
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
 
+        ValidateSearchCompleteness(options, response.TimedOut, response.Shards?.Failed ?? 0);
+
         int limit = options.GetLimit();
         var docs = response.Hits.Take(limit).ToFindHits().ToList();
 
@@ -132,6 +134,8 @@ public static class ElasticIndexExtensions
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
+
+        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0);
 
         int limit = options.GetLimit();
         var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
@@ -238,6 +242,8 @@ public static class ElasticIndexExtensions
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
 
+        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0);
+
         int limit = options.GetLimit();
         var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
 
@@ -318,6 +324,8 @@ public static class ElasticIndexExtensions
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
 
+        ValidateSearchCompleteness(options, response.TimedOut, response.Shards?.Failed ?? 0);
+
         int limit = options.GetLimit();
         var docs = response.Hits.Take(limit).ToFindHits().ToList();
 
@@ -332,6 +340,15 @@ public static class ElasticIndexExtensions
         protectedResults.Page = options.GetPage();
 
         return results;
+    }
+
+    private static void ValidateSearchCompleteness(ICommandOptions options, bool timedOut, int failedShards)
+    {
+        if (!options.ShouldRequireCompleteSearchResults())
+            return;
+
+        if (timedOut || failedShards > 0)
+            throw new DocumentException($"Error getting documents: fallback search timed out={timedOut}, failed shards={failedShards}");
     }
 
     public static FindHit<T> ToFindHit<T>(this GetResponse<T> hit) where T : class

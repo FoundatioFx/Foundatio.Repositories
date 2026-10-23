@@ -206,6 +206,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
             var findOptions = options.Clone();
+            if (options.ShouldThrowOnMultiGetErrors())
+                findOptions.RequireCompleteSearchResults();
             // Only the outer batch read may cache results, after all item errors have been resolved.
             findOptions.Cache(false).ReadCache(false).PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();

@@ -15,6 +15,7 @@ namespace Foundatio.Repositories
         internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
         internal const string TrackTotalHitsKey = "@TrackTotalHits";
+        internal const string RequireCompleteSearchResultsKey = "@RequireCompleteSearchResults";
         internal const string ThrowOnMultiGetErrorsKey = "@ThrowOnMultiGetErrors";
 
         /// <summary>
@@ -26,6 +27,8 @@ namespace Foundatio.Repositories
         /// Time-series and parent/child repositories may recover documents through a search fallback.
         /// Unresolved item errors are aggregated before returning results or writing document and
         /// not-found cache entries. The fallback does not read or write query-result cache entries.
+        /// Strict fallback queries also reject timeouts and failed shards, including subsequent pages
+        /// and parent/child IDs without routing, before any document or not-found cache writes.
         /// Incomplete or mismatched MGET responses are rejected before fallback and cache writes.
         /// Found items must include a source; projected sources may omit their ID property.
         /// Existing document cache reads, consistency settings, and soft-delete filters still apply;
@@ -34,6 +37,11 @@ namespace Foundatio.Repositories
         public static T ThrowOnMultiGetErrors<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
             return options.BuildOption(ThrowOnMultiGetErrorsKey, enabled);
+        }
+
+        internal static T RequireCompleteSearchResults<T>(this T options) where T : ICommandOptions
+        {
+            return options.BuildOption(RequireCompleteSearchResultsKey, true);
         }
 
         public static T TrackTotalHits<T>(this T options, bool enabled = true) where T : ICommandOptions
@@ -180,6 +188,11 @@ namespace Foundatio.Repositories.Options
         public static bool ShouldThrowOnMultiGetErrors(this ICommandOptions options)
         {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.ThrowOnMultiGetErrorsKey, false);
+        }
+
+        internal static bool ShouldRequireCompleteSearchResults(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.RequireCompleteSearchResultsKey, false);
         }
 
         public static bool HasSnapshotScrollId(this ICommandOptions options)

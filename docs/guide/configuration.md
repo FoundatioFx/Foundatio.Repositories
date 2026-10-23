@@ -345,7 +345,9 @@ The option defaults to `false`; `ThrowOnMultiGetErrors(false)` restores the defa
 
 Strict reads also require one MGET response item per requested operation, in request order, with matching response IDs. Null items, mismatched response IDs (including unexpected duplicates), found documents without a source, and missing documents with an unexpected source throw `DocumentException` before fallback or cache writes. Projected sources may omit their ID property; correlation uses Elasticsearch response metadata. This validation does not run for the default non-strict path.
 
-The internal fallback does not read or write query-result cache entries. Document results and not-found markers are cached by the outer operation only after unresolved-error validation succeeds, using the caller's cache policy. A strict-mode item-error exception does not write those entries or evict pre-existing cache entries.
+Strict fallback queries throw `DocumentException` on a reported timeout or failed shard, including subsequent pages and parent/child IDs without routing that bypass MGET. The entire batch fails even if the partial response contains requested documents. Default non-strict fallback behavior is unchanged.
+
+The internal fallback does not read or write query-result cache entries. Document results and not-found markers are cached by the outer operation only after unresolved-error validation succeeds, using the caller's cache policy. A strict-mode item-error or incomplete-fallback exception does not write those entries or evict pre-existing cache entries.
 
 Strict mode is error handling, not a freshness or transaction guarantee. Existing positive document cache hits can satisfy a read without contacting Elasticsearch. Search fallback still obeys consistency and soft-delete options and is not a real-time multi-get. For cleanup or other irreversible decisions, handle `DocumentException` without treating the batch as missing, and separately account for filters, refresh visibility, and concurrent changes between validation and mutation.
 
