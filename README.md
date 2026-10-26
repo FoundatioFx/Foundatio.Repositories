@@ -190,6 +190,8 @@ See the [sample Blazor application](samples/Foundatio.SampleApp) for a complete 
 
 ## Contributing
 
+Standalone project builds use released packages by default. To debug against an available sibling Foundatio source checkout, pass `-p:ReferenceFoundatioSource=true`; use `-p:ReferenceFoundatioRepositoriesSource=true` when repository source references are also required. Combined workspace builds can use `Foundatio.All.slnx` to select source references automatically.
+
 We welcome contributions! Please see our [contributing guidelines](CONTRIBUTING.md) for details.
 
 ## License
