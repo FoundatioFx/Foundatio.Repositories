@@ -73,7 +73,7 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
@@ -129,7 +129,7 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
@@ -236,7 +236,7 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
@@ -318,7 +318,7 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());

@@ -120,6 +120,10 @@ IReadOnlyRepository<T>
 
 ## Gotchas
 
+- **Strict fallback rejects HTTP 404**: Missing search targets, scroll contexts and async results cannot establish a complete batch. Non-strict searches still return empty results for HTTP 404.
+
+- **Strict batch reads require `_source` and do not exempt retention-expired indexes**: Separate known-expired IDs using an authoritative retention policy; never turn a `DocumentException` into an empty batch. Fallback cache isolation applies in both strict and default modes. See the configuration guide and the Remove and Fetch reference for these compatibility details.
+
 - **Unmapped fields silently return zero results**: `.Dynamic(false)` is standard. Adding a model property without a corresponding mapping in `ConfigureIndexMapping` means queries on it silently return empty results with no error.
 - **`.Index(start, end)` is only for DailyIndex/MonthlyIndex**: It routes to physical daily/monthly shards. On `VersionedIndex` (single index) it is a no-op. Always pair with `.DateRange()`.
 - **Painless uses `==` not `===`**: The `===` operator does not exist in Painless. Always use `==` for equality in ScriptPatch scripts.

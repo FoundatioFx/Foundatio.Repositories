@@ -15,7 +15,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Queries;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -154,12 +153,12 @@ public sealed class MultiGetResponseValidationTests
     public static IEnumerable<object[]> IncompleteFallbackCases()
     {
         foreach (bool timeout in new[] { false, true })
-        foreach (bool multiGet in new[] { false, true })
-        foreach (bool laterPage in new[] { false, true })
-        foreach (bool strict in new[] { false, true })
-        foreach (bool snapshot in new[] { false, true })
-        foreach (bool keyed in new[] { false, true })
-            yield return [timeout, multiGet, laterPage, strict, snapshot, keyed];
+            foreach (bool multiGet in new[] { false, true })
+                foreach (bool laterPage in new[] { false, true })
+                    foreach (bool strict in new[] { false, true })
+                        foreach (bool snapshot in new[] { false, true })
+                            foreach (bool keyed in new[] { false, true })
+                                yield return [timeout, multiGet, laterPage, strict, snapshot, keyed];
     }
 
     [Theory]
@@ -279,6 +278,58 @@ public sealed class MultiGetResponseValidationTests
             options.BuildOption("@RequireCompleteSearchResults", true);
             Assert.Throws<DocumentException>(() => response.ToFindResults(options, fixture.Configuration.Serializer));
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FallbackSearch_WhenTargetIsMissing_StrictModeRejectsEmptyResultAsync(bool scroll)
+    {
+        using var fixture = new Fixture("""
+            {"error":{"type":"search_context_missing_exception","reason":"search target unavailable"},"status":404}
+            """, 404);
+        var options = new CommandOptions();
+        Func<FindResults<Identity>> convert;
+        if (scroll)
+        {
+            var response = await fixture.Configuration.Client.ScrollAsync<Identity>(new ScrollRequest { ScrollId = "missing" }, TestContext.Current.CancellationToken);
+            convert = () => response.ToFindResults(options, fixture.Configuration.Serializer);
+        }
+        else
+        {
+            var response = await fixture.Configuration.Client.SearchAsync<Identity>(cancellationToken: TestContext.Current.CancellationToken);
+            convert = () => response.ToFindResults(options, fixture.Configuration.Serializer);
+        }
+
+        Assert.Empty(convert().Documents);
+        options.BuildOption("@RequireCompleteSearchResults", true);
+        Assert.Throws<DocumentException>(convert);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AsyncFallback_WhenTargetIsMissing_StrictModeRejectsEmptyResultAsync(bool get)
+    {
+        using var fixture = new Fixture("""
+            {"error":{"type":"resource_not_found_exception","reason":"async search unavailable"},"status":404}
+            """, 404);
+        var options = new CommandOptions();
+        Func<FindResults<Identity>> convert;
+        if (get)
+        {
+            var response = await fixture.Configuration.Client.AsyncSearch.GetAsync<Identity>("missing", cancellationToken: TestContext.Current.CancellationToken);
+            convert = () => response.ToFindResults(options, fixture.Configuration.Serializer);
+        }
+        else
+        {
+            var response = await fixture.Configuration.Client.AsyncSearch.SubmitAsync<Identity>(cancellationToken: TestContext.Current.CancellationToken);
+            convert = () => response.ToFindResults(options, fixture.Configuration.Serializer);
+        }
+
+        Assert.Empty(convert().Documents);
+        options.BuildOption("@RequireCompleteSearchResults", true);
+        Assert.Throws<DocumentException>(convert);
     }
 
     private sealed class FallbackRequestInvoker(bool timeout, bool laterPage, bool complete = false, bool snapshot = false)

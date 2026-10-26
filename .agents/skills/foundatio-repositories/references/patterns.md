@@ -244,7 +244,11 @@ bool exists = await repository.ExistsAsync(id);
 
 Strict MGET error handling is opt-in and does not make ordinary `found: false` results errors. Strict fallback queries reject reported timeouts and failed shards on every page, including unrouted parent/child IDs that bypass MGET, before document or not-found cache writes. The search fallback preserves consistency and soft-delete options but disables its own query-result caching; only the outer batch read caches document results after unresolved-error validation. Existing document cache hits are still eligible: use `Cache(false).ReadCache(false)` when those must be bypassed. Strict mode is not a freshness guarantee, atomic snapshot, or proof that an omitted ID does not exist. Never treat a thrown `DocumentException` as an empty batch for cleanup or another irreversible decision.
 
+Fallback cache isolation applies in both strict and non-strict modes, fixing the earlier unkeyed-cache exception and keyed-cache payload mismatch. Retention-expired physical indexes still produce strict failures when fallback cannot recover the document; use an authoritative retention policy to separate expired IDs, never an exception-as-empty fallback. Strict batch reads require `_source`; disabling it or requesting only stored fields is unsupported, while source projections may omit the model ID.
+
 **Gotcha:** When caching is disabled and no event listeners are registered, `RemoveAllAsync` uses Elasticsearch `delete_by_query`, which counts (and skips) version conflicts when concurrent writes modify matching documents. Since `delete_by_query` has no `retry_on_conflict`, the repository re-runs the query up to `o.Retry(n)` times (default 10) until conflicts clear. The returned count is the cumulative number deleted across attempts; if conflicts persist after the retry budget, a warning is logged and the partial count is returned (no exception).
+
+Strict fallback HTTP 404 responses throw, including missing scroll contexts and async results; they must not be interpreted as a completed empty page. Non-strict search behavior is unchanged.
 
 ## Command Options
 
