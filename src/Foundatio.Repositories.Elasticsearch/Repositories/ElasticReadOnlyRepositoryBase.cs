@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -171,6 +172,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         // Build MultiGetOperation objects for each ID
         var itemsForMultiGet = itemsToFind.Where(i => i.Routing != null || !HasParent).ToList();
+        IReadOnlyCollection<MultiGetError> itemErrors = [];
         if (itemsForMultiGet.Count > 0)
         {
             var docOperations = itemsForMultiGet
@@ -192,6 +194,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (!multiGetResults.IsValidResponse)
                 throw new DocumentException(multiGetResults.GetErrorMessage("Error getting documents"), multiGetResults.OriginalException());
 
+            itemErrors = options.ShouldThrowOnMultiGetErrors() ? multiGetResults.GetItemErrors(docOperations, _logger) : [];
+
             foreach (var findHit in multiGetResults.ToFindHits(_logger))
             {
                 hits.Add(findHit);
@@ -203,7 +207,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
             var findOptions = options.Clone();
-            findOptions.PageLimit(1000);
+            if (options.ShouldThrowOnMultiGetErrors())
+                findOptions.RequireCompleteSearchResults();
+            // Only the outer batch read may cache results, after all item errors have been resolved.
+            findOptions.Cache(false).ReadCache(false).PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
             do
             {
@@ -218,6 +225,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             } while (await response.NextPageAsync().AnyContext());
         }
 
+        if (itemErrors.Count > 0)
+        {
+            var stillMissingIds = new HashSet<string>(itemsToFind.Select(id => id.Value));
+            var unresolvedErrors = itemErrors.Where(e => e.Id is null || stillMissingIds.Contains(e.Id.ToString())).ToList();
+            if (unresolvedErrors.Count > 0)
+                throw CreateMultiGetException(unresolvedErrors);
+        }
+
         if (IsCacheEnabled && options.ShouldUseCache())
         {
             // Add null markers for IDs that were not found (to cache the "not found" result)
@@ -228,6 +243,44 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         return hits.Where(h => ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
+    }
+
+    private static DocumentException CreateMultiGetException(List<MultiGetError> errors)
+    {
+        const int maxMessageLength = 4096;
+        const string suffix = "... (additional error details omitted)";
+        var message = new StringBuilder("Error getting documents: ");
+        bool truncated = false;
+        foreach (var error in errors)
+        {
+            if (message.Length > "Error getting documents: ".Length)
+                Append("; ");
+            Append("id=");
+            Append(error.Id?.ToString());
+            Append(", index=");
+            Append(error.Index?.ToString());
+            Append(", type=");
+            Append(error.Error?.Type);
+            Append(", reason=");
+            Append(error.Error?.Reason);
+            if (truncated)
+                break;
+        }
+        if (truncated)
+            message.Append(suffix);
+
+        var exception = new DocumentException(message.ToString());
+        exception.Data["MultiGetErrors"] = errors.AsReadOnly();
+        return exception;
+
+        void Append(string? value)
+        {
+            if (value is null || truncated)
+                return;
+            int length = Math.Min(value.Length, maxMessageLength - suffix.Length - message.Length);
+            message.Append(value, 0, length);
+            truncated = length < value.Length;
+        }
     }
 
     public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T>? options)

@@ -5,6 +5,7 @@ using System.Linq;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.AsyncSearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
+using Elastic.Clients.Elasticsearch.Core.MGet;
 using Elastic.Clients.Elasticsearch.Core.Search;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
@@ -72,11 +73,13 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
+
+        ValidateSearchCompleteness(options, response.TimedOut, response.Shards?.Failed ?? 0);
 
         int limit = options.GetLimit();
         var docs = response.Hits.Take(limit).ToFindHits().ToList();
@@ -126,11 +129,13 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
+
+        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0, response.IsRunning || response.IsPartial);
 
         int limit = options.GetLimit();
         var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
@@ -231,11 +236,13 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
+
+        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0, response.IsRunning || response.IsPartial);
 
         int limit = options.GetLimit();
         var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
@@ -311,11 +318,13 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() is 404 && !options.ShouldRequireCompleteSearchResults())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
+
+        ValidateSearchCompleteness(options, response.TimedOut, response.Shards?.Failed ?? 0);
 
         int limit = options.GetLimit();
         var docs = response.Hits.Take(limit).ToFindHits().ToList();
@@ -331,6 +340,18 @@ public static class ElasticIndexExtensions
         protectedResults.Page = options.GetPage();
 
         return results;
+    }
+
+    private static void ValidateSearchCompleteness(ICommandOptions options, bool timedOut, int failedShards, bool unfinished = false)
+    {
+        if (!options.ShouldRequireCompleteSearchResults())
+            return;
+
+        if (unfinished)
+            throw new DocumentException("Error getting documents: fallback async search is running or partial.");
+
+        if (timedOut || failedShards > 0)
+            throw new DocumentException($"Error getting documents: fallback search timed out={timedOut}, failed shards={failedShards}");
     }
 
     public static FindHit<T> ToFindHit<T>(this GetResponse<T> hit) where T : class
@@ -451,12 +472,78 @@ public static class ElasticIndexExtensions
                         return;
                     }
 
-                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
+                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, type={ErrorType}, reason={Reason}", error.Index, error.Id, error.Error?.Type, error.Error?.Reason);
                 }
             );
             if (findHit is not null)
                 yield return findHit;
         }
+    }
+
+    /// <summary>
+    /// Eagerly collects per-document errors without throwing for valid Elasticsearch item errors.
+    /// Ordinary missing documents are not errors. Malformed null response items are rejected.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">The response is null.</exception>
+    /// <exception cref="DocumentException">The response contains an invalid item.</exception>
+    public static IReadOnlyCollection<MultiGetError> GetItemErrors<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
+    {
+        return response.GetItemErrors(null, logger);
+    }
+
+    internal static IReadOnlyCollection<MultiGetError> GetItemErrors<T>(this MultiGetResponse<T> response, IReadOnlyList<MultiGetOperation>? operations, ILogger? logger) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        if (response.Docs is null || (operations is not null && response.Docs.Count != operations.Count))
+            throw new DocumentException("Elasticsearch returned an unexpected number of multi-get items.");
+
+        List<MultiGetError>? errors = null;
+        int position = 0;
+        foreach (var doc in response.Docs)
+        {
+            if (doc is null)
+                throw new DocumentException("Elasticsearch returned an invalid multi-get item.");
+
+            // Elasticsearch returns items in request order, including failures. Validate metadata,
+            // not the source ID, because field projections may intentionally omit the source ID.
+            string? expectedId = operations is not null ? operations[position].Id.ToString() : null;
+            doc.Match(
+                result =>
+                {
+                    if (result is null)
+                        throw new DocumentException("Elasticsearch returned an invalid multi-get result item.");
+
+                    if (operations is not null)
+                    {
+                        if (!String.Equals(result.Id, expectedId, StringComparison.Ordinal))
+                            throw new DocumentException($"Elasticsearch returned an unexpected multi-get result ID; expected {expectedId}, received {result.Id}.");
+
+                        if (result.Found && result.Source is null)
+                            throw new DocumentException($"Elasticsearch returned multi-get document {expectedId} without a source.");
+
+                        if (!result.Found && result.Source is not null)
+                            throw new DocumentException($"Elasticsearch returned a source for missing multi-get document {expectedId}.");
+                    }
+                },
+                error =>
+                {
+                    if (error is null || error.Error is null)
+                    {
+                        logger?.LogWarning("Elasticsearch returned an invalid multi-get error item.");
+                        throw new DocumentException("Elasticsearch returned an invalid multi-get error item.");
+                    }
+
+                    if (operations is not null && !String.Equals(error.Id?.ToString(), expectedId, StringComparison.Ordinal))
+                        throw new DocumentException($"Elasticsearch returned an unexpected multi-get error ID; expected {expectedId}, received {error.Id}.");
+
+                    errors ??= [];
+                    errors.Add(error);
+                }
+            );
+            position++;
+        }
+
+        return errors ?? (IReadOnlyCollection<MultiGetError>)[];
     }
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
