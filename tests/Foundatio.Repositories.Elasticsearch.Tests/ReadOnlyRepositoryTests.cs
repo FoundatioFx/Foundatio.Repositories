@@ -694,16 +694,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         return nodeStats.Indices!.Search!.ScrollCurrent;
     }
 
-    private async Task<long> GetCurrentSearchContextCountAsync()
+    private async Task AssertPointInTimeClosedAsync(string? pointInTimeId)
     {
-        var stats = await _client.Nodes.StatsAsync(cancellationToken: TestCancellationToken);
-        Assert.True(stats.IsValidResponse);
-        return stats.Nodes.Values.Sum(n =>
-        {
-            long? count = n.Indices?.Search?.OpenContexts;
-            Assert.NotNull(count);
-            return count.Value;
-        });
+        Assert.False(String.IsNullOrEmpty(pointInTimeId));
+        var response = await _client.SearchAsync<Employee>(s => s
+            .Pit(p => p.Id(pointInTimeId)).Size(0).AllowPartialSearchResults(false), TestCancellationToken);
+        Assert.False(response.IsValidResponse);
+        Assert.Equal(404, response.ApiCallDetails.HttpStatusCode);
     }
 
     [Fact]
@@ -1220,47 +1217,104 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindAsync_WithPointInTimePagingAndAfterQueryFailure_ClosesPointInTime()
     {
-        // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
-        long baselineContextCount = await GetCurrentSearchContextCountAsync();
-        _employeeRepository.AfterQuery.AddHandler((_, _) => throw new InvalidOperationException("after-query failure"));
+        string? pointInTimeId = null;
+        _employeeRepository.AfterQuery.AddHandler((_, args) =>
+        {
+            pointInTimeId = args.Result.GetPointInTimeId();
+            throw new InvalidOperationException("after-query failure");
+        });
 
-        // Act
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime)));
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime)));
 
-        // Assert
-        Assert.Equal("after-query failure", exception.Message);
-        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
+            Assert.Equal("after-query failure", exception.Message);
+            await AssertPointInTimeClosedAsync(pointInTimeId);
+        }
+        finally
+        {
+            await ((ISupportPointInTime)_employeeRepository).ClosePointInTimeAsync(pointInTimeId);
+        }
     }
 
-    [Fact]
-    public async Task FindAsync_WithPointInTimePagingAndBeforeQueryFailureOnNextPage_ClosesPointInTime()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task FindAsync_WithPointInTimePagingAndBeforeQueryFailureOnNextPage_RespectsOwnership(bool callerOwned, bool cancellation)
     {
         // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
-        long baselineContextCount = await GetCurrentSearchContextCountAsync();
-        int queryCount = 0;
-        _employeeRepository.BeforeQuery.AddHandler((_, _) =>
+        var unrelatedPointInTime = await _client.OpenPointInTimeAsync(_configuration.Employees.Name,
+            p => p.KeepAlive("1m"), TestCancellationToken);
+        Assert.True(unrelatedPointInTime.IsValidResponse);
+        Assert.False(String.IsNullOrEmpty(unrelatedPointInTime.Id));
+        string? repositoryPointInTimeId = null;
+        var options = new CommandOptions().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        try
         {
-            queryCount++;
-            return queryCount is 2
-                ? Task.FromException(new InvalidOperationException("before-query failure"))
-                : Task.CompletedTask;
-        });
+            if (callerOwned)
+            {
+                var opened = await _client.OpenPointInTimeAsync(_configuration.Employees.Name,
+                    p => p.KeepAlive("1m"), TestCancellationToken);
+                Assert.True(opened.IsValidResponse);
+                repositoryPointInTimeId = opened.Id;
+                options.PointInTimeId(repositoryPointInTimeId);
+            }
+            int queryCount = 0;
+            _employeeRepository.BeforeQuery.AddHandler((_, _) =>
+            {
+                queryCount++;
+                return queryCount is 2
+                    ? Task.FromException(cancellation
+                        ? new OperationCanceledException("before-query failure", new System.Threading.CancellationToken(true))
+                        : new InvalidOperationException("before-query failure"))
+                    : Task.CompletedTask;
+            });
+            _employeeRepository.AfterQuery.AddHandler(async (_, _) =>
+            {
+                var closed = await _client.ClosePointInTimeAsync(p => p.Id(unrelatedPointInTime.Id), TestCancellationToken);
+                Assert.True(closed.IsValidResponse);
+                Assert.True(closed.Succeeded);
+                Assert.True(closed.NumFreed > 0);
+            });
 
-        var results = await _employeeRepository.FindAsync(
-            q => q.SortDescending(d => d.Name),
-            o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
-        Assert.True(await GetCurrentSearchContextCountAsync() > baselineContextCount);
+            var results = await _employeeRepository.FindAsync(
+                new RepositoryQuery<Employee>().SortDescending(d => d.Name),
+                options);
+            repositoryPointInTimeId = results.GetPointInTimeId();
+            Assert.False(String.IsNullOrEmpty(repositoryPointInTimeId));
+            Assert.True(results.HasMore);
 
-        // Act
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => results.NextPageAsync());
+            // Act
+            Exception exception = cancellation
+                ? await Assert.ThrowsAsync<OperationCanceledException>(() => results.NextPageAsync())
+                : await Assert.ThrowsAsync<InvalidOperationException>(() => results.NextPageAsync());
 
-        // Assert
-        Assert.Equal("before-query failure", exception.Message);
-        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
+            // Assert
+            Assert.Equal("before-query failure", exception.Message);
+            if (callerOwned)
+            {
+                var response = await _client.SearchAsync<Employee>(s => s
+                    .Pit(p => p.Id(repositoryPointInTimeId)).Size(0).AllowPartialSearchResults(false), TestCancellationToken);
+                Assert.True(response.IsValidResponse);
+                repositoryPointInTimeId = response.PitId ?? repositoryPointInTimeId;
+            }
+            else
+            {
+                await AssertPointInTimeClosedAsync(repositoryPointInTimeId);
+            }
+        }
+        finally
+        {
+            await _client.ClosePointInTimeAsync(p => p.Id(unrelatedPointInTime.Id), System.Threading.CancellationToken.None);
+            await ((ISupportPointInTime)_employeeRepository).ClosePointInTimeAsync(repositoryPointInTimeId);
+        }
     }
 
     [Fact]
@@ -1361,8 +1415,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
 
-        long baselineContextCount = await GetCurrentSearchContextCountAsync();
-
         // Act
         var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
         string? finalPitId;
@@ -1374,10 +1426,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         // Assert
         Assert.False(results.HasMore);
         Assert.False(String.IsNullOrEmpty(finalPitId));
-        Assert.Equal(baselineContextCount, await GetCurrentSearchContextCountAsync());
-        var closedSearch = await _client.SearchAsync<Employee>(s => s.Pit(p => p.Id(finalPitId)).Size(0), TestCancellationToken);
-        Assert.False(closedSearch.IsValidResponse);
-        Assert.Equal(404, closedSearch.ApiCallDetails.HttpStatusCode);
+        await AssertPointInTimeClosedAsync(finalPitId);
     }
 
     [Fact]

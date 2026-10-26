@@ -33,9 +33,6 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
     {
         await _repository.AddAsync(LogEventGenerator.Generate(), o => o.ImmediateConsistency());
         await _repository.AddAsync(LogEventGenerator.Generate(), o => o.ImmediateConsistency());
-        var stats = await _client.Nodes.StatsAsync(cancellationToken: TestCancellationToken);
-        Assert.True(stats.IsValidResponse);
-        long baseline = stats.Nodes.Values.Sum(n => Assert.IsType<long>(n.Indices?.Search?.OpenContexts));
         var options = new CommandOptions<LogEvent>().PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime);
         if (callerOwned)
         {
@@ -48,10 +45,12 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
         {
             var results = await _repository.FindAsync(new RepositoryQuery<LogEvent>(), options);
             Assert.True(results.HasMore);
-            stats = await _client.Nodes.StatsAsync(cancellationToken: TestCancellationToken);
-            Assert.True(stats.IsValidResponse);
-            Assert.True(stats.Nodes.Values.Sum(n => Assert.IsType<long>(n.Indices?.Search?.OpenContexts)) > baseline);
-            Assert.True(await _repository.ClosePointInTimeAsync(options.GetPointInTimeId()));
+            string? pointInTimeId = options.GetPointInTimeId();
+            Assert.False(String.IsNullOrEmpty(pointInTimeId));
+            var closed = await _client.ClosePointInTimeAsync(p => p.Id(pointInTimeId), TestCancellationToken);
+            Assert.True(closed.IsValidResponse);
+            Assert.True(closed.Succeeded);
+            Assert.True(closed.NumFreed > 0);
 
             var exception = await Assert.ThrowsAsync<DocumentException>(() => results.NextPageAsync());
 
@@ -59,9 +58,6 @@ public sealed class SearchAfterPagingTests : ElasticRepositoryTestBase
             Assert.Contains("search_phase_execution_exception", exception.Message);
             Assert.True(results.HasMore);
             Assert.Single(results.Documents);
-            stats = await _client.Nodes.StatsAsync(cancellationToken: TestCancellationToken);
-            Assert.True(stats.IsValidResponse);
-            Assert.Equal(baseline, stats.Nodes.Values.Sum(n => Assert.IsType<long>(n.Indices?.Search?.OpenContexts)));
         }
         finally
         {
