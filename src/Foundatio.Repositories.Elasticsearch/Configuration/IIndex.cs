@@ -14,6 +14,25 @@ public interface IIndex : IDisposable
 {
     string Name { get; }
     bool HasMultipleIndexes { get; }
+
+    /// <summary>
+    /// Whether the model's <c>id</c> field is guaranteed to be mapped and sortable in the
+    /// underlying Elasticsearch index(es), so query builders can safely add it as a default
+    /// sort or search_after tiebreaker.
+    /// </summary>
+    /// <remarks>
+    /// The interface implementation defaults to <c>true</c> for backward compatibility and for
+    /// indexes whose mapping is created and owned by this library.
+    /// Override to <c>false</c> for indexes whose mapping is managed externally (e.g. by
+    /// Logstash, ILM, or another system), where the code-declared <c>id</c> mapping cannot be
+    /// trusted to reflect the real server-side mapping: <see cref="ElasticMappingResolver"/>
+    /// always merges the code mapping into its resolved field list, so a missing server-side
+    /// <c>id</c> field cannot be reliably detected at query time. When this is <c>false</c>,
+    /// query builders skip the automatic <c>id</c> tiebreaker; supply an explicit, verified sort
+    /// field of your own for deterministic paging.
+    /// </remarks>
+    bool HasSortableIdField => true;
+
     IElasticQueryBuilder QueryBuilder { get; }
     ElasticMappingResolver MappingResolver { get; }
     ElasticQueryParser QueryParser { get; }

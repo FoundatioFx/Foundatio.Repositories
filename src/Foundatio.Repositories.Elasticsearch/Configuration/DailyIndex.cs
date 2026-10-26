@@ -450,30 +450,63 @@ public class DailyIndex : VersionedIndex
         return ElasticMappingResolver.Create(GetLatestIndexMapping, Configuration.Client.Infer, _logger);
     }
 
+    /// <summary>
+    /// Gets the Elasticsearch index-name pattern used to find the latest server-managed index whose mapping should
+    /// be used for field resolution. Defaults to the version-qualified pattern this library uses
+    /// when it creates the index itself (<c>{Name}-v{Version}-*</c>).
+    /// </summary>
+    /// <remarks>
+    /// Override this for indexes whose actual index names don't follow that pattern -- for
+    /// example an externally-managed (e.g. Logstash-created) daily index named
+    /// <c>{Name}-{yyyy.MM.dd}</c> with no version segment -- so the resolver can find and use the
+    /// real server-side mapping instead of falling back entirely to the code-declared mapping.
+    /// The filter is authoritative for candidate selection, including the applicable version.
+    /// Matching names whose <see cref="GetIndexDate(string)"/> result is <see cref="DateTime.MaxValue"/>
+    /// are treated as malformed and excluded from mapping selection. When several candidates share
+    /// the newest date -- possible when a custom filter matches multiple versions or naming schemes
+    /// -- ties break by highest parsed version number (<see cref="VersionedIndex.GetIndexVersion"/>),
+    /// then by index name descending (ordinal), so selection is always deterministic.
+    /// </remarks>
+    protected virtual string MappingIndexPattern => $"{Name}-v{Version}-*";
+
     protected TypeMapping? GetLatestIndexMapping()
     {
-        string filter = $"{Name}-v{Version}-*";
+        string filter = MappingIndexPattern;
+
+        void LogNoMatchWarning() => _logger.LogWarning("No indexes matched filter {Filter} when resolving the server-side mapping; field resolution will fall back to the code-declared mapping only", filter);
+
         var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases());
         if (!indicesResponse.IsValidResponse)
         {
             if (indicesResponse.ElasticsearchServerError?.Status == 404)
+            {
+                LogNoMatchWarning();
                 return null;
+            }
 
             throw new RepositoryException(indicesResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), indicesResponse.OriginalException());
         }
 
+        // Candidates sharing the newest date (possible when a custom filter matches multiple
+        // versions or naming schemes) must resolve deterministically: highest parsed version
+        // wins (-1 for unversioned names loses to any real version), then name descending.
         var latestIndex = indicesResponse.Indices.Keys
-            .Where(i => GetIndexVersion(i.ToString()) == Version)
             .Select(i =>
             {
                 string indexName = i.ToString();
                 return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
             })
+            .Where(i => i.DateUtc != DateTime.MaxValue)
             .OrderByDescending(i => i.DateUtc)
+            .ThenByDescending(i => i.Version)
+            .ThenByDescending(i => i.Index, StringComparer.Ordinal)
             .FirstOrDefault();
 
         if (latestIndex == null)
+        {
+            LogNoMatchWarning();
             return null;
+        }
 
         var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(latestIndex.Index));
         _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));
