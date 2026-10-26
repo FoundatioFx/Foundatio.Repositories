@@ -1,5 +1,14 @@
 name: Build
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+      - master
+      - '[0-9]+.x'
+      - '[0-9]+.[0-9]+'
+    tags:
+      - 'v**'
+  pull_request:
 
 jobs:
   build:
