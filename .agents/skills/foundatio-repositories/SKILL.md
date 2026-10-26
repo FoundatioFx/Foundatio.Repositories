@@ -120,6 +120,8 @@ IReadOnlyRepository<T>
 
 ## Gotchas
 
+- **Strict async fallback must finish**: Running or partial async responses throw before batch cache writes. Item-error `DocumentException.Data["MultiGetErrors"]` retains a read-only collection of full unresolved errors; display text is bounded to 4096 characters.
+
 - **Strict fallback rejects HTTP 404**: Missing search targets, scroll contexts and async results cannot establish a complete batch. Non-strict searches still return empty results for HTTP 404.
 
 - **Strict batch reads require `_source` and do not exempt retention-expired indexes**: Separate known-expired IDs using an authoritative retention policy; never turn a `DocumentException` into an empty batch. Fallback cache isolation applies in both strict and default modes. See the configuration guide and the Remove and Fetch reference for these compatibility details.

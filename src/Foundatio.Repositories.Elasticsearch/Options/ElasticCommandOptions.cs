@@ -27,6 +27,10 @@ namespace Foundatio.Repositories
         /// Time-series and parent/child repositories may recover documents through a search fallback.
         /// Unresolved item errors are aggregated before returning results or writing document and
         /// not-found cache entries. The fallback does not read or write query-result cache entries.
+        /// Item-error exceptions retain their full unresolved errors as a read-only collection of
+        /// Elasticsearch MultiGetError objects in Data["MultiGetErrors"]. Display messages are bounded
+        /// to 4096 characters. Errors recovered by fallback are excluded from that collection.
+        /// Running or partial async fallback responses and HTTP 404 responses also fail strict reads.
         /// Strict fallback queries also reject timeouts and failed shards, including subsequent pages
         /// and parent/child IDs without routing, before any document or not-found cache writes.
         /// Incomplete or mismatched MGET responses are rejected before fallback and cache writes.

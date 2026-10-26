@@ -135,7 +135,7 @@ public static class ElasticIndexExtensions
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
 
-        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0);
+        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0, response.IsRunning || response.IsPartial);
 
         int limit = options.GetLimit();
         var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
@@ -242,7 +242,7 @@ public static class ElasticIndexExtensions
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
 
-        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0);
+        ValidateSearchCompleteness(options, response.Response.TimedOut, response.Response.Shards?.Failed ?? 0, response.IsRunning || response.IsPartial);
 
         int limit = options.GetLimit();
         var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
@@ -342,10 +342,13 @@ public static class ElasticIndexExtensions
         return results;
     }
 
-    private static void ValidateSearchCompleteness(ICommandOptions options, bool timedOut, int failedShards)
+    private static void ValidateSearchCompleteness(ICommandOptions options, bool timedOut, int failedShards, bool unfinished = false)
     {
         if (!options.ShouldRequireCompleteSearchResults())
             return;
+
+        if (unfinished)
+            throw new DocumentException("Error getting documents: fallback async search is running or partial.");
 
         if (timedOut || failedShards > 0)
             throw new DocumentException($"Error getting documents: fallback search timed out={timedOut}, failed shards={failedShards}");

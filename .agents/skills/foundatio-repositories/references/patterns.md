@@ -252,6 +252,8 @@ Strict fallback HTTP 404 responses throw, including missing scroll contexts and 
 
 ## Command Options
 
+Strict fallback rejects running or partial async responses. Item-error exceptions preserve their `DocumentException` type and expose full unresolved errors as `IReadOnlyCollection<MultiGetError>` in `Data["MultiGetErrors"]`; display messages are bounded to 4096 characters. Recovered errors are excluded, and other validation exceptions need not include the key.
+
 | Option                          | Purpose                                      |
 | ------------------------------- | -------------------------------------------- |
 | `o => o.Cache()`                | Enable cache read/write                      |

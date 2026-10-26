@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.MGet;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Transport;
 using Foundatio.Caching;
@@ -99,6 +100,9 @@ public sealed class MultiGetResponseValidationTests
 
         Assert.Contains("failed", exception.Message);
         Assert.Contains("index_closed_exception", exception.Message);
+        Assert.Equal("Error getting documents: id=failed, index=identity, type=index_closed_exception, reason=closed", exception.Message);
+        var itemErrors = Assert.IsAssignableFrom<IReadOnlyCollection<MultiGetError>>(exception.Data["MultiGetErrors"]);
+        Assert.Equal("failed", Assert.Single(itemErrors).Id.ToString());
         Assert.Equal(1, fixture.Cache.Count);
         var cached = await fixture.Cache.GetAsync<ICollection<FindHit<Identity>>>("Identity:cached");
         Assert.True(cached.HasValue);
@@ -332,7 +336,100 @@ public sealed class MultiGetResponseValidationTests
         Assert.Throws<DocumentException>(convert);
     }
 
-    private sealed class FallbackRequestInvoker(bool timeout, bool laterPage, bool complete = false, bool snapshot = false)
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public async Task AsyncFallback_CompletionFlags_ControlStrictValidationAsync(bool get, bool running, bool partial)
+    {
+        string body = JsonSerializer.Serialize(new
+        {
+            id = "synthetic-async",
+            is_running = running,
+            is_partial = partial,
+            response = new
+            {
+                took = 1,
+                timed_out = false,
+                _shards = new { total = 1, successful = 1, skipped = 0, failed = 0 },
+                hits = new { total = new { value = 0, relation = "eq" }, hits = Array.Empty<object>() }
+            }
+        });
+        using var fixture = new Fixture(body);
+        var options = new CommandOptions().ThrowOnMultiGetErrors();
+        Func<FindResults<Identity>> convert;
+        if (get)
+        {
+            var response = await fixture.Configuration.Client.AsyncSearch.GetAsync<Identity>("synthetic-async", cancellationToken: TestContext.Current.CancellationToken);
+            convert = () => response.ToFindResults(options, fixture.Configuration.Serializer);
+        }
+        else
+        {
+            var response = await fixture.Configuration.Client.AsyncSearch.SubmitAsync<Identity>(cancellationToken: TestContext.Current.CancellationToken);
+            convert = () => response.ToFindResults(options, fixture.Configuration.Serializer);
+        }
+
+        Assert.Empty(convert().Documents);
+        options.BuildOption("@RequireCompleteSearchResults", true);
+        if (running || partial)
+            Assert.Throws<DocumentException>(convert);
+        else
+            Assert.Empty(convert().Documents);
+    }
+
+    [Fact]
+    public async Task ItemErrors_LargeBatch_PreservesStructuredErrorsAndBoundsMessageAsync()
+    {
+        var ids = new List<string>();
+        var errors = new List<object>();
+        string reason = new('x', 10000);
+        for (int i = 0; i < 100; i++)
+        {
+            string id = $"failed-{i}";
+            ids.Add(id);
+            errors.Add(new { _index = "identity", _id = id, error = new { type = "index_closed_exception", reason } });
+        }
+        using var fixture = new Fixture(JsonSerializer.Serialize(new { docs = errors }));
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => fixture.Repository.GetByIdsAsync(new Ids(ids), o => o.Cache().ThrowOnMultiGetErrors()));
+
+        var itemErrors = Assert.IsAssignableFrom<IReadOnlyCollection<MultiGetError>>(exception.Data["MultiGetErrors"]);
+        Assert.Equal(ids.Count, itemErrors.Count);
+        Assert.True(Assert.IsAssignableFrom<ICollection<MultiGetError>>(itemErrors).IsReadOnly);
+        var failedIds = new HashSet<string>();
+        foreach (var error in itemErrors)
+        {
+            failedIds.Add(error.Id.ToString());
+            Assert.Equal(reason, error.Error.Reason);
+        }
+        Assert.True(failedIds.SetEquals(ids));
+        Assert.True(exception.Message.Length <= 4096);
+        Assert.Contains("failed-0", exception.Message);
+        Assert.Equal(0, fixture.Cache.Count);
+    }
+
+    [Fact]
+    public async Task ItemErrors_AfterFallback_ExcludesRecoveredErrorsAsync()
+    {
+        using var cache = new InMemoryCacheClient();
+        using var invoker = new FallbackRequestInvoker(false, false, complete: true, itemErrors: true);
+        using var configuration = new TestConfiguration(invoker, cache);
+        using var repository = new TestRepository(new IdentityIndex(configuration) { HasMultipleIndexes = true });
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.GetByIdsAsync(new Ids("present", "missing"), o => o.Cache().ThrowOnMultiGetErrors()));
+
+        var errors = Assert.IsAssignableFrom<IReadOnlyCollection<MultiGetError>>(exception.Data["MultiGetErrors"]);
+        Assert.Equal("missing", Assert.Single(errors).Id.ToString());
+        Assert.DoesNotContain("id=present", exception.Message);
+        Assert.Equal(0, cache.Count);
+    }
+
+    private sealed class FallbackRequestInvoker(bool timeout, bool laterPage, bool complete = false, bool snapshot = false, bool itemErrors = false)
         : InMemoryRequestInvoker(null, headers: new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { ["x-elastic-product"] = ["Elasticsearch"] }), IRequestInvoker
     {
         public int MultiGetCount { get; private set; }
@@ -352,6 +449,11 @@ public sealed class MultiGetResponseValidationTests
             if (typeof(TResponse) == typeof(MultiGetResponse<Identity>))
             {
                 MultiGetCount++;
+                if (itemErrors)
+                {
+                    body = Encoding.UTF8.GetBytes("""{"docs":[{"_index":"identity","_id":"present","error":{"type":"index_closed_exception","reason":"closed"}},{"_index":"identity","_id":"missing","error":{"type":"index_closed_exception","reason":"closed"}}]}""");
+                    return BuildResponseAsync<TResponse>(endpoint, configuration, postData, cancellationToken, body);
+                }
                 body = Encoding.UTF8.GetBytes(complete
                     ? """{"docs":[{"_index":"identity","_id":"present","found":false},{"_index":"identity","_id":"missing","found":false}]}"""
                     : """{"docs":[{"_index":"identity","_id":"present","found":false},{"_index":"identity","_id":"present2","found":false},{"_index":"identity","_id":"missing","found":false}]}""");
