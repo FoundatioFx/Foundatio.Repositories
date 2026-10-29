@@ -578,6 +578,21 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FindAsync_WithLeadingWildcardOnAnalyzedAndKeywordFields_MatchesDocuments()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski", companyName: "Exceptionless"), o => o.ImmediateConsistency());
+
+        // Act
+        var analyzed = await _employeeRepository.FindAsync(q => q.FilterExpression("name:*iemyj*"));
+        var keyword = await _employeeRepository.FindAsync(q => q.FilterExpression("companyName:*xceptionles*"));
+
+        // Assert
+        Assert.Equal(employee.Id, Assert.Single(analyzed.Documents).Id);
+        Assert.Equal(employee.Id, Assert.Single(keyword.Documents).Id);
+    }
+
+    [Fact]
     public async Task GetByEmailAddressFilter()
     {
         var findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress!);

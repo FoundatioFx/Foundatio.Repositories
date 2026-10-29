@@ -8,6 +8,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -551,6 +552,29 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         // Act
         var result = await _employeeRepository.CountAsync(
             q => q.AggregationsExpression("terms:(name @include:/[Aa].*/)")
+        );
+
+        // Assert
+        var terms = result.Aggregations.Terms<string>("terms_name");
+        Assert.NotNull(terms);
+        Assert.Equal(2, terms.Buckets.Count);
+        Assert.All(terms.Buckets, b => Assert.Matches(@"^[Aa]", b.Key));
+    }
+
+    [Fact]
+    public async Task GetTermAggregationsAsync_WithRegexIncludeFilterAndIncludeResolver_ReturnsOnlyMatchingBuckets()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Alice"),
+            EmployeeGenerator.Generate(name: "anna"),
+            EmployeeGenerator.Generate(name: "Bob"),
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.CountAsync(
+            q => q.AggregationsExpression("terms:(name @include:/[Aa].*/)"),
+            o => o.IncludeResolver(name => Task.FromResult<string?>(null))
         );
 
         // Assert
