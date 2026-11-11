@@ -6,7 +6,7 @@
   <ItemGroup>
     <PackageReference Include="Exceptionless.RandomData" Version="2.0.1" />
     <PackageReference Include="Jint" Version="4.17.0" />
-    <PackageReference Include="TimeZoneConverter" Version="8.0.0" />
+    <PackageReference Include="TimeZoneConverter" Version="8.0.1" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\docker-compose.yml">
