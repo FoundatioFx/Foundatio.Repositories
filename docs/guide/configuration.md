@@ -198,11 +198,13 @@ await repository.GetByIdAsync(id, o => o.CacheExpiresIn(TimeSpan.FromMinutes(30)
 await repository.GetByIdAsync(id, o => o.CacheExpiresAt(DateTime.UtcNow.AddHours(1)));
 
 // Read from cache only (don't write)
-await repository.GetByIdAsync(id, o => o.ReadCache());
+await repository.GetByIdAsync(id, o => o.Cache(false).ReadCache());
 
-// Disable caching for this operation
-await repository.GetByIdAsync(id, o => o.Cache(false));
+// Disable both document/result cache reads and writes, including explicit ReadCache()
+await repository.GetByIdAsync(id, o => o.Cache(false).ReadCache(false));
 ```
+
+`ReadCache(bool)` explicitly controls reads independently of cache writes and takes precedence over `Cache()`. The parameterless `ReadCache()` is equivalent to `ReadCache(true)`; it does not disable writes that were already enabled.
 
 ### Validation Options
 
@@ -326,6 +328,39 @@ await repository.FindAsync(query, o => o.AsyncQueryId(
     autoDelete: true));
 ```
 
+### Multi-Get Error Options
+
+```csharp
+// Throw for MGET item errors that remain unresolved after any applicable fallback
+await repository.GetByIdsAsync(ids, o => o.ThrowOnMultiGetErrors());
+
+// Also bypass existing document/result cache entries for this read
+await repository.GetByIdsAsync(ids, o => o
+    .ThrowOnMultiGetErrors()
+    .Cache(false)
+    .ReadCache(false));
+```
+
+The option defaults to `false`; `ThrowOnMultiGetErrors(false)` restores the default behavior. Ordinary `found: false` results are not errors. For time-series and parent/child repositories, any applicable search fallback runs first. A document recovered by that fallback does not cause a strict-mode exception. Remaining item errors are aggregated into one `DocumentException` with ID, index, type, and reason details.
+
+Strict reads also require one MGET response item per requested operation, in request order, with matching response IDs. Null items, mismatched response IDs (including unexpected duplicates), found documents without a source, and missing documents with an unexpected source throw `DocumentException` before fallback or cache writes. Projected sources may omit their ID property; correlation uses Elasticsearch response metadata. This validation does not run for the default non-strict path.
+
+Strict fallback queries throw `DocumentException` on a reported timeout or failed shard, including subsequent pages and parent/child IDs without routing that bypass MGET. The entire batch fails even if the partial response contains requested documents. Non-strict fallback queries continue to accept partial search responses.
+
+The internal fallback does not read or write query-result cache entries. Document results and not-found markers are cached by the outer operation only after unresolved-error validation succeeds, using the caller's cache policy. A strict-mode item-error or incomplete-fallback exception does not write those entries or evict pre-existing cache entries.
+
+Fallback cache isolation applies in both strict and non-strict modes. This fixes earlier behavior where `Cache()` without a key could throw during fallback, or `Cache("key")` could mix query-result and document-result payloads under the same key.
+
+Strict fallback also rejects HTTP 404 responses, including missing scroll contexts and unavailable async search results, and async responses marked running or partial. These responses cannot establish a complete batch. Ordinary non-strict searches retain their existing behavior.
+
+Unresolved item errors still throw `DocumentException`. Its `Data["MultiGetErrors"]` contains an `IReadOnlyCollection<Elastic.Clients.Elasticsearch.Core.MGet.MultiGetError>` backed by a read-only snapshot of the unresolved error list; recovered errors are excluded. Full IDs, types and server reasons remain available there, while the display message is limited to 4096 characters with an omission notice when truncated. Other validation failures need not contain this key. Avoid exposing server error reasons directly to end users.
+
+For daily and monthly indexes, retention can remove the physical index derived from an old ID. If MGET reports `index_not_found_exception` and fallback does not recover the document, strict mode still throws. An expired index is not treated as proof of an ordinary missing document. Callers with an authoritative retention policy should separate known-expired IDs before the read; keep an unresolved batch pending rather than catching `DocumentException` and treating it as empty.
+
+Strict batch reads require a source for each found document. Index mappings with `_source` disabled, or overrides that request only stored fields or disable `_source`, cannot satisfy this contract. Source projections are supported, including projections that omit the model's ID property.
+
+Strict mode is error handling, not a freshness or transaction guarantee. Existing positive document cache hits can satisfy a read without contacting Elasticsearch. Search fallback still obeys consistency and soft-delete options and is not a real-time multi-get. For cleanup or other irreversible decisions, handle `DocumentException` without treating the batch as missing, and separately account for filters, refresh visibility, and concurrent changes between validation and mutation.
+
 ### Combining Options
 
 ```csharp
@@ -384,6 +419,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 | Validation | true | N/A | `.SkipValidation()`, `.Validation()` |
 | Soft Deletes | ActiveOnly | N/A | `.IncludeSoftDeletes()`, `.SoftDeleteMode()` |
 | Version Check | true | N/A | `.SkipVersionCheck()`, `.VersionCheck()` |
+| Multi-Get Errors | false | N/A | `.ThrowOnMultiGetErrors()` |
 
 ## Next Steps
 

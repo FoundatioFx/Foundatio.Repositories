@@ -23,7 +23,7 @@ using Foundatio.Caching;
 public class MyElasticConfiguration : ElasticConfiguration
 {
     public MyElasticConfiguration(ICacheClient cache, ILoggerFactory loggerFactory)
-        : base(cache: cache, loggerFactory: loggerFactory)
+        : base(cacheClient: cache, loggerFactory: loggerFactory)
     {
         AddIndex(Employees = new EmployeeIndex(this));
     }
@@ -128,12 +128,22 @@ o.CacheKey("my-key")
 o.CacheExpiresIn(TimeSpan.FromMinutes(10))
 o.CacheExpiresAt(DateTime.UtcNow.AddHours(1))
 
-// Read from cache only (don't write)
-o.ReadCache()
+// Read from cache without writing new entries
+o.Cache(false).ReadCache()
 
-// Disable caching for this operation
-o.Cache(false)
+// Write refreshed entries without reading existing entries
+o.Cache().ReadCache(false)
+
+// Disable both document/result cache reads and writes for this operation
+o.Cache(false).ReadCache(false)
 ```
+
+`ReadCache(bool)` controls reads independently of writes and takes precedence over `Cache()`.
+The parameterless `ReadCache()` enables reads; it does not turn off writes that were already enabled.
+Likewise, `Cache(false)` does not clear a previously explicit `ReadCache()` setting. These options
+control document and query-result caches, not internal mapping or soft-delete bookkeeping.
+See [Multi-Get Error Options](/guide/configuration#multi-get-error-options) for strict reads and their
+cache, fallback, and freshness boundaries.
 
 ## Automatic Cache Invalidation
 
