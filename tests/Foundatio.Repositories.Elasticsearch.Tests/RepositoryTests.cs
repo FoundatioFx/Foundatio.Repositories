@@ -3155,14 +3155,48 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // guaranteeing at least one version conflict on the single pass.
         await Task.Delay(100, TestCancellationToken);
 
-        // Act — Retry(0) means exactly one delete-by-query pass.  Any conflict that occurs triggers the warning.
-        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency().Retry(0));
-
-        await StopWriterAsync(writerCancellation, writer);
+        // Act — Retry(0) means exactly one delete-by-query pass. ProceedOnQueryConflicts reports instead of throwing.
+        long deleted;
+        try
+        {
+            deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency().Retry(0).ProceedOnQueryConflicts());
+        }
+        finally
+        {
+            await StopWriterAsync(writerCancellation, writer);
+        }
 
         // Assert — a partial (or full) count is returned without throwing, and the unresolved-conflicts warning was emitted.
         Assert.True(deleted >= 0 && deleted <= COUNT);
         Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("unresolved version conflicts"));
+    }
+
+    [Fact]
+    public async Task RemoveAllAsync_DeleteByQueryWithUnresolvedConflicts_ThrowsVersionConflict()
+    {
+        // Arrange
+        const int COUNT = 1000;
+        var identities = IdentityGenerator.GenerateIdentities(COUNT);
+        await _identityRepositoryWithNoCaching.AddAsync(identities, o => o.ImmediateConsistency());
+
+        using var writerCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var subset = identities.Take(100).Select(i => i.Id).ToArray();
+        var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
+        await Task.Delay(100, TestCancellationToken);
+
+        // Act
+        VersionConflictDocumentException? exception;
+        try
+        {
+            exception = await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency().Retry(0)));
+        }
+        finally
+        {
+            await StopWriterAsync(writerCancellation, writer);
+        }
+
+        // Assert
+        Assert.Contains("version conflicts", exception.Message);
     }
 
     [Fact]
