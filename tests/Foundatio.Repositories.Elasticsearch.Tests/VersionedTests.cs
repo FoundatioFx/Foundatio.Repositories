@@ -493,13 +493,13 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         // Act
         var patch = new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "PatchedAll" });
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(patch), o => o.ImmediateConsistency());
+        long patched = await _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(patch), o => o.ImmediateConsistency()).WaitAsync(TimeSpan.FromSeconds(30), TestCancellationToken);
 
         // Assert
-        var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
-        Assert.Equal(task, completedTask);
-        cts.Cancel();
+        Assert.Equal(3, patched);
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
+        Assert.All(results, e => Assert.Equal("PatchedAll", e.CompanyName));
+        Assert.True(results.Single(e => e.Id == emp1.Id).GetElasticVersion() > emp1.GetElasticVersion());
     }
 
     [Fact]
@@ -514,13 +514,12 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
 
         // Act
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "PatchedAll"), o => o.ImmediateConsistency());
+        long patched = await _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "PatchedAll"), o => o.ImmediateConsistency()).WaitAsync(TimeSpan.FromSeconds(30), TestCancellationToken);
 
         // Assert
-        var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
-        Assert.Equal(task, completedTask);
-        cts.Cancel();
+        Assert.Equal(3, patched);
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
+        Assert.All(results, e => Assert.Equal("PatchedAll", e.CompanyName));
     }
 
     [Fact]

@@ -1222,119 +1222,61 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task ConcurrentJsonPatchAsync()
+    public Task ConcurrentJsonPatchAsync()
     {
-        var resetEvent = new AutoResetEvent(false);
-        var cts = new CancellationTokenSource();
-
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
-        string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
-        {
-            var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
-            Assert.NotNull(e);
-            resetEvent.Set();
-            e.CompanyName = $"Company {iteration}";
-            try
-            {
-                await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", iteration);
-            }
-            catch (VersionConflictDocumentException)
-            {
-                _logger.LogInformation("Got version conflict {Iteration}", iteration);
-            }
-        });
-
-        _logger.LogInformation("Saving name");
-        resetEvent.WaitOne();
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        resetEvent.WaitOne();
-        employee.Name = "Saved";
-        try
-        {
-            await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
-            _logger.LogInformation("Saved name");
-        }
-        catch (VersionConflictDocumentException)
-        {
-            _logger.LogInformation("Conflict attempting to save name");
-        }
-
-        resetEvent.WaitOne();
-        _logger.LogInformation("Patching name");
-        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
-        await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(patch));
-        _logger.LogInformation("Done patching name");
-
-        await cts.CancelAsync();
-        await Task.Delay(100, TestCancellationToken);
-
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
-        Assert.Equal("Patched", employee.Name);
-        _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
-        Assert.NotEqual(EmployeeGenerator.Default.CompanyName, employee.CompanyName);
+        return AssertPatchSurvivesConcurrentSavesAsync(async id => await _employeeRepository.PatchAsync(id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" }))));
     }
 
     [Fact]
-    public async Task ConcurrentJsonPatchAllAsync()
+    public Task ConcurrentJsonPatchAllAsync()
     {
-        var resetEvent = new AutoResetEvent(false);
-        var cts = new CancellationTokenSource();
+        return AssertPatchSurvivesConcurrentSavesAsync(async id => await _employeeRepository.PatchAllAsync(q => q.Id(id), new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" })), o => o.ImmediateConsistency()));
+    }
 
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
-        string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
+    /// <summary>
+    /// Runs a patch while other writers save stale copies of the same document. Every save either succeeds or fails with a
+    /// version conflict (none are lost silently), and the patch is never overwritten by a save that read the document before it.
+    /// </summary>
+    private async Task AssertPatchSurvivesConcurrentSavesAsync(Func<string, Task> patchAsync)
+    {
+        // Arrange
+        const int WRITES = 50;
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false).ImmediateConsistency());
+        int saved = 0;
+        int conflicts = 0;
+        using var started = new SemaphoreSlim(0);
+        var writers = Parallel.ForEachAsync(Enumerable.Range(1, WRITES), new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = TestCancellationToken }, async (iteration, ct) =>
         {
-            var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
-            Assert.NotNull(e);
-            resetEvent.Set();
-            e.CompanyName = $"Company {iteration}";
+            var copy = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+            Assert.NotNull(copy);
+            started.Release();
+            copy.CompanyName = $"Company {iteration}";
             try
             {
-                await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", iteration);
+                await _employeeRepository.SaveAsync(copy, o => o.Cache(false));
+                Interlocked.Increment(ref saved);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", iteration);
+                Interlocked.Increment(ref conflicts);
             }
         });
 
-        _logger.LogInformation("Saving name");
-        resetEvent.WaitOne();
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        resetEvent.WaitOne();
-        employee.Name = "Saved";
-        try
-        {
-            await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
-            _logger.LogInformation("Saved name");
-        }
-        catch (VersionConflictDocumentException)
-        {
-            _logger.LogInformation("Conflict attempting to save name");
-        }
+        // Act
+        await started.WaitAsync(TestCancellationToken);
+        await patchAsync(employee.Id);
+        await writers;
 
-        resetEvent.WaitOne();
-        _logger.LogInformation("Patching name");
-        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
-        await _employeeRepository.PatchAllAsync(q => q.Age(EmployeeGenerator.Default.Age), new JsonPatch(patch), o => o.ImmediateConsistency());
-        _logger.LogInformation("Done patching name");
+        // Assert
+        Assert.Equal(WRITES, saved + conflicts);
+        Assert.True(saved > 0);
+        _logger.LogInformation("Concurrent saves: {Saved} saved, {Conflicts} conflicts", saved, conflicts);
 
-        await cts.CancelAsync();
-        await Task.Delay(100, TestCancellationToken);
-
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
-        Assert.Equal("Patched", employee.Name);
-        _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
-        Assert.NotEqual(EmployeeGenerator.Default.CompanyName, employee.CompanyName);
+        var result = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(result);
+        Assert.Equal(EmployeeGenerator.Default.Age, result.Age);
+        Assert.Equal("Patched", result.Name);
+        Assert.NotEqual(EmployeeGenerator.Default.CompanyName, result.CompanyName);
     }
 
     [Fact]
@@ -1424,60 +1366,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task ConcurrentScriptPatchAsync()
+    public Task ConcurrentScriptPatchAsync()
     {
-        var resetEvent = new AutoResetEvent(false);
-        var cts = new CancellationTokenSource();
-
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
-        string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
-        {
-            var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
-            Assert.NotNull(e);
-            resetEvent.Set();
-            e.CompanyName = $"Company {iteration}";
-            try
-            {
-                await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", iteration);
-            }
-            catch (VersionConflictDocumentException)
-            {
-                _logger.LogInformation("Got version conflict {Iteration}", iteration);
-            }
-        });
-
-        _logger.LogInformation("Saving name");
-        resetEvent.WaitOne();
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        resetEvent.WaitOne();
-        employee.Name = "Saved";
-        try
-        {
-            await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
-            _logger.LogInformation("Saved name");
-        }
-        catch (VersionConflictDocumentException)
-        {
-            _logger.LogInformation("Conflict attempting to save name");
-        }
-
-        resetEvent.WaitOne();
-        _logger.LogInformation("Patching name");
-        await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"));
-        _logger.LogInformation("Done patching name");
-
-        await cts.CancelAsync();
-        await Task.Delay(100, TestCancellationToken);
-
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
-        Assert.Equal("Patched", employee.Name);
-        _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
-        Assert.NotEqual(EmployeeGenerator.Default.CompanyName, employee.CompanyName);
+        return AssertPatchSurvivesConcurrentSavesAsync(async id => await _employeeRepository.PatchAsync(id, new ScriptPatch("ctx._source.name = 'Patched';")));
     }
 
     [Fact]
@@ -1505,60 +1396,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task ConcurrentActionPatchAsync()
+    public Task ConcurrentActionPatchAsync()
     {
-        var resetEvent = new AutoResetEvent(false);
-        var cts = new CancellationTokenSource();
-
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
-        string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
-        {
-            var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
-            Assert.NotNull(e);
-            resetEvent.Set();
-            e.CompanyName = $"Company {iteration}";
-            try
-            {
-                await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", iteration);
-            }
-            catch (VersionConflictDocumentException)
-            {
-                _logger.LogInformation("Got version conflict {Iteration}", iteration);
-            }
-        });
-
-        _logger.LogInformation("Saving name");
-        resetEvent.WaitOne();
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        resetEvent.WaitOne();
-        employee.Name = "Saved";
-        try
-        {
-            await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
-            _logger.LogInformation("Saved name");
-        }
-        catch (VersionConflictDocumentException)
-        {
-            _logger.LogInformation("Conflict attempting to save name");
-        }
-
-        resetEvent.WaitOne();
-        _logger.LogInformation("Patching name");
-        await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Patched"));
-        _logger.LogInformation("Done patching name");
-
-        await cts.CancelAsync();
-        await Task.Delay(100, TestCancellationToken);
-
-        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
-        Assert.NotNull(employee);
-        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
-        Assert.Equal("Patched", employee.Name);
-        _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
-        Assert.NotEqual(EmployeeGenerator.Default.CompanyName, employee.CompanyName);
+        return AssertPatchSurvivesConcurrentSavesAsync(async id => await _employeeRepository.PatchAsync(id, new ActionPatch<Employee>(e => e.Name = "Patched")));
     }
 
     [Fact]

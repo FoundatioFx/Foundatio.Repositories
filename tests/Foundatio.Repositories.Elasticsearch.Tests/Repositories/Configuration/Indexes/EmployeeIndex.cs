@@ -422,3 +422,20 @@ public sealed class VersionedEmployeeIndexWithNestedFieldRemove : VersionedIndex
         base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 }
+
+/// <summary>
+/// An employee index created with <c>index.disable_sequence_numbers</c> (Elasticsearch 9.4+), where optimistic
+/// concurrency control and the Update API are not available.
+/// </summary>
+public sealed class SequenceNumbersDisabledEmployeeIndex : Index<Employee>
+{
+    public SequenceNumbersDisabledEmployeeIndex(IElasticConfiguration configuration) : base(configuration, "employees-noseqno") { }
+
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+    {
+        base.ConfigureIndex(idx.Settings(s => s
+            .AddOtherSetting("index.disable_sequence_numbers", "true")
+            .NumberOfReplicas(0)
+            .NumberOfShards(1)));
+    }
+}

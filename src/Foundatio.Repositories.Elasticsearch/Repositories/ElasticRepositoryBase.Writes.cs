@@ -97,7 +97,7 @@ public abstract partial class ElasticRepositoryBase<T>
     }
 
     /// <summary>
-    /// Throws a <see cref="DocumentVersioningNotSupportedException"/> when a version-checked write is about to run without a
+    /// Throws a <see cref="DocumentException"/> when a version-checked write is about to run without a
     /// version (for example the document came from an index with sequence numbers disabled, or its version was never set).
     /// Without this guard the write would run as an unconditional overwrite.
     /// </summary>
@@ -106,7 +106,7 @@ public abstract partial class ElasticRepositoryBase<T>
         if (!version.IsEmpty)
             return;
 
-        throw new DocumentVersioningNotSupportedException($"Document {index}/{id} has no version, so an optimistic concurrency check is not possible. Load the document before saving it, use SkipVersionCheck to overwrite it, or check that index {index} has sequence numbers enabled.");
+        throw new DocumentException($"Document {index}/{id} has no version, so an optimistic concurrency check is not possible. Load the document before saving it, use SkipVersionCheck to overwrite it, or check that index {index} has sequence numbers enabled.");
     }
 
     private void LogVersionConflict(string operation, string? index, string? id, int attempt, int budget, string? expectedVersion, string? reason, string outcome)
