@@ -52,17 +52,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicy _resiliencePolicy;
 
     private ScopedCacheClient _scopedCacheClient = null!;
-    private readonly CancellationTokenSource _disposedCancellationTokenSource;
-    private readonly CancellationToken _disposedCancellationToken;
+    private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
     private int _disposed;
-
-    /// <summary>Cancelled when the repository is disposed. Captured once, so it stays readable after disposal.</summary>
-    protected CancellationToken DisposedCancellationToken => _disposedCancellationToken;
+    protected CancellationToken DisposedCancellationToken => _disposedCancellationTokenSource.Token;
 
     protected ElasticReadOnlyRepositoryBase(IIndex index)
     {
-        _disposedCancellationTokenSource = new CancellationTokenSource();
-        _disposedCancellationToken = _disposedCancellationTokenSource.Token;
         ElasticIndex = index;
         (index.Configuration as ElasticConfiguration)?.RegisterDocumentType(typeof(T));
         if (HasIdentity)
@@ -1281,7 +1276,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        // Cancel only: the source has no timer to release, and its token must stay readable for writes still finishing.
         _disposedCancellationTokenSource.Cancel();
-        _disposedCancellationTokenSource.Dispose();
     }
 }
