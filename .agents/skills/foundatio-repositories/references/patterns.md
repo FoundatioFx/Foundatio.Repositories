@@ -224,6 +224,15 @@ await repository.PatchAsync(new Ids(id1, id2, id3),
 
 **Return values:** `PatchAsync(Id)` returns `Task<bool>`, `PatchAsync(Ids)` and `PatchAllAsync` return `Task<long>`.
 
+**Concurrency:** Patches re-apply themselves to the latest document on conflict (up to `o.Retry(n)`, default 10), so concurrent changes are never lost. Batch JSON/action patches retry conflicting documents in grouped rounds (one mget + one bulk). To patch only if the document is unchanged since you read it:
+
+```csharp
+await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.IfVersion(employee.Version));
+// throws VersionConflictDocumentException if the document changed
+```
+
+`PatchAllAsync` with `ScriptPatch` uses the bulk Update API. `o.UseUpdateByQuery()` opts into update-by-query (faster, but skips concurrently changed documents and throws unless `o.ProceedOnQueryConflicts()`).
+
 ## Remove and Fetch
 
 ```csharp
@@ -238,7 +247,9 @@ var employees = await repository.GetByIdsAsync(ids, o => o.Cache());
 bool exists = await repository.ExistsAsync(id);
 ```
 
-**Gotcha:** When caching is disabled and no event listeners are registered, `RemoveAllAsync` uses Elasticsearch `delete_by_query`, which counts (and skips) version conflicts when concurrent writes modify matching documents. Since `delete_by_query` has no `retry_on_conflict`, the repository re-runs the query up to `o.Retry(n) + 1` times (default 10, so 11 passes, no delay between passes) until conflicts clear. The returned count is the cumulative number deleted across attempts; if conflicts persist after the retry budget, a warning is logged and the partial count is returned (no exception).
+**Gotcha:** When caching is disabled and no event listeners are registered, `RemoveAllAsync` uses Elasticsearch `delete_by_query`, which counts (and skips) version conflicts when concurrent writes modify matching documents. Since `delete_by_query` has no `retry_on_conflict`, the repository re-runs the query up to `o.Retry(n)` more times (default 10, so up to 11 passes) with backoff and a refresh between passes. The returned count is the cumulative number deleted; if conflicts persist after the budget, `VersionConflictDocumentException` is thrown with the counts unless `o.ProceedOnQueryConflicts()` is set (then a warning is logged and the partial count returned).
+
+**Gotcha:** `RemoveAsync(T)`/`RemoveAsync(IEnumerable<T>)` check the version of `IVersioned` documents (like `SaveAsync`). Use `RemoveAsync(id)` or `o.SkipVersionCheck()` to delete regardless.
 
 ## Command Options
 
@@ -252,6 +263,9 @@ bool exists = await repository.ExistsAsync(id);
 | `o => o.SoftDeleteMode(mode)`   | `ActiveOnly` (default), `All`, `DeletedOnly` |
 | `o => o.Notifications(false)`   | Suppress change notifications                |
 | `o => o.Originals()`            | Track original values for change detection   |
+| `o => o.SkipVersionCheck()`     | Write without the optimistic concurrency check |
+| `o => o.IfVersion(version)`     | `PatchAsync(id)` only if still at `version`  |
+| `o => o.Retry(n)`               | n retries after the first attempt (default 10) |
 | `o => o.IncludeSoftDeletes()`   | Include soft-deleted docs in queries         |
 
 ## Index Mapping
@@ -274,7 +288,7 @@ All index configurations use `.Dynamic(false)`, which disables Elasticsearch's a
 | `.Nested(e => e.Field, n => n.Properties(...))` | Nested objects needing independent querying | `nested` |
 | `.Object(e => e.Field, o => o.Properties(...))` | Embedded objects (flattened) | `object` |
 
-`.SetupDefaults()` automatically maps `Id` (keyword), `CreatedUtc` (date), `UpdatedUtc` (date), `IsDeleted` (boolean), and `Version` (keyword) based on which model interfaces are implemented.
+`.SetupDefaults()` automatically maps `Id` (keyword), `CreatedUtc` (date), `UpdatedUtc` (date), and `IsDeleted` (boolean) based on which model interfaces are implemented. `IVersioned.Version` is not mapped or stored: it comes from `_seq_no`/`_primary_term` metadata.
 
 ### When to Bump the Index Version
 

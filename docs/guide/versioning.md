@@ -1,9 +1,9 @@
 # Versioning
 
-Foundatio.Repositories provides optimistic concurrency control (OCC) for documents that implement `IVersioned`. This guide explains what the version is, which operations check it, how retries work, and the known gaps.
+Foundatio.Repositories provides optimistic concurrency control (OCC) for documents that implement `IVersioned`. This guide explains what the version is, which operations check it, how retries work, and the limits Elasticsearch puts on version checks.
 
-::: info Audit in progress
-The behavior described here is the **current** behavior. Several inconsistencies are tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344). They're called out below as **Known gap**.
+::: tip Upgrading
+Several behaviors changed in this release. See [Upgrading](#upgrading-breaking-changes) at the end of this page.
 :::
 
 ## Enabling Versioning
@@ -25,19 +25,19 @@ public class Employee : IIdentity, IHaveDates, IVersioned
 
 ## What the Version Is
 
-`Version` is an `ElasticDocumentVersion` serialized as `"primaryTerm:sequenceNumber"`, e.g. `"1:42"`. Both numbers come from Elasticsearch **hit metadata**, not from the document body:
+`Version` is an `ElasticDocumentVersion` serialized as `"primaryTerm:sequenceNumber"`, e.g. `"1:42"`. Both numbers come from Elasticsearch **hit metadata**, never from the document body:
 
 | Field | Meaning |
 | --- | --- |
 | `_seq_no` | Increases with **every operation on the shard**, not per document. Two consecutive writes to the same document can go from `1:42` to `1:57` if other documents on that shard were written in between. |
 | `_primary_term` | Increases each time a new primary takes over the shard (failover). |
 
-Versions are ordered by primary term first, then by sequence number. They're only comparable for the **same document in the same index**. Different shards and different indexes have independent sequences.
+Versions are ordered by primary term first, then by sequence number. They're only comparable for the **same document in the same index**.
 
-Elasticsearch returns these values on GET/mget responses, on write responses, and on search hits **only** when the search asks for them with `seq_no_primary_term=true`. The repository does that automatically for `IVersioned` types.
+An `ElasticDocumentVersion` is **empty** when the primary term is not positive or the sequence number is negative. That covers a missing version, `"0:0"`, and the `-2`/`0` sentinels returned by indexes with sequence numbers disabled. Empty versions are equal to each other, sort first, and are never sent to Elasticsearch as `if_seq_no`/`if_primary_term`. Reads set `Version` to `null` when the version is empty.
 
 ::: tip `_version` is something else
-Elasticsearch also has `_version`, a per-document write counter. Since Elasticsearch 7.0 it can't be used for optimistic concurrency, because it isn't safe across primary failover. The supported mechanism is `if_seq_no` + `if_primary_term` ([Elasticsearch docs](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/optimistic-concurrency-control)). That's what this library uses. External versioning (`version_type=external`) isn't used. It's meant for a system where another store owns the version, it can't be combined with `if_seq_no`, and the Update API doesn't support it.
+Elasticsearch also has `_version`, a per-document write counter. Since Elasticsearch 7.0 it can't be used for optimistic concurrency, because it isn't safe across primary failover. The supported mechanism is `if_seq_no` + `if_primary_term` ([Elasticsearch docs](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/optimistic-concurrency-control)). That's what this library uses. External versioning (`version_type=external`) isn't used: it's meant for a system where another store owns the version, it can't be combined with `if_seq_no`, and the Update API doesn't support it.
 :::
 
 ## Read-Modify-Write Cycle
@@ -70,67 +70,112 @@ sequenceDiagram
     ES-->>B: 409 -> VersionConflictDocumentException
 ```
 
-## Where the Version Comes From on Reads
+Saving an existing `IVersioned` document whose `Version` is empty throws a `DocumentException` ("has no version") instead of silently overwriting the stored document. Load the document first, or use `SkipVersionCheck()` when an overwrite is intended.
+
+## Where the Version Comes From
+
+The version is metadata. It is **not stored in `_source`**: the Elasticsearch source serializer leaves `IVersioned.Version` out of the root document, and ignores a `version` value already stored there by older releases.
 
 | Read | How `Version` is set |
 | --- | --- |
-| `GetByIdAsync` / `GetByIdsAsync` | Always overwritten from GET metadata. **Known gap:** when metadata is missing it becomes `"0:0"`. |
-| `FindAsync` / `FindOneAsync` / `SearchAsync` | Overwritten from hit metadata **when present**. Otherwise the stored `_source` value is kept. |
-| Cache hit | Returns the cached `FindHit`, whose `Version` was taken when it was cached. A cached document can be stale; saving it fails safely with a 409. |
-| `FindAsAsync<TResult>` | On an `IVersioned` repository the search requests sequence numbers, so a `TResult` that implements `IVersioned` gets `Version` overwritten from hit metadata, like `FindAsync`. If `TResult` doesn't implement `IVersioned`, only `hit.Version` carries the current version. |
-| `top_hits` aggregations | Built from `_source` only. Any `version` here is the stale stored value. |
+| `GetByIdAsync` / `GetByIdsAsync` | From GET/mget metadata. `null` when missing. |
+| `FindAsync` / `FindOneAsync` / `SearchAsync` | From hit metadata (`seq_no_primary_term=true` is requested automatically). |
+| Cache hit | From the cached `FindHit.Version`, which was taken from metadata when the entry was cached. |
+| `FindAsAsync<TResult>` | A `TResult` that implements `IVersioned` gets `Version` from hit metadata. Otherwise only `hit.Version` carries it. |
+| `top_hits` aggregations | Built from `_source` only, so they carry no version. |
 
-`hit.Version` (on `FindHit<T>`) and `hit.Document.Version` normally agree for repository reads.
+`hit.Version` (on `FindHit<T>`) and `hit.Document.Version` always agree for repository reads.
 
-### The stored `_source.version` is stale
+- Only the **root** document type registered with a repository or index is affected. A nested object that implements `IVersioned` (for example a metadata object with its own business version) keeps its `version` field. Don't reuse `IVersioned` for business counters on the root document.
+- A proxy property such as `public string Version { get => MetaData.Version; set => MetaData.Version = value; }` still writes `metaData.version`, because the nested object is serialized normally.
+- If you replace the Elasticsearch source serializer, call `options.ExcludeDocumentVersionFromSource()` on its `JsonSerializerOptions`, or override `ElasticConfiguration.ConfigureSourceSerializerOptions` and call the base method. Never add `[JsonIgnore]` to `Version`: the cache serializer needs it.
+- Documents written by older releases keep a stale `version` field in `_source` until their next full write (`SaveAsync`, JSON/action patches). Script and partial patches merge into the stored document and leave the old field in place. It is ignored on reads. To remove it, run an update-by-query with `ctx._source.remove('version')`.
 
-Today `IVersioned.Version` is also serialized into the document body. The value is written **before** Elasticsearch assigns the new sequence number, so the stored value is always the version the write started from, not the version it produced. Script and Partial patches (Update API) never touch it at all.
+### Debugging versions
 
-The repository ignores it on reads (see the table above), but raw Elasticsearch queries, Kibana and other clients see a misleading value. **Do not query, sort or aggregate on `version` in `_source`**, and don't treat it as the document's current version. Removing it from `_source` is tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+Query metadata directly instead of `_source`:
+
+```http
+GET employees/_doc/123
+GET employees/_search?seq_no_primary_term=true
+{ "query": { "ids": { "values": ["123"] } } }
+```
+
+In Kibana Discover, add the `_seq_no` and `_primary_term` columns. Range queries and sorts on `_seq_no` work on indexes with sequence numbers enabled.
 
 ### Versions after reindex
 
-Reindexing (schema migrations via `VersionedIndex`, `ReindexAsync`, moving documents between daily or monthly indexes) writes the documents into a new index with fresh sequence numbers. Elasticsearch does **not** preserve `_seq_no`/`_primary_term`. A version captured before the reindex is meaningless against the new index. It usually causes a 409 on the next save, but that isn't guaranteed: the new index can assign the same `primaryTerm:sequenceNumber` pair, and since the save only sends that pair (not the index it came from), a stale copy can pass the check and overwrite migrated data. Re-read documents after a reindex instead of reusing versions captured before it.
+Reindexing (schema migrations via `VersionedIndex`, `ReindexAsync`, moving documents between daily or monthly indexes) writes documents into a new index with fresh sequence numbers. Elasticsearch does **not** preserve `_seq_no`/`_primary_term`. A version captured before the reindex usually causes a 409 on the next save, but that isn't guaranteed: the new index can assign the same pair. Re-read documents after a reindex instead of reusing versions captured before it.
 
 ### Caching and versions
 
-When caching is enabled, cached reads return the `FindHit` (and its `Version`) as it was when cached. If the document has changed since, saving the cached copy fails with `VersionConflictDocumentException`, which is the safe outcome. Re-read with `o.Cache(false)` and retry. The cache population race (stale data cached after invalidation) is tracked separately in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
+Cached reads return the version from when the entry was cached. If the document changed since, saving the cached copy fails with `VersionConflictDocumentException`, which is the safe outcome. Re-read with `o.Cache(false)` and retry. Script and partial patches only invalidate the cache, since the new version isn't known client-side. The cache population race (stale data cached after invalidation) is tracked in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
 
 ## Concurrency Model per Operation
 
-| Operation | Mechanism | Uses your `Version`? | Retries |
-| --- | --- | --- | --- |
-| `AddAsync` | `op_type=create` | No (a duplicate id raises `DuplicateDocumentException`) | Bulk only: 429/503 |
-| `SaveAsync` (one document) | index with `if_seq_no`/`if_primary_term` from `Version` | **Yes**, unless `SkipVersionCheck()` | None. **Known gap:** no 429/503 retry |
-| `SaveAsync` / `AddAsync` (many documents) | bulk with `if_seq_no` per document | **Yes**, unless `SkipVersionCheck()` | 429/503: up to 4 attempts (1s/2s/4s backoff). 409 is never retried |
-| `PatchAsync(id)` ScriptPatch / PartialPatch | Update API with `retry_on_conflict` | No: last write wins | Server-side, `Retry(n)` times (default 10) |
-| `PatchAsync(id)` JsonPatch / ActionPatch, or Partial with a default pipeline | GET, apply, index. `if_seq_no` **from that GET** only for `IVersioned` entities without `SkipVersionCheck()` | No: checks against the fresh GET (versioned only). **Non-versioned entities:** no check, so a change between the GET and the write is silently overwritten | Resilience policy: `Retry(n)` **attempts**, otherwise the policy default |
-| `PatchAsync(id)` ScriptPatch with a default pipeline | update-by-query on the id | No | None. Throws on conflict |
-| `PatchAsync(ids)` / `PatchAllAsync` JsonPatch / ActionPatch | bulk index; `if_seq_no` from the search hits only for `IVersioned` entities | No | Conflicting ids are re-run one at a time through `PatchAsync(id)`. **Known gap:** ignores `SkipVersionCheck()` |
-| `PatchAsync(ids)` ScriptPatch / PartialPatch with a default pipeline | runs `PatchAsync(id)` for each id | As for `PatchAsync(id)` | As for `PatchAsync(id)` |
-| `PatchAsync(ids)` ScriptPatch / PartialPatch | bulk update with `retry_on_conflict` | No | Server-side. Throws after processing the successes if any item still fails |
-| `PatchAllAsync` PartialPatch with a default pipeline | bulk index; `if_seq_no` from the search hits only for `IVersioned` entities | No | None. **Known gap:** a conflict aborts processing, as in the next row |
-| `PatchAllAsync` ScriptPatch (caching enabled) / PartialPatch | bulk update with `retry_on_conflict` | No | Server-side. **Known gap:** if any item in a batch still fails, the error is logged and processing stops: no exception, the batch's successes aren't counted or notified, and later batches aren't processed |
-| `PatchAllAsync` ScriptPatch with caching disabled | update-by-query, `conflicts=proceed` | No | **Known gap:** conflicting documents are skipped and only logged |
-| `RemoveAsync` | delete | **No** | Bulk only: 429/503 |
-| `RemoveAllAsync` (no listeners, no cache) | delete-by-query, `conflicts=proceed` | No | Re-runs up to `Retry(n) + 1` passes while conflicts remain. Leftovers are only logged |
+"Checks your `Version`" means the write is rejected when the stored document changed after the version you hold. "Never loses a concurrent change" means a write that loses a race is re-applied on the latest document instead of overwriting it.
 
-Patches are **last-write-wins by default** for your copy of the document. There's no option today to patch only if the document is still at a version you read. Use a read-modify-`SaveAsync` cycle when you need that.
+| Operation | Mechanism | Checks your `Version`? | Retries (`Retry(n)`, default 10) |
+| --- | --- | --- | --- |
+| `AddAsync` | `op_type=create` | No (duplicate id: `DuplicateDocumentException`) | 429/502/503/504 |
+| `SaveAsync` | index with `if_seq_no`/`if_primary_term` | **Yes**, unless `SkipVersionCheck()` | 429/502/503/504 only. 409 is never retried |
+| `RemoveAsync(T)` | delete with `if_seq_no`/`if_primary_term` | **Yes**, unless `SkipVersionCheck()` | 429/502/503/504 only |
+| `RemoveAsync(ids)` | loads documents, deletes without a check | No | 429/502/503/504 |
+| `PatchAsync(id)` ScriptPatch / PartialPatch | Update API with `retry_on_conflict` | Only with `IfVersion(v)` (then no `retry_on_conflict`) | Server-side conflict retries + transient retries |
+| `PatchAsync(id)` JsonPatch / ActionPatch / pipeline PartialPatch | GET, apply, index with `if_seq_no` from the GET | Only with `IfVersion(v)` (fails instead of retrying) | Re-read and re-apply on conflict |
+| `PatchAsync(id)` ScriptPatch with a default pipeline | update-by-query on the id | No (`IfVersion` not supported) | Re-run on conflict |
+| `PatchAsync(ids)` / `PatchAllAsync` JsonPatch / ActionPatch / pipeline PartialPatch | bulk index with `if_seq_no` from the read, grouped retry rounds | No; `SkipVersionCheck()` writes without a check | Grouped rounds: one mget + one bulk per round |
+| `PatchAsync(ids)` / `PatchAllAsync` ScriptPatch / PartialPatch | bulk Update API with `retry_on_conflict` | No | Server-side conflict retries + transient rounds |
+| `PatchAllAsync` ScriptPatch with `UseUpdateByQuery()` (cache disabled) | update-by-query, `conflicts=proceed` | Snapshot only | None. Throws on conflicts unless `ProceedOnQueryConflicts()` |
+| `RemoveAllAsync` (no listeners, no cache) | delete-by-query, `conflicts=proceed` | Snapshot only | Up to n more passes with backoff. Throws on leftovers unless `ProceedOnQueryConflicts()` |
+| `RemoveAllAsync` (listeners or cache) | batched `RemoveAsync` without a check | No | 429/502/503/504 |
+
+Patches never lose a concurrent change: a patch that loses a race is re-applied to the latest document. That makes patches last-write-wins **per field you change**, not for your whole copy of the document. Use `IfVersion` when the patch must only apply to the version you read.
+
+### Expected-version patches (`IfVersion`)
+
+```csharp
+var employee = await repository.GetByIdAsync(id);
+// ... show the document to a user, who edits one field ...
+await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.IfVersion(employee.Version));
+// Throws VersionConflictDocumentException if anyone changed the document since it was read.
+```
+
+- Script and partial patches send `if_seq_no`/`if_primary_term` to the Update API. Elasticsearch rejects them together with `retry_on_conflict`, so there are no server-side conflict retries.
+- JSON and action patches compare the version from their GET with the expected one before writing.
+- `IfVersion` is only supported by `PatchAsync(id)`. `PatchAsync(ids)` and `PatchAllAsync` throw `ArgumentException`.
+
+### Grouped conflict retries
+
+For JSON, action and pipeline partial patches on many documents, a bulk write can return 409 (changed since read) or 429/503 for some items. Those documents are re-read **together** with one multi-get, the patch is re-applied in memory (an action patch that no longer changes the document is not written), and they are re-sent in one bulk request with their fresh versions. This repeats for up to `Retry(n)` rounds with exponential backoff (50 ms doubling, capped at 2 s) and jitter.
+
+- Documents deleted in the meantime are skipped.
+- Cache invalidation, notifications and the `UpdateCallback` fire once per document, in the round it succeeded.
+- Documents still failing after the last round are reported in a `VersionConflictDocumentException` (or `DocumentException` for other failures) with counts and up to 10 ids, **after** the successes are invalidated and notified.
+
+Compared with re-patching each conflicting id on its own, a grouped round is roughly 8x faster for 10 documents and 50-100x faster for 100-500 documents (see `benchmarks/`).
 
 ### Query-based writes check against a snapshot
 
-`PatchAllAsync` (via update-by-query) and `RemoveAllAsync` (via delete-by-query) take a snapshot of matching documents, then write each one with a sequence-number check against **that snapshot**. A concurrent change is never overwritten; the document is counted as a version conflict and skipped. Running two of them in parallel on overlapping documents is safe, but each may skip documents the other changed. Elasticsearch scripts can't read `_seq_no` or `_primary_term`, so a script can't compare against a caller-supplied version.
+Update-by-query and delete-by-query take a snapshot of matching documents, then write each one with a sequence-number check against **that snapshot**. A concurrent change is never overwritten, but the document is skipped and counted as a version conflict. Elasticsearch scripts can't read `_seq_no`, so a script can't compare against a caller-supplied version, and update-by-query doesn't return which ids conflicted.
+
+- `PatchAllAsync` with `ScriptPatch` therefore uses the bulk Update API by default, which re-runs the script on the latest document per id. Update-by-query is an explicit opt-in (`o.UseUpdateByQuery()`, ignored when caching is enabled) for large data sets; it throws when any document was skipped unless you set `o.ProceedOnQueryConflicts()`.
+- Re-running a whole query to pick up skipped documents is unsafe for non-idempotent scripts (`ctx._source.count++`), because documents that already succeeded get the script again. Prefer idempotent scripts (`ctx._source.count = params.count`) for any operation that may be retried or run in parallel.
+- Delete-by-query is idempotent, so `RemoveAllAsync` re-runs it up to `Retry(n)` more times with backoff and a refresh until no conflicts remain.
+- Running two query-based writes in parallel on overlapping documents is safe but each may skip documents the other changed. Documents that start matching after the operation begins are not included.
 
 ## Retry Options
 
-`o.Retry(n)` is interpreted differently depending on the path:
+`o.Retry(n)` means **n retries after the first attempt** on every path. The default is 10. `Retry(0)` makes a single attempt and fails fast.
 
-- **Update API** (Script/Partial patches): `retry_on_conflict = n`, i.e. n server-side retries. Default **10**.
-- **Resilience policy** (JsonPatch, ActionPatch, pipeline Partial): n total **attempts** (n - 1 retries). When `Retry` isn't set, the repository's resilience policy is used as configured; the Foundatio default is 3 attempts with exponential backoff starting at 1 second. The policy doesn't retry `DocumentNotFoundException` or `DuplicateDocumentException`, but it **does** retry `VersionConflictDocumentException`. Each attempt re-fetches the document.
-- **Delete-by-query**: up to n + 1 passes (default 11), with no delay between passes.
-- **`SaveAsync`/`AddAsync`**: `Retry(n)` has **no effect**.
+| Path | What a retry is |
+| --- | --- |
+| Script / partial patches (Update API) | `retry_on_conflict = n` (server-side), plus up to n rounds for 429/502/503/504 |
+| JSON / action / pipeline partial patches | Re-read and re-apply, up to n times (grouped per round for batches) |
+| `AddAsync` / `SaveAsync` / `RemoveAsync` | Up to n retries of transient failures (429/502/503/504, transport errors). Version conflicts are not retried |
+| Delete-by-query | Up to n more passes while conflicts remain |
 
-Normalizing these is tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+Retries use exponential backoff starting at 50 ms, capped at 2 seconds, with jitter.
 
 ## Handling Version Conflicts
 
@@ -144,6 +189,8 @@ catch (VersionConflictDocumentException)
     // Someone else changed the document. Re-read and decide what to do.
 }
 ```
+
+Map `VersionConflictDocumentException` to HTTP 409 in APIs. It derives from `DocumentException`, so a generic handler returns 500 unless you catch it first.
 
 ### Retry pattern
 
@@ -171,29 +218,21 @@ public async Task<Employee> UpdateWithRetryAsync(string id, Action<Employee> upd
 }
 ```
 
-### Server-side updates
-
-When you don't need to compare against a version you read (for example a counter), let Elasticsearch apply the change to the latest document:
+When the change doesn't depend on values you read, a patch does this for you:
 
 ```csharp
+await repository.PatchAsync(id, new ActionPatch<Employee>(e => e.Name = "John Smith"));
 await repository.PatchAsync(id, new ScriptPatch("ctx._source.counter++"));
 ```
-
-This is last-write-wins at the document level. Elasticsearch re-runs the script on the latest document on conflict (up to `Retry(n)` times). If the retries run out, `VersionConflictDocumentException` is thrown.
 
 ## Skipping the Version Check
 
 ```csharp
 await repository.SaveAsync(employee, o => o.SkipVersionCheck());
+await repository.SaveAsync(employee, o => o.VersionCheck(false)); // same thing
 ```
 
-::: danger Known gap: `VersionCheck(bool)` is inverted
-`o.VersionCheck(false)` currently **enables** the check, and `o.VersionCheck(true)` **skips** it. Use `SkipVersionCheck()` until this is fixed ([#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344)).
-:::
-
-`SkipVersionCheck()` applies to `SaveAsync` and to the single-document JsonPatch, ActionPatch and pipeline Partial patches. The bulk patch paths ignore it today.
-
-Skip the check only when lost updates are acceptable: trusted imports, migrations, or genuine last-write-wins data.
+`SkipVersionCheck()` (or `VersionCheck(false)`) applies to `SaveAsync`, `RemoveAsync(T)`, and the JSON, action and pipeline partial patches on one or many documents. Skip the check only when lost updates are acceptable: trusted imports, migrations, or genuine last-write-wins data.
 
 ## Bulk Operations and Partial Failures
 
@@ -201,37 +240,45 @@ When saving several versioned documents in one call, some may succeed while othe
 
 1. **Successful documents** are fully processed: versions updated, events fired, cache populated, notifications sent.
 2. **Conflicting documents** are left untouched in Elasticsearch and in the cache.
-3. A `VersionConflictDocumentException` is thrown after the successes are processed.
-
-```csharp
-try
-{
-    await repository.SaveAsync(employees);
-}
-catch (VersionConflictDocumentException ex)
-{
-    // Successful documents were saved and notified. Re-fetch and retry the rest.
-    _logger.LogWarning(ex, "Some documents had version conflicts");
-}
-```
+3. A `VersionConflictDocumentException` is thrown after the successes are processed. The message includes the conflict count and ids.
 
 ## Indexes Without Sequence Numbers (Elasticsearch 9.4+)
 
-Elasticsearch 9.4 disables sequence numbers by default (`index.disable_sequence_numbers=true`, a final setting) for new **time_series data stream backing indexes**. On those indexes:
+Elasticsearch 9.4 disables sequence numbers by default (`index.disable_sequence_numbers=true`, a final setting) for new **time_series data stream backing indexes**. Indexes can also be created with the setting. On those indexes:
 
-- Responses carry the sentinel values `_seq_no: -2, _primary_term: 0`.
-- Writes with `if_seq_no` fail with HTTP **400** (`occ_not_supported_exception`), not 409.
-- The Update API fails with HTTP 400 (`update_not_supported_exception`).
+- Responses carry the sentinel values `_seq_no: -2, _primary_term: 0`. The repository treats them as an empty version, so `Version` is `null`, and never sends them back as `if_seq_no`.
+- Writes with `if_seq_no` fail with HTTP 400 (`o_c_c_not_supported_exception`) and the Update API with HTTP 400 (`update_not_supported_exception`). Both are reported as `DocumentVersioningNotSupportedException` with an explanation.
+- Saving an `IVersioned` document with no version throws (see above) instead of silently overwriting.
 - Update-by-query and delete-by-query run with no conflict detection.
 
-**`IVersioned` repositories aren't supported on such indexes.** Either don't implement `IVersioned` for time-series data, or set `index.disable_sequence_numbers: false` in the index template. Standard and logsdb indexes keep sequence numbers. They may use `index.seq_no.index_options=doc_values_only` (9.1+), where OCC still works. Better handling for the sentinel values is tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+**`IVersioned` repositories aren't supported on such indexes.** Either don't implement `IVersioned` for time-series data, or set `index.disable_sequence_numbers: false` in the index template. `SkipVersionCheck()` saves and JSON/action patches still work. Standard and logsdb indexes keep sequence numbers, and may use `index.seq_no.index_options=doc_values_only` (9.1+), where OCC still works but `_seq_no` range queries are slower.
+
+## Logging
+
+Conflicts and retries are logged with structured fields and never include document bodies:
+
+- **Warning** per conflict: operation, index, document id, attempt and budget, expected version, current version (parsed from the 409 reason) and outcome (`Retrying`/`Failed`).
+- **Warning** per transient retry and per delete-by-query pass with conflicts.
+- **Information** summary per grouped retry round.
+- **Error** when a retry budget is exhausted.
+
+## Upgrading (Breaking Changes)
+
+- **`RemoveAsync(T)` checks the version.** Removing an `IVersioned` document whose copy is stale now throws `VersionConflictDocumentException`. Use `SkipVersionCheck()` to delete regardless, or `RemoveAsync(id)`, which loads the document and deletes it without a check.
+- **`VersionCheck(bool)` is fixed.** `VersionCheck(false)` now skips the check and `VersionCheck(true)` checks; they were inverted. Code that called `VersionCheck(true)` to skip the check must change to `SkipVersionCheck()`.
+- **`PatchAllAsync` with `ScriptPatch` uses the bulk Update API by default** instead of update-by-query when caching is disabled. Results are the same, but every matching document is patched even under concurrent writes. Opt back in with `o.UseUpdateByQuery()`; it now throws `VersionConflictDocumentException` when documents were skipped unless `o.ProceedOnQueryConflicts()` is set.
+- **`RemoveAllAsync` delete-by-query throws on leftover conflicts** after the retry budget, instead of only logging. Use `o.ProceedOnQueryConflicts()` to restore logging only.
+- **`Version` is no longer stored in `_source`.** The `"primaryTerm:sequenceNumber"` format and the property itself are unchanged. Raw Elasticsearch clients must request `seq_no_primary_term=true` instead of reading `version` from `_source`. Queries, sorts or aggregations on `version` will stop matching new documents.
+- **`Retry(n)` means n retries everywhere.** Patch paths that used the resilience policy made n attempts before; they now make n + 1. Single-document `AddAsync`/`SaveAsync`/`RemoveAsync` now retry 429/502/503/504.
+- **Empty versions.** Reads return `null` instead of `"0:0"` when there is no version, two empty `ElasticDocumentVersion` values are now equal, and saving an existing `IVersioned` document with no version throws unless the check is skipped.
+- **Failures are no longer silent.** `PatchAllAsync` used to stop and return without an exception when a bulk update item failed; it now processes every batch and throws at the end.
 
 ## Best Practices
 
-1. Handle `VersionConflictDocumentException` wherever you call `SaveAsync` on an `IVersioned` type. Map it to HTTP 409 in APIs.
+1. Handle `VersionConflictDocumentException` wherever you call `SaveAsync`, `RemoveAsync(T)` or `IfVersion` patches on an `IVersioned` type. Map it to HTTP 409 in APIs.
 2. Retry by **re-reading** (bypass the cache) and re-applying the change. Use exponential backoff with jitter and a small attempt budget.
-3. Prefer `ScriptPatch` for server-side changes that don't depend on a value you read.
-4. Never rely on the `version` stored in `_source`.
+3. Prefer patches for changes that don't depend on a value you read, and `IfVersion` patches when they do.
+4. Make scripts idempotent when an operation may be retried or run in parallel.
 5. Treat `Version` as an opaque string. Compare versions with `ElasticDocumentVersion` only for the same document in the same index.
 
 ## Next Steps

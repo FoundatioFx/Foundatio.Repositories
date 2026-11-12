@@ -336,10 +336,13 @@ await repository.PatchAllAsync(
 // Immediate consistency
 await repository.PatchAsync(id, patch, o => o.ImmediateConsistency());
 
-// Skip the version check on the write (JsonPatch, ActionPatch and pipeline PartialPatch on a single id)
+// Skip the version check on the write (JsonPatch, ActionPatch and pipeline PartialPatch, single or batch)
 await repository.PatchAsync(id, patch, o => o.SkipVersionCheck());
 
-// Change the conflict retry budget (default 10)
+// Only patch if the stored document still has the version you read (PatchAsync(id) only)
+await repository.PatchAsync(id, patch, o => o.IfVersion(employee.Version));
+
+// Change the retry budget: n retries after the first attempt (default 10). Retry(0) fails fast.
 await repository.PatchAsync(id, patch, o => o.Retry(3));
 
 // Disable notifications
@@ -547,32 +550,28 @@ All patch types can throw `DocumentNotFoundException` (HTTP 404) or `VersionConf
 | `ActionPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Fetches document, applies lambda, then indexes |
 
 ::: tip
-`ScriptPatch` and `PartialPatch` execute on the Elasticsearch node via the Update API. On a conflict, Elasticsearch re-applies them to the latest document up to `o.Retry(n)` times (default 10) without a round trip. `JsonPatch` and `ActionPatch` perform a client-side fetch-mutate-index cycle. On a conflict the resilience policy re-runs the whole cycle with a fresh fetch (see [Automatic Retry Behavior](#automatic-retry-behavior)).
+`ScriptPatch` and `PartialPatch` execute on the Elasticsearch node via the Update API. On a conflict, Elasticsearch re-applies them to the latest document up to `o.Retry(n)` times (default 10) without a round trip. `JsonPatch` and `ActionPatch` perform a client-side fetch-mutate-index cycle. On a conflict the document is re-read and the patch re-applied (see [Automatic Retry Behavior](#automatic-retry-behavior)). With `o.IfVersion(version)`, a changed document throws `VersionConflictDocumentException` instead.
 :::
 
 ### Concurrency semantics
 
-Patches never compare against a version **you** read. They're applied to the latest document, so they're last-write-wins for your copy:
+Patches never lose a concurrent change: a patch that loses a race is re-applied to the latest document. They're last-write-wins **for the fields they change**, not for your whole copy of the document:
 
-- **Update API (Script/Partial):** no version check at all; conflicts are retried server-side.
-- **JsonPatch/ActionPatch/pipeline PartialPatch (single id):** for `IVersioned` entities without `SkipVersionCheck()`, the write is checked against the version from the fetch inside the same attempt, so a concurrent change between that fetch and the write is detected and the attempt is retried. For entities that don't implement `IVersioned` there is no check, and a change made between the fetch and the write (including to unrelated fields) is silently overwritten.
-- **Batch JsonPatch/ActionPatch (`PatchAsync(ids)`, `PatchAllAsync`):** for `IVersioned` entities, each document is written with the version from the search hit, and conflicting documents are re-run one at a time through `PatchAsync(id)`. Non-versioned entities get no check.
-- **`PatchAsync(ids)` with a default pipeline (Script/Partial):** runs `PatchAsync(id)` for each id.
-- **`PatchAllAsync` PartialPatch / ScriptPatch with caching enabled:** sent as one bulk request per batch (pipeline PartialPatch as a bulk index with the hit's version for `IVersioned` entities). Conflicts aren't re-run; see the known gap below.
+- **Update API (Script/Partial):** Elasticsearch re-runs the update on the latest document (`retry_on_conflict`).
+- **JsonPatch/ActionPatch/pipeline PartialPatch:** for `IVersioned` entities, the write is checked against the version the patch read, so a concurrent change is detected and the patch is re-applied on a fresh read. `SkipVersionCheck()` writes without the check. For entities that don't implement `IVersioned` there is no check, and a change made between the read and the write is silently overwritten.
+- **Batch JsonPatch/ActionPatch/pipeline PartialPatch (`PatchAsync(ids)`, `PatchAllAsync`):** documents that conflict (or fail with 429/503) are re-read together with one multi-get, re-patched and re-written in one bulk request per round. Documents deleted in the meantime are skipped.
+- **`PatchAllAsync` ScriptPatch:** uses the bulk Update API per batch by default. `o.UseUpdateByQuery()` (cache disabled) uses update-by-query instead, which skips documents changed after its snapshot and throws unless `o.ProceedOnQueryConflicts()`. With a default pipeline, each document is patched by update-by-query on its id so the pipeline runs.
+- **Expected version (`IfVersion`):** supported only by `PatchAsync(id)`. Script and partial patches send `if_seq_no`/`if_primary_term` (without `retry_on_conflict`); JSON and action patches compare the version they read.
 
-Known gaps tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344):
-- the batch paths ignore `SkipVersionCheck()`;
-- `PatchAllAsync` with a `ScriptPatch` and caching disabled uses update-by-query with `conflicts=proceed`, which **skips** conflicting documents and only logs a warning;
-- in the `PatchAllAsync` PartialPatch / ScriptPatch-with-cache branch, any failed item (including a version conflict) makes the batch log an error and stop: no exception, no retry, the batch's successful documents aren't counted or notified, and the remaining batches aren't processed.
+Successful documents are invalidated in the cache and notified as each batch completes. Documents still failing after the retry budget are reported at the end in a `VersionConflictDocumentException` (or `DocumentException`) with counts and ids. Make scripts idempotent when an operation may be retried or run in parallel.
 
 See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full table.
 
 ### Automatic Retry Behavior
 
-- `o.Retry(n)` means n server-side retries on the Update API paths (default 10). On the resilience policy paths (JsonPatch, ActionPatch, pipeline PartialPatch) it means n total attempts. When `Retry` isn't set, those paths use the repository's resilience policy as configured; the Foundatio default is 3 attempts with exponential backoff starting at 1 second.
-- The resilience policy retries version conflicts and transient errors. It doesn't retry `DocumentNotFoundException`.
-- Single-document writes inside the patch paths don't have a separate 429/503 retry loop.
-
+- `o.Retry(n)` means n retries after the first attempt on every patch path (default 10): `retry_on_conflict = n` on the Update API, and up to n re-read-and-re-apply rounds for JSON, action and pipeline partial patches.
+- Transient errors (HTTP 429, 502, 503, 504) are retried within the same budget with exponential backoff and jitter. `DocumentNotFoundException` is not retried.
+- Conflicts and retries are logged at Warning level with the expected and current versions; an exhausted budget is logged at Error level.
 ## Performance Considerations
 
 ### Use ScriptPatch for Atomic Operations
@@ -656,26 +655,27 @@ await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source
 
 ### PatchAllAsync (Query-Based)
 
-`PatchAllAsync` notification behavior depends on whether the query contains explicit IDs and whether caching is enabled:
+`PatchAllAsync` sends one `EntityChanged` message **per modified ID**, per batch as documents are processed, for every patch type. The only exception is an opt-in update-by-query (`o.UseUpdateByQuery()` with a `ScriptPatch` and caching disabled), which doesn't know which documents changed:
 
-| Query Type | Caching Enabled | Notification Behavior |
-|------------|----------------|----------------------|
-| Any query | Yes | One `EntityChanged` message **per modified ID** (sent per-batch as documents are processed) |
-| Query with explicit IDs | No | One `EntityChanged` message **per ID** |
-| Filter-only query (no IDs) | No | One `EntityChanged` message with `Id = null` (type-level notification) |
+| Path | Query Type | Notification Behavior |
+|------|------------|----------------------|
+| Default (all patch types) | Any query | One `EntityChanged` message **per modified ID** |
+| `UseUpdateByQuery()` | Query with explicit IDs | One `EntityChanged` message **per ID** |
+| `UseUpdateByQuery()` | Filter-only query (no IDs) | One `EntityChanged` message with `Id = null` (type-level notification) |
 
 ::: info Per-batch delivery
 Notifications are sent incrementally per batch as documents are processed, not after the entire operation completes. Subscribers may see `EntityChanged` messages arriving while the operation is still processing later batches. Design subscribers to be idempotent.
 :::
 
 ```csharp
-// Uncached update-by-query with filter-only query: sends a single type-level notification (Id = null)
+// Opt-in update-by-query with a filter-only query: sends a single type-level notification (Id = null)
 await repository.PatchAllAsync(
     q => q.FieldEquals(e => e.Department, "Sales"),
-    new PartialPatch(new { Region = "West" }));
+    new ScriptPatch("ctx._source.region = 'West'"),
+    o => o.UseUpdateByQuery());
 // EntityChanged { Type = "Employee", Id = null, ChangeType = Saved }
 
-// Cached/batch path with filter-only query: sends per-ID notifications for modified documents
+// Default batch path with a filter-only query: sends per-ID notifications for modified documents
 await repository.PatchAllAsync(
     q => q.FieldEquals(e => e.Department, "Sales"),
     new ActionPatch<Employee>(e => { e.Region = "West"; }));
@@ -684,8 +684,8 @@ await repository.PatchAllAsync(
 // ...
 ```
 
-::: warning Type-level notifications apply only to uncached update-by-query
-When `PatchAllAsync` uses an uncached `ScriptPatch` or `PartialPatch` with a filter-only query (no explicit IDs), subscribers receive a single `EntityChanged` message with `Id = null`. Cached/batch `PatchAllAsync` paths (`ActionPatch`, `JsonPatch`, or cached `ScriptPatch`/`PartialPatch`) send per-ID notifications for each modified document. If your subscriber needs specific document IDs, either use a cached patch type or restructure the query to include explicit IDs.
+::: warning Type-level notifications apply only to update-by-query
+Only `PatchAllAsync` with `o.UseUpdateByQuery()` and a filter-only query (no explicit IDs) sends a single `EntityChanged` message with `Id = null`. If your subscriber needs specific document IDs, don't opt into update-by-query, or include explicit IDs in the query.
 :::
 
 ### DocumentsSaving / DocumentsSaved Events
