@@ -1,121 +1,211 @@
-using System;
-using System.Net.Http;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
-using Elastic.Transport;
+using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Resilience;
 using Microsoft.Extensions.Logging;
+using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
 public abstract partial class ElasticRepositoryBase<T>
 {
-    private static readonly TimeSpan _retryBaseDelay = TimeSpan.FromMilliseconds(50);
-    private static readonly TimeSpan _retryMaxDelay = TimeSpan.FromSeconds(2);
+    /// <summary>A document to index: created (<c>op_type=create</c>), indexed with <c>if_seq_no</c>/<c>if_primary_term</c>
+    /// from <see cref="Version"/>, or indexed unconditionally when <see cref="Version"/> is empty.</summary>
+    private sealed record IndexItem(DocumentKey Key, T Document, string? Routing, ElasticDocumentVersion Version, bool IsCreate, FindHit<T>? Hit = null) : IWriteItem;
+
+    /// <summary>A document to delete, with <c>if_seq_no</c>/<c>if_primary_term</c> when <see cref="Version"/> is set.</summary>
+    private sealed record DeleteItem(DocumentKey Key, T Document, string? Routing, ElasticDocumentVersion Version) : IWriteItem;
+
+    private WriteRoundRunner? _writeRunner;
+    private WriteRoundRunner WriteRunner => _writeRunner ??= CreateWriteRunner();
 
     /// <summary>
-    /// Builds the policy for a single-document write. <c>Retry(n)</c> means <c>n</c> retries, so the policy makes
-    /// <c>n + 1</c> attempts. Transient errors (HTTP 429, 502, 503, 504 and transport failures) are always retried. Version
-    /// conflicts are retried only when <paramref name="retryConflicts"/> is <c>true</c> (read, re-apply and write patches).
+    /// Document writes retry with <see cref="WriteRoundRunner"/> (<c>Retry(n)</c> and the transient classification), not the
+    /// repository's <see cref="IResiliencePolicy"/>: retrying a write the policy can't classify (a 502, a timeout) could apply
+    /// it twice. A custom policy is still used for everything else, so this only warns.
     /// </summary>
-    private IResiliencePolicy CreateWritePolicy(ICommandOptions options, bool retryConflicts)
+    private WriteRoundRunner CreateWriteRunner()
     {
-        int maxAttempts = options.GetRetryCount() + 1;
-        var basePolicy = _resiliencePolicy as ResiliencePolicy ?? new ResiliencePolicy(_logger, ElasticIndex.Configuration.TimeProvider);
-        var policy = basePolicy.Clone(maxAttempts, getDelay: GetRetryDelay);
-        var configuredShouldRetry = basePolicy.ShouldRetry;
+        if (_resiliencePolicy is not ResiliencePolicy)
+            _logger.LogWarning("Repository {Repository} has a custom resilience policy ({Policy}); document writes don't use it and retry with Retry(n) on HTTP 429/503 and unsent requests only", GetType().Name, _resiliencePolicy.GetType().Name);
 
-        policy.MaxDelay = _retryMaxDelay;
-        policy.UseJitter = true;
-        policy.ShouldRetry = (attempt, ex) =>
+        return new WriteRoundRunner(_logger, ElasticIndex.Configuration.TimeProvider);
+    }
+
+    private IndexItem CreateIndexItem(T document, bool isCreateOperation, ICommandOptions options)
+    {
+        var key = new DocumentKey(ElasticIndex.GetIndex(document), document.Id);
+        string? routing = GetParentIdFunc?.Invoke(document);
+        if (isCreateOperation || !HasVersion || options.ShouldSkipVersionCheck())
+            return new IndexItem(key, document, routing, ElasticDocumentVersion.Empty, isCreateOperation);
+
+        // A versioned document without a version has never been read, so it must not exist yet: create it.
+        var version = ((IVersioned)document).GetElasticVersion();
+        return new IndexItem(key, document, routing, version, IsCreate: version.IsEmpty);
+    }
+
+    /// <summary>Indexes documents in rounds; a single document uses the index API, several use one bulk request per round.</summary>
+    private async Task<WriteRunResult<IndexItem>> IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
+    {
+        if (ElasticIndex.HasMultipleIndexes)
         {
-            if (!IsRetryableWriteException(ex, retryConflicts))
-                return false;
-
-            return configuredShouldRetry?.Invoke(attempt, ex) ?? true;
-        };
-
-        return policy;
-    }
-
-    private static bool IsRetryableWriteException(Exception ex, bool retryConflicts)
-    {
-        return ex switch
+            foreach (var documentGroup in documents.GroupBy(ElasticIndex.GetIndex))
+                await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
+        }
+        else
         {
-            TransientDocumentException => true,
-            VersionConflictDocumentException => retryConflicts,
-            HttpRequestException => true,
-            TransportException => true,
-            _ => false
-        };
-    }
-
-    /// <summary>
-    /// Exponential backoff starting at 50 ms and capped at 2 seconds. Jitter is added by the policy or by the caller.
-    /// </summary>
-    private static TimeSpan GetRetryDelay(int attempt)
-    {
-        double milliseconds = _retryBaseDelay.TotalMilliseconds * Math.Pow(2, Math.Max(0, attempt - 1));
-        return TimeSpan.FromMilliseconds(Math.Min(milliseconds, _retryMaxDelay.TotalMilliseconds));
-    }
-
-    private static TimeSpan GetRetryDelayWithJitter(int attempt)
-    {
-        var delay = GetRetryDelay(attempt);
-        double jitter = delay.TotalMilliseconds * 0.25 * ((Random.Shared.NextDouble() * 2) - 1);
-        return TimeSpan.FromMilliseconds(Math.Max(0, delay.TotalMilliseconds + jitter));
-    }
-
-    /// <summary>
-    /// Maps a failed single-document write response to the exception callers should see.
-    /// </summary>
-    private Exception CreateWriteException(ElasticsearchResponse response, string operation, string index, string? id, bool isCreateOperation = false)
-    {
-        int? status = response.ApiCallDetails?.HttpStatusCode ?? response.ElasticsearchServerError?.Status;
-        string? errorType = response.ElasticsearchServerError?.Error?.Type;
-        string message = response.GetErrorMessage($"Error {operation} document {index}/{id}");
-
-        if (ElasticWriteErrors.IsVersioningNotSupported(errorType))
-            return new DocumentVersioningNotSupportedException(ElasticWriteErrors.VersioningNotSupportedMessage(index), response.OriginalException());
-
-        if (status is 409)
-        {
-            if (isCreateOperation)
-                return new DuplicateDocumentException(message, response.OriginalException());
-
-            return new VersionConflictDocumentException(message, response.OriginalException());
+            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
         }
 
-        if (status is null || ElasticWriteErrors.IsTransientStatus(status))
-            return new TransientDocumentException(message, status, response.OriginalException());
+        var items = documents.Select(d => CreateIndexItem(d, isCreateOperation, options)).ToList();
+        string operation = isCreateOperation ? "Add" : "Save";
+        return await WriteRunner.RunAsync(operation, items, options.GetRetryCount(), SendIndexRound(options, Refresh: options.GetRefreshMode(DefaultConsistency), allowSingleRequest: true), null, DisposedCancellationToken).AnyContext();
+    }
 
-        return new DocumentException(message, response.OriginalException());
+    private SendWriteRound<IndexItem> SendIndexRound(ICommandOptions options, Refresh Refresh, bool allowSingleRequest)
+    {
+        return async (pending, ct) =>
+        {
+            IReadOnlyList<WriteItemResult> results;
+            if (allowSingleRequest && pending.Count is 1)
+            {
+                var item = pending[0];
+                var request = new IndexRequest<T>(item.Document, item.Key.Index, item.Key.Id)
+                {
+                    OpType = item.IsCreate ? OpType.Create : OpType.Index,
+                    Pipeline = DefaultPipeline,
+                    Refresh = Refresh,
+                    Routing = ToRouting(item.Routing)
+                };
+                if (!item.Version.IsEmpty)
+                {
+                    request.IfSeqNo = item.Version.SequenceNumber;
+                    request.IfPrimaryTerm = item.Version.PrimaryTerm;
+                }
+
+                var response = await _client.IndexAsync(request, ct).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                results = [ToWriteResult(response, response.IsValidResponse ? response.GetElasticVersion() : ElasticDocumentVersion.Empty)];
+            }
+            else
+            {
+                var request = new BulkRequest { Refresh = Refresh, Operations = pending.Select(CreateBulkIndexOperation).ToList() };
+                var response = await _client.BulkAsync(request, ct).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                results = BulkResult.From(response).ToWriteResults(pending.Count);
+            }
+
+            for (int index = 0; index < pending.Count; index++)
+            {
+                if (results[index].Outcome is WriteOutcome.Succeeded)
+                    pending[index].Document.SetDocumentVersion(results[index].Version);
+            }
+
+            return results;
+        };
+    }
+
+    private IBulkOperation CreateBulkIndexOperation(IndexItem item)
+    {
+        if (item.IsCreate)
+            return new BulkCreateOperation<T>(item.Document) { Id = item.Key.Id, Index = item.Key.Index, Routing = ToRouting(item.Routing), Pipeline = DefaultPipeline };
+
+        var operation = new BulkIndexOperation<T>(item.Document) { Id = item.Key.Id, Index = item.Key.Index, Routing = ToRouting(item.Routing), Pipeline = DefaultPipeline };
+        if (!item.Version.IsEmpty)
+        {
+            operation.IfSequenceNumber = item.Version.SequenceNumber;
+            operation.IfPrimaryTerm = item.Version.PrimaryTerm;
+        }
+
+        return operation;
     }
 
     /// <summary>
-    /// Throws a <see cref="DocumentException"/> when a version-checked write is about to run without a
-    /// version (for example the document came from an index with sequence numbers disabled, or its version was never set).
-    /// Without this guard the write would run as an unconditional overwrite.
+    /// Deletes documents in rounds. A document that is already gone counts as removed. Versioned documents are deleted with
+    /// <c>if_seq_no</c>/<c>if_primary_term</c> unless the check is skipped; a document with no version can't be checked
+    /// (a delete can't fall back to create), so it throws before anything is deleted.
     /// </summary>
-    private static void ThrowIfMissingVersion(ElasticDocumentVersion version, string index, string? id)
+    private List<DeleteItem> CreateDeleteItems(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (!version.IsEmpty)
-            return;
+        bool checkVersion = HasVersion && !options.ShouldSkipVersionCheck();
+        return documents.Select(d =>
+        {
+            var key = new DocumentKey(ElasticIndex.GetIndex(d), d.Id);
+            var version = checkVersion ? ((IVersioned)d).GetElasticVersion() : ElasticDocumentVersion.Empty;
+            if (checkVersion && version.IsEmpty)
+                throw new DocumentException($"Document {key} has no version, so it can't be removed with a version check. Remove the document as it was loaded, use SkipVersionCheck or RemoveAsync(id), or check that index {key.Index} has sequence numbers enabled.");
 
-        throw new DocumentException($"Document {index}/{id} has no version, so an optimistic concurrency check is not possible. Load the document before saving it, use SkipVersionCheck to overwrite it, or check that index {index} has sequence numbers enabled.");
+            return new DeleteItem(key, d, GetParentIdFunc?.Invoke(d), version);
+        }).ToList();
     }
 
-    private void LogVersionConflict(string operation, string? index, string? id, int attempt, int budget, string? expectedVersion, string? reason, string outcome)
+    private async Task<WriteRunResult<DeleteItem>> DeleteDocumentsAsync(IReadOnlyList<DeleteItem> items, ICommandOptions options)
     {
-        if (!_logger.IsEnabled(LogLevel.Warning))
-            return;
+        var refresh = options.GetRefreshMode(DefaultConsistency);
+        return await WriteRunner.RunAsync<DeleteItem>("Remove", items, options.GetRetryCount(), async (pending, ct) =>
+        {
+            if (pending.Count is 1)
+            {
+                var item = pending[0];
+                var request = new DeleteRequest(item.Key.Index, item.Key.Id) { Refresh = refresh, Routing = ToRouting(item.Routing) };
+                if (!item.Version.IsEmpty)
+                {
+                    request.IfSeqNo = item.Version.SequenceNumber;
+                    request.IfPrimaryTerm = item.Version.PrimaryTerm;
+                }
 
-        var (parsedExpected, current) = ElasticWriteErrors.ParseConflictVersions(reason);
-        _logger.LogWarning("Version conflict during {Operation} on {Index}/{DocumentId}: attempt {Attempt} of {Budget}, expected version {ExpectedVersion}, current version {CurrentVersion}, outcome {Outcome}",
-            operation, index, id, attempt, budget + 1, expectedVersion ?? parsedExpected, current, outcome);
+                var response = await _client.DeleteAsync(request, ct).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                return [ToWriteResult(response, ElasticDocumentVersion.Empty)];
+            }
+
+            var bulk = new BulkRequest
+            {
+                Refresh = refresh,
+                Operations = pending.Select(item =>
+                {
+                    var operation = new BulkDeleteOperation(item.Key.Id) { Index = item.Key.Index, Routing = ToRouting(item.Routing) };
+                    if (!item.Version.IsEmpty)
+                    {
+                        operation.IfSequenceNumber = item.Version.SequenceNumber;
+                        operation.IfPrimaryTerm = item.Version.PrimaryTerm;
+                    }
+
+                    return (IBulkOperation)operation;
+                }).ToList()
+            };
+            var bulkResponse = await _client.BulkAsync(bulk, ct).AnyContext();
+            _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
+            return BulkResult.From(bulkResponse).ToWriteResults(pending.Count);
+        }, null, DisposedCancellationToken).AnyContext();
+    }
+
+    private static Routing? ToRouting(string? routing) => routing is null ? null : new Routing(routing);
+
+    /// <summary>Classifies a single-document response the same way bulk items are classified.</summary>
+    private static WriteItemResult ToWriteResult(ElasticsearchResponse response, ElasticDocumentVersion version)
+    {
+        if (response.IsValidResponse)
+            return new WriteItemResult(WriteOutcome.Succeeded, response.ApiCallDetails?.HttpStatusCode, Version: version);
+
+        int? status = response.ApiCallDetails?.HttpStatusCode;
+        var error = response.ElasticsearchServerError?.Error;
+        var exception = response.OriginalException();
+        string reason = response.GetErrorMessage("Error writing document");
+        if (error is null && status is not 404)
+            return new WriteItemResult(WriteOutcomeClassifier.ClassifyRequestFailure(status, exception), status, null, reason, exception);
+
+        return new WriteItemResult(WriteOutcomeClassifier.Classify(status, error?.Type, error?.Reason), status, error?.Type, error?.Reason ?? reason, exception);
     }
 }

@@ -52,14 +52,19 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicy _resiliencePolicy;
 
     private ScopedCacheClient _scopedCacheClient = null!;
-    private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
+    private readonly CancellationTokenSource _disposedCancellationTokenSource;
+    private readonly CancellationToken _disposedCancellationToken;
     private int _disposed;
-    protected CancellationToken DisposedCancellationToken => _disposedCancellationTokenSource.Token;
+
+    /// <summary>Cancelled when the repository is disposed. Captured once, so it stays readable after disposal.</summary>
+    protected CancellationToken DisposedCancellationToken => _disposedCancellationToken;
 
     protected ElasticReadOnlyRepositoryBase(IIndex index)
     {
+        _disposedCancellationTokenSource = new CancellationTokenSource();
+        _disposedCancellationToken = _disposedCancellationTokenSource.Token;
         ElasticIndex = index;
-        DocumentVersionSourceExclusion.RegisterDocumentType(typeof(T));
+        (index.Configuration as ElasticConfiguration)?.RegisterDocumentType(typeof(T));
         if (HasIdentity)
             _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
         if (HasDates)

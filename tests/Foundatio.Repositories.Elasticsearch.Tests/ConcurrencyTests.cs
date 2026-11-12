@@ -309,7 +309,7 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
     {
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        string staleVersion = employee.Version;
+        string? staleVersion = employee.Version;
         employee.Name = "changed";
         await _employeeRepository.SaveAsync(employee, o => o.ImmediateConsistency());
 
@@ -426,16 +426,44 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SaveAsync_WithoutVersion_ThrowsUnlessVersionCheckSkipped()
+    public async Task SaveAsync_WithoutVersion_CreatesTheDocumentAndConflictsIfItExists()
     {
         // Arrange
         var employee = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
+        var duplicate = EmployeeGenerator.Generate(id: employee.Id, name: "duplicate");
+        var bulk = new[] { EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString()), EmployeeGenerator.Generate(id: employee.Id, name: "bulk duplicate") };
+
+        // Act
+        await _employeeRepository.SaveAsync(employee, o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal("1:0", employee.Version);
+        await Assert.ThrowsAsync<DuplicateDocumentException>(() => _employeeRepository.SaveAsync(duplicate));
+        await Assert.ThrowsAsync<DuplicateDocumentException>(() => _employeeRepository.SaveAsync(bulk, o => o.ImmediateConsistency()));
+        Assert.NotNull(bulk[0].Version);
+        Assert.Null(bulk[1].Version);
+        Assert.NotNull(await _employeeRepository.GetByIdAsync(bulk[0].Id, o => o.Cache(false)));
+        Assert.Equal(employee.Name, (await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false)))?.Name);
+
+        await _employeeRepository.SaveAsync(duplicate, o => o.SkipVersionCheck().ImmediateConsistency());
+        Assert.Equal("duplicate", (await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false)))?.Name);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WithoutVersion_ThrowsUnlessVersionCheckSkipped()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        var unversioned = EmployeeGenerator.Generate(id: employee.Id);
+        var other = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<DocumentException>(() => _employeeRepository.SaveAsync(employee));
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => _employeeRepository.RemoveAsync(new[] { other, unversioned }));
         Assert.Contains("has no version", exception.Message);
-        await _employeeRepository.SaveAsync(employee, o => o.SkipVersionCheck());
-        Assert.Equal("1:0", employee.Version);
+        Assert.NotNull(await _employeeRepository.GetByIdAsync(other.Id, o => o.Cache(false)));
+
+        await _employeeRepository.RemoveAsync(unversioned, o => o.SkipVersionCheck().ImmediateConsistency());
+        Assert.Null(await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false)));
     }
 
     [Theory]
@@ -673,7 +701,7 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
                 await repository.SaveAsync(employee, o => o.ImmediateConsistency());
             }
 
-            string preReindexVersion = employee.Version;
+            string? preReindexVersion = employee.Version;
             Assert.Equal($"1:{savesBeforeReindex}", preReindexVersion);
 
             await version2Index.ConfigureAsync();
@@ -733,12 +761,14 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
             Assert.Null(Assert.Single(found.Hits).Version);
 
             loaded.Name = "unversioned save";
-            var saveException = await Assert.ThrowsAsync<DocumentException>(() => repository.SaveAsync(loaded, o => o.Cache(false)));
-            Assert.Contains("has no version", saveException.Message);
+            // Without a version the save is a create, which conflicts because the document exists.
+            await Assert.ThrowsAsync<DuplicateDocumentException>(() => repository.SaveAsync(loaded, o => o.Cache(false)));
+            await Assert.ThrowsAsync<DocumentException>(() => repository.RemoveAsync(loaded, o => o.Cache(false)));
 
             await repository.SaveAsync(loaded, o => o.Cache(false).SkipVersionCheck().ImmediateConsistency());
             await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'x';")));
-            await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "x" }))));
+            await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "x" }))));
+            await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(new[] { employee.Id, "missing" }, new ActionPatch<Employee>(e => e.Name = "x")));
             Assert.True(await repository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "skip" })), o => o.SkipVersionCheck().ImmediateConsistency()));
 
             var current = await repository.GetByIdAsync(employee.Id, o => o.Cache(false));

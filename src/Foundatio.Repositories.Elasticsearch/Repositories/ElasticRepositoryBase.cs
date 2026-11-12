@@ -84,6 +84,11 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return AddAsync(documents, options?.Configure());
     }
 
+    /// <summary>
+    /// Adds documents with <c>op_type=create</c>. A document whose id already exists fails with a
+    /// <see cref="DuplicateDocumentException"/>. HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times.
+    /// Documents that were added are notified and cached before the exception for the others is thrown.
+    /// </summary>
     public virtual async Task AddAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
@@ -101,9 +106,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             foreach (var doc in docs)
                 await ValidateAndThrowAsync(doc).AnyContext();
 
-        var result = await IndexDocumentsAsync(docs, true, options).AnyContext();
-
-        var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
+        var run = await IndexDocumentsAsync(docs, true, options).AnyContext();
+        var successDocs = run.Succeeded.Select(i => i.Document).ToList();
         if (successDocs.Count > 0)
         {
             await OnDocumentsAddedAsync(successDocs, options).AnyContext();
@@ -111,8 +115,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await AddDocumentsToCacheAsync(successDocs, options, false).AnyContext();
         }
 
-        if (result.HasErrors)
-            ThrowForBulkErrors(result, isCreateOperation: true);
+        WriteExceptionMapper.ThrowIfFailed(run, "adding", MissingDocumentPolicy.Conflict, i => i.IsCreate);
     }
 
     protected virtual Task ValidateAndThrowAsync(T document) { return Task.CompletedTask; }
@@ -136,6 +139,15 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return SaveAsync(documents, options?.Configure());
     }
 
+    /// <summary>
+    /// Saves documents. An <see cref="IVersioned"/> document is written with <c>if_seq_no</c>/<c>if_primary_term</c> from
+    /// its <see cref="IVersioned.Version"/> and fails with a <see cref="VersionConflictDocumentException"/> if the stored
+    /// document changed or was deleted. One with no version has never been read, so it is created (<c>op_type=create</c>)
+    /// and fails with a <see cref="DuplicateDocumentException"/> if the id already exists. <c>SkipVersionCheck()</c>, and
+    /// documents that don't implement <see cref="IVersioned"/>, are indexed unconditionally.
+    /// </summary>
+    /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times; conflicts are never retried.
+    /// Documents that were saved are notified and cached before the exception for the others is thrown.</remarks>
     public virtual async Task SaveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
@@ -158,21 +170,18 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             foreach (var doc in docs)
                 await ValidateAndThrowAsync(doc).AnyContext();
 
-        var result = await IndexDocumentsAsync(docs, false, options).AnyContext();
-
-        var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
+        var run = await IndexDocumentsAsync(docs, false, options).AnyContext();
+        var successDocs = run.Succeeded.Select(i => i.Document).ToList();
         if (successDocs.Count > 0)
         {
-            var successOriginals = result.IsSuccess
-                ? originalDocuments
-                : originalDocuments.Where(o => result.SuccessfulIds.Contains(o.Id)).ToList();
+            var successIds = successDocs.Select(d => d.Id).ToHashSet();
+            var successOriginals = originalDocuments.Where(o => successIds.Contains(o.Id)).ToList();
             await OnDocumentsSavedAsync(successDocs, successOriginals, options).AnyContext();
             if (IsCacheEnabled && options.ShouldUseCache())
                 await AddDocumentsToCacheAsync(successDocs, options, false).AnyContext();
         }
 
-        if (result.HasErrors)
-            ThrowForBulkErrors(result, isCreateOperation: false);
+        WriteExceptionMapper.ThrowIfFailed(run, "saving", MissingDocumentPolicy.Conflict, i => i.IsCreate);
     }
 
     public Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T>? options)
@@ -181,18 +190,21 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     }
 
     /// <summary>
-    /// Patches one document by id.
+    /// Patches one document by id. The <see cref="PatchStrategy"/> depends on the patch type and default pipeline; see
+    /// the versioning guide for the full state machine.
     /// </summary>
     /// <remarks>
-    /// <para><b>Script and partial patches</b> use the Elasticsearch Update API. Elasticsearch re-runs the update on the latest
-    /// document up to <c>Retry(n)</c> times when a concurrent write wins (<c>retry_on_conflict</c>, default 10).</para>
-    /// <para><b>JSON and action patches</b> (and partial patches when a default pipeline is configured) read the document,
-    /// apply the patch in memory and write it back with <c>if_seq_no</c>/<c>if_primary_term</c> for versioned documents. On a
-    /// conflict the document is read and patched again, up to <c>Retry(n)</c> times.</para>
-    /// <para>Pass <c>IfVersion(version)</c> to require the stored document to still have that version. The patch then fails
-    /// with a <see cref="VersionConflictDocumentException"/> instead of retrying. <c>IfVersion</c> is not supported for script
-    /// patches when a default pipeline is configured (update-by-query cannot take an expected version).</para>
-    /// <para>Transient errors (HTTP 429, 502, 503 and 504) are retried up to <c>Retry(n)</c> times.</para>
+    /// <para><b>Script and partial patches</b> use the Update API; Elasticsearch re-runs the update on the latest document up
+    /// to <c>Retry(n)</c> times (<c>retry_on_conflict</c>, default 10). With a default pipeline a script patch runs as
+    /// update-by-query on the id, re-run on a conflict.</para>
+    /// <para><b>JSON and action patches</b> (and partial patches with a default pipeline) read the document, patch it in
+    /// memory and write it back with <c>if_seq_no</c>/<c>if_primary_term</c> for versioned documents, re-reading on conflicts.</para>
+    /// <para><c>IfVersion(version)</c> requires the stored document to have that version: every write is checked against
+    /// it (also for entities that don't implement <see cref="IVersioned"/>), the document is never re-read, and a mismatch
+    /// throws a <see cref="VersionConflictDocumentException"/>. It can't be combined with <c>SkipVersionCheck()</c>, or used
+    /// for a script patch with a default pipeline.</para>
+    /// <para>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times. A missing document throws a
+    /// <see cref="DocumentNotFoundException"/>. A JSON patch that targets <c>/version</c> throws an <see cref="ArgumentException"/>.</para>
     /// </remarks>
     public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions? options = null)
     {
@@ -200,47 +212,46 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             throw new ArgumentNullException(nameof(id));
 
         ArgumentNullException.ThrowIfNull(operation);
-
-        if (operation is JsonPatch { Patch: null or { Operations: null or { Count: 0 } } })
+        if (IsEmptyPatch(operation))
             return false;
 
-        if (operation is ActionPatch<T> { Actions: null or { Count: 0 } })
-            return false;
-
+        ClientPatchApplier<T>.ValidateOperation(operation);
         await ElasticIndex.EnsureIndexAsync(id).AnyContext();
 
         options = ConfigureOptions(options?.As<T>());
         var expectedVersion = GetExpectedVersion(options);
+        operation = PreparePatch(operation);
+        var strategy = PatchStrategyResolver.Resolve<T>(operation, !String.IsNullOrEmpty(DefaultPipeline), false);
+        if (strategy is PatchStrategy.UpdateByQueryPerId && expectedVersion is not null)
+            throw new ArgumentException("IfVersion is not supported for ScriptPatch when a default pipeline is configured.", nameof(options));
 
-        if (operation is ScriptPatch scriptPatchOp)
-            operation = ApplyDateTracking(scriptPatchOp);
-        else if (operation is PartialPatch partialPatchOp)
-            operation = ApplyDateTracking(partialPatchOp);
+        var refresh = options.GetRefreshMode(DefaultConsistency);
+        string operationName = operation.GetType().Name;
+        if (strategy is PatchStrategy.ClientSide)
+        {
+            var (hits, readFailures) = await ReadForPatchAsync([id], options).AnyContext();
+            var run = WriteRunResult<IndexItem>.Merge(readFailures, await PatchClientSideAsync(hits, operation, expectedVersion, options, refresh, operationName).AnyContext());
+            var patched = run.Succeeded.Select(i => i.Document).ToList();
+            if (patched.Count > 0)
+            {
+                await OnDocumentsChangedAsync(ChangeType.Saved, patched, options).AnyContext();
+                if (IsCacheEnabled)
+                    await InvalidateCacheAsync(id).AnyContext();
 
-        bool modified;
-        if (operation is ScriptPatch scriptOperation && !String.IsNullOrEmpty(DefaultPipeline))
-        {
-            if (expectedVersion is not null)
-                throw new ArgumentException("IfVersion is not supported for ScriptPatch when a default pipeline is configured.", nameof(options));
+                if (options.ShouldNotify())
+                    await PublishChangeTypeMessageAsync(ChangeType.Saved, patched[0]).AnyContext();
+            }
 
-            modified = await PatchScriptWithPipelineAsync(id, scriptOperation, options).AnyContext();
-        }
-        else if (operation is ScriptPatch || (operation is PartialPatch && String.IsNullOrEmpty(DefaultPipeline)))
-        {
-            modified = await PatchWithUpdateApiAsync(id, operation, expectedVersion, options).AnyContext();
-        }
-        else if (operation is JsonPatch or ActionPatch<T> or PartialPatch)
-        {
-            return await PatchClientSideAsync(id, operation, expectedVersion, options).AnyContext();
-        }
-        else
-        {
-            throw new ArgumentException("Unknown operation type", nameof(operation));
+            WriteExceptionMapper.ThrowIfFailed(run, "patching", MissingDocumentPolicy.NotFound);
+            return patched.Count > 0;
         }
 
-        // Script and partial patches run server-side, so the modified document is not available client-side.
+        var item = new UpdateItem(new DocumentKey(ElasticIndex.GetIndex(id), id.Value), id.Routing, expectedVersion ?? ElasticDocumentVersion.Empty);
+        var serverRun = await PatchServerSideAsync([item], operation, strategy, options, refresh, operationName).AnyContext();
+        bool modified = serverRun.Succeeded.Count > 0;
         if (modified)
         {
+            // Server-side patches don't return the document.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
                 await InvalidateCacheAsync(id).AnyContext();
@@ -249,13 +260,34 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
+        WriteExceptionMapper.ThrowIfFailed(serverRun, "patching", MissingDocumentPolicy.NotFound);
         return modified;
+    }
+
+    private static bool IsEmptyPatch(IPatchOperation operation)
+    {
+        return operation is JsonPatch { Patch: null or { Operations: null or { Count: 0 } } } or ActionPatch<T> { Actions: null or { Count: 0 } };
+    }
+
+    /// <summary>Validates the operation type and adds the updated date to script and partial patches.</summary>
+    private IPatchOperation PreparePatch(IPatchOperation operation)
+    {
+        return operation switch
+        {
+            ScriptPatch script => ApplyDateTracking(script),
+            PartialPatch partial => ApplyDateTracking(partial),
+            JsonPatch or ActionPatch<T> => operation,
+            _ => throw new ArgumentException("Unknown operation type", nameof(operation))
+        };
     }
 
     private static ElasticDocumentVersion? GetExpectedVersion(ICommandOptions options)
     {
         if (!options.HasExpectedVersion())
             return null;
+
+        if (options.ShouldSkipVersionCheck())
+            throw new ArgumentException("IfVersion can't be combined with SkipVersionCheck.", nameof(options));
 
         var version = ElasticDocumentVersion.Parse(options.GetExpectedVersion());
         if (version.IsEmpty)
@@ -264,250 +296,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return version;
     }
 
-    private async Task<bool> PatchWithUpdateApiAsync(Id id, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, ICommandOptions options)
+    private static void ThrowIfExpectedVersion(ICommandOptions options)
     {
-        string index = ElasticIndex.GetIndex(id);
-        var policy = CreateWritePolicy(options, retryConflicts: false);
-        return await policy.ExecuteAsync(async ct =>
-        {
-            UpdateResponse<T> response;
-            if (operation is ScriptPatch scriptOperation)
-            {
-                var request = new UpdateRequest<T, T>(index, id.Value)
-                {
-                    Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
-                    Refresh = options.GetRefreshMode(DefaultConsistency)
-                };
-                ConfigureUpdateRequest(request, id, expectedVersion, options);
-                response = await _client.UpdateAsync(request, ct).AnyContext();
-            }
-            else
-            {
-                var request = new UpdateRequest<T, object>(index, id.Value)
-                {
-                    Doc = ((PartialPatch)operation).Document,
-                    Refresh = options.GetRefreshMode(DefaultConsistency)
-                };
-                ConfigureUpdateRequest(request, id, expectedVersion, options);
-                response = await _client.UpdateAsync(request, ct).AnyContext();
-            }
-
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValidResponse)
-            {
-                if (response.ApiCallDetails is { HttpStatusCode: 404 })
-                    throw new DocumentNotFoundException(id);
-
-                var exception = CreateWriteException(response, "patching", index, id.Value);
-                if (exception is VersionConflictDocumentException)
-                    LogVersionConflict(operation.GetType().Name, index, id.Value, 1, expectedVersion is null ? options.GetRetryCount() : 0, expectedVersion?.ToVersionString(), response.ElasticsearchServerError?.Error?.Reason, "Failed");
-
-                throw exception;
-            }
-
-            return response.Result is not Result.NoOp;
-        }, DisposedCancellationToken).AnyContext();
-    }
-
-    /// <summary>
-    /// Elasticsearch rejects <c>if_seq_no</c> combined with <c>retry_on_conflict</c>, so an expected version replaces
-    /// the server-side conflict retries.
-    /// </summary>
-    private static void ConfigureUpdateRequest<TPartial>(UpdateRequest<T, TPartial> request, Id id, ElasticDocumentVersion? expectedVersion, ICommandOptions options)
-    {
-        if (id.Routing != null)
-            request.Routing = id.Routing;
-
-        if (expectedVersion is { } version)
-        {
-            request.IfSeqNo = version.SequenceNumber;
-            request.IfPrimaryTerm = version.PrimaryTerm;
-        }
-        else
-        {
-            request.RetryOnConflict = options.GetRetryCount();
-        }
-    }
-
-    /// <summary>
-    /// Runs a script patch through update-by-query so the default pipeline is applied. Elasticsearch skips the write when
-    /// the document changed during the request (a version conflict), so the request is retried up to <c>Retry(n)</c> times.
-    /// </summary>
-    private async Task<bool> PatchScriptWithPipelineAsync(Id id, ScriptPatch scriptOperation, ICommandOptions options)
-    {
-        string index = ElasticIndex.GetIndex(id);
-        var policy = CreateWritePolicy(options, retryConflicts: true);
-        return await policy.ExecuteAsync(async ct =>
-        {
-            var request = new UpdateByQueryRequest(index)
-            {
-                Query = new Elastic.Clients.Elasticsearch.QueryDsl.IdsQuery
-                {
-                    Values = new Elastic.Clients.Elasticsearch.Ids(new[] { new Elastic.Clients.Elasticsearch.Id(id.Value) })
-                },
-                Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
-                Pipeline = DefaultPipeline,
-                Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
-                WaitForCompletion = true
-            };
-            if (id.Routing != null)
-                request.Routing = new Elastic.Clients.Elasticsearch.Routing(id.Routing);
-
-            var response = await _client.UpdateByQueryAsync(request, ct).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-
-            if (!response.IsValidResponse)
-            {
-                if (response.ApiCallDetails is { HttpStatusCode: 404 })
-                    throw new DocumentNotFoundException(id);
-
-                throw CreateWriteException(response, "patching", index, id.Value);
-            }
-
-            if ((response.VersionConflicts ?? 0) > 0)
-            {
-                LogVersionConflict("ScriptPatch", index, id.Value, 1, options.GetRetryCount(), null, null, "Retrying");
-                throw new VersionConflictDocumentException($"Version conflict patching document {index}/{id.Value}");
-            }
-
-            if ((response.Total ?? 0) is 0)
-                throw new DocumentNotFoundException(id);
-
-            return (response.Updated ?? 0) > 0 || (response.Deleted ?? 0) > 0;
-        }, DisposedCancellationToken).AnyContext();
-    }
-
-    /// <summary>
-    /// Reads one document, applies a JSON, action or pipeline partial patch in memory and writes it back version-checked,
-    /// re-reading and re-applying on conflicts.
-    /// </summary>
-    private async Task<bool> PatchClientSideAsync(Id id, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, ICommandOptions options)
-    {
-        string index = ElasticIndex.GetIndex(id);
-        var readPolicy = CreateWritePolicy(options, retryConflicts: false);
-        var hit = await readPolicy.ExecuteAsync(async ct =>
-        {
-            var request = new GetRequest(index, id.Value);
-            if (id.Routing != null)
-                request.Routing = id.Routing;
-
-            var response = await _client.GetAsync<T>(request, ct).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.Found)
-                throw new DocumentNotFoundException(id);
-
-            if (!response.IsValidResponse)
-                throw CreateWriteException(response, "patching", index, id.Value);
-
-            return response.ToFindHit();
-        }, DisposedCancellationToken).AnyContext();
-
-        if (expectedVersion is { } expected && hit.GetElasticVersion() != expected)
-        {
-            LogVersionConflict(operation.GetType().Name, index, id.Value, 1, 0, expected.ToVersionString(), null, "Failed");
-            throw new VersionConflictDocumentException($"Version conflict patching document {index}/{id.Value}: expected version {expected} but found {hit.Version ?? "none"}");
-        }
-
-        bool actionModified = operation is not ActionPatch<T>;
-        var result = await ApplyClientPatchesAsync([hit], h =>
-        {
-            var patched = ApplyClientPatch(h, operation, singleDocument: true);
-            if (operation is ActionPatch<T> && patched is not null)
-                actionModified = true;
-            return patched;
-        }, operation.GetType().Name, options, options.GetRefreshMode(DefaultConsistency), retryConflicts: expectedVersion is null).AnyContext();
-
-        if (result.MissingIds.Contains(id.Value) && result.ModifiedIds.Count is 0)
-            throw new DocumentNotFoundException(id);
-
-        if (result.ModifiedDocuments.Count > 0)
-        {
-            await OnDocumentsChangedAsync(ChangeType.Saved, result.ModifiedDocuments, options).AnyContext();
-            if (IsCacheEnabled)
-                await InvalidateCacheAsync(id).AnyContext();
-
-            if (options.ShouldNotify())
-                await PublishChangeTypeMessageAsync(ChangeType.Saved, result.ModifiedDocuments[0]).AnyContext();
-        }
-
-        if (result.HasErrors)
-        {
-            if (result.ConflictIds.Count > 0)
-                throw new VersionConflictDocumentException($"Version conflict patching document {index}/{id.Value} after {result.Rounds} attempts");
-
-            ThrowForPatchErrors(result, "patching");
-        }
-
-        return actionModified && result.ModifiedDocuments.Count > 0;
-    }
-
-    /// <summary>
-    /// Applies a client-side patch to a copy of the hit's document. Returns <c>null</c> when an action patch makes no change.
-    /// The version stays the one the document was read at; the write response sets the new version.
-    /// </summary>
-    private T? ApplyClientPatch(FindHit<T> hit, IPatchOperation operation, bool singleDocument)
-    {
-        var source = hit.Document ?? throw new DocumentException($"Document {hit.GetIndex()}/{hit.Id} returned no source");
-        var serializer = _client.ElasticsearchClientSettings.SourceSerializer;
-        T? patched;
-
-        switch (operation)
-        {
-            case JsonPatch jsonOperation:
-            {
-                // Version is not part of _source, so a patch targeting /version has no effect.
-                JsonNode? target = JsonNode.Parse(serializer.SerializeToString(source))
-                    ?? throw new DocumentException("Document JSON parsed to null; cannot apply JSON patch.");
-                new JsonPatcher().Patch(ref target, jsonOperation.Patch);
-                if (target is null)
-                    throw new DocumentException("JSON patch produced a null document.");
-
-                if (singleDocument)
-                    ApplyDateTracking(target);
-
-                using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
-                patched = serializer.Deserialize<T>(stream) ?? throw new DocumentException("JSON patch produced a null document.");
-                if (!singleDocument && HasDateTracking)
-                    SetDocumentDates(patched, ElasticIndex.Configuration.TimeProvider);
-                break;
-            }
-            case ActionPatch<T> actionPatch:
-            {
-                bool actionModified = false;
-                foreach (var action in actionPatch.Actions)
-                    actionModified |= action?.Invoke(source) ?? false;
-
-                if (!actionModified)
-                    return null;
-
-                if (HasDateTracking)
-                    SetDocumentDates(source, ElasticIndex.Configuration.TimeProvider);
-                patched = source;
-                break;
-            }
-            case PartialPatch partialOperation:
-            {
-                var sourceNode = JsonNode.Parse(serializer.SerializeToString(source));
-                var partialNode = JsonNode.Parse(serializer.SerializeToString(partialOperation.Document));
-                if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)
-                {
-                    foreach (var prop in partialObj)
-                        sourceObj[prop.Key] = prop.Value?.DeepClone();
-                }
-
-                if (sourceNode is null)
-                    throw new DocumentException("Failed to parse source document JSON for partial merge.");
-
-                using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode.ToJsonString()));
-                patched = serializer.Deserialize<T>(stream) ?? throw new DocumentException("Partial merge produced a null document.");
-                break;
-            }
-            default:
-                throw new ArgumentException("Unknown operation type", nameof(operation));
-        }
-
-        patched.SetDocumentVersion(hit.GetElasticVersion());
-        return patched;
+        if (options.HasExpectedVersion())
+            throw new ArgumentException("IfVersion is only supported by PatchAsync(Id). Patch each document by id to check its version.", nameof(options));
     }
 
     public Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T>? options)
@@ -516,82 +308,85 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     }
 
     /// <summary>
-    /// Patches several documents by id.
+    /// Patches several documents by id, with the same <see cref="PatchStrategy"/> as <see cref="PatchAsync(Id, IPatchOperation, ICommandOptions)"/>.
     /// </summary>
     /// <remarks>
-    /// <para>Script and partial patches use one bulk Update API request; Elasticsearch re-runs each update on the latest
-    /// document up to <c>Retry(n)</c> times on a conflict. JSON, action and pipeline partial patches are applied per batch
-    /// and conflicting documents are re-read with one multi-get, re-patched and written again in grouped rounds, up to
-    /// <c>Retry(n)</c> rounds. Items rejected with HTTP 429, 502, 503 or 504 are retried in the same rounds.</para>
-    /// <para>Successful documents are invalidated in the cache and notified before a <see cref="VersionConflictDocumentException"/>
-    /// or <see cref="DocumentException"/> is thrown for the documents that still failed. <c>IfVersion</c> is only supported
-    /// when patching a single document.</para>
+    /// <para>Script and partial patches use one bulk Update API request per round. JSON, action and pipeline partial patches
+    /// read every document with one multi-get, write them with one bulk request, and re-read conflicting documents together
+    /// in grouped rounds, up to <c>Retry(n)</c>. Script patches with a default pipeline run update-by-query per id.</para>
+    /// <para>Every document ends with an outcome. Successful documents are invalidated in the cache and notified before a
+    /// <see cref="VersionConflictDocumentException"/>, <see cref="DocumentNotFoundException"/> or <see cref="DocumentException"/>
+    /// is thrown for the rest. <c>IfVersion</c> is not supported here, even for one id.</para>
     /// </remarks>
     public virtual async Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(ids);
         ArgumentNullException.ThrowIfNull(operation);
 
-        if (ids is { Count: 0 })
-            return 0;
-
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfExpectedVersion(options);
+        if (ids is { Count: 0 } || IsEmptyPatch(operation))
+            return 0;
 
         if (ids.Count is 1)
             return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;
 
-        if (options.HasExpectedVersion())
-            throw new ArgumentException("IfVersion is only supported when patching a single document.", nameof(options));
+        ClientPatchApplier<T>.ValidateOperation(operation);
+        if (!ElasticIndex.HasMultipleIndexes)
+            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
-        if (operation is JsonPatch or ActionPatch<T> || (operation is PartialPatch && !String.IsNullOrEmpty(DefaultPipeline)))
-            return await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
-
-        if (operation is not ScriptPatch and not PartialPatch)
-            throw new ArgumentException("Unknown operation type", nameof(operation));
-
-        if (operation is ScriptPatch scriptPatchOp)
-            operation = ApplyDateTracking(scriptPatchOp);
-        else if (operation is PartialPatch partialPatchOp)
-            operation = ApplyDateTracking(partialPatchOp);
-
-        if (!String.IsNullOrEmpty(DefaultPipeline))
+        operation = PreparePatch(operation);
+        var strategy = PatchStrategyResolver.Resolve<T>(operation, !String.IsNullOrEmpty(DefaultPipeline), false);
+        var refresh = options.GetRefreshMode(DefaultConsistency);
+        string operationName = operation.GetType().Name;
+        if (strategy is PatchStrategy.ClientSide)
         {
-            long pipelineModified = 0;
-            foreach (var id in ids)
-            {
-                if (await PatchAsync(id, operation, options).AnyContext())
-                    pipelineModified++;
-            }
-            return pipelineModified;
+            var (hits, readFailures) = await ReadForPatchAsync(ids, options).AnyContext();
+            var run = WriteRunResult<IndexItem>.Merge(readFailures, await PatchClientSideAsync(hits, operation, null, options, refresh, operationName).AnyContext());
+            var patched = run.Succeeded;
+            await OnPatchedAsync(patched.Select(i => i.Key.Id).ToList(), patched.Select(i => i.Document).ToList(), options).AnyContext();
+            WriteExceptionMapper.ThrowIfFailed(run, "patching", MissingDocumentPolicy.NotFound);
+            return patched.Count;
         }
 
-        var targets = ids.Select(id => new UpdateTarget(id.Value, ElasticIndex.GetIndex(id), id.Routing)).ToList();
-        var result = await ApplyServerPatchesAsync(targets, operation, operation.GetType().Name, options, options.GetRefreshMode(DefaultConsistency), missingIsSkipped: false).AnyContext();
-
-        if (result.ModifiedIds.Count > 0)
-        {
-            // ScriptPatch/PartialPatch execute server-side; the modified document is not available.
-            // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
-            await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-            if (IsCacheEnabled)
-                await InvalidateCacheAsync(result.ModifiedIds).AnyContext();
-
-            if (options.ShouldNotify())
-            {
-                var modifiedIds = ids.Where(id => result.ModifiedIds.Contains(id.Value)).ToList();
-                var tasks = new List<Task>(modifiedIds.Count);
-                foreach (var id in modifiedIds)
-                    tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
-
-                await Task.WhenAll(tasks).AnyContext();
-            }
-        }
-
-        ThrowForPatchErrors(result, "patching");
-
-        return result.ModifiedIds.Count;
+        var items = ids.Select(id => new UpdateItem(new DocumentKey(ElasticIndex.GetIndex(id), id.Value), id.Routing, ElasticDocumentVersion.Empty)).ToList();
+        var serverRun = await PatchServerSideAsync(items, operation, strategy, options, refresh, operationName).AnyContext();
+        var modifiedIds = serverRun.Succeeded.Select(i => i.Key.Id).ToList();
+        await OnPatchedAsync(modifiedIds, null, options).AnyContext();
+        WriteExceptionMapper.ThrowIfFailed(serverRun, "patching", MissingDocumentPolicy.NotFound);
+        return modifiedIds.Count;
     }
 
+    /// <summary>
+    /// Fires the change event, invalidates the cache, sends notifications and calls the updated-ids callback once for
+    /// documents that were patched. Server-side patches pass no documents.
+    /// </summary>
+    private async Task OnPatchedAsync(IReadOnlyCollection<string> modifiedIds, IReadOnlyCollection<T>? modifiedDocuments, ICommandOptions options)
+    {
+        if (modifiedIds.Count is 0)
+            return;
+
+        await OnDocumentsChangedAsync(ChangeType.Saved, modifiedDocuments ?? EmptyList, options).AnyContext();
+        if (IsCacheEnabled)
+        {
+            if (modifiedDocuments is { Count: > 0 })
+                await InvalidateCacheAsync(modifiedDocuments).AnyContext();
+            else
+                await InvalidateCacheAsync(modifiedIds).AnyContext();
+        }
+
+        await SendNotificationsAsync(ChangeType.Saved, modifiedIds, options).AnyContext();
+
+        try
+        {
+            options.GetUpdatedIdsCallback()?.Invoke(modifiedIds.ToList());
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
+        }
+    }
 
     public Task RemoveAsync(Id id, CommandOptionsDescriptor<T>? options)
     {
@@ -611,6 +406,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return RemoveAsync(ids, options?.Configure());
     }
 
+    /// <summary>Removes documents by id, without a version check (the caller supplied no versions).</summary>
     public async Task RemoveAsync(Ids ids, ICommandOptions? options = null)
     {
         if (ids == null)
@@ -626,7 +422,6 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (documents == null)
             return;
 
-        // The caller did not supply versions, so documents loaded here (possibly from the cache) are removed without a version check.
         await RemoveAsync(documents, options.Clone().SkipVersionCheck()).AnyContext();
     }
 
@@ -648,6 +443,14 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return RemoveAsync(documents, options?.Configure());
     }
 
+    /// <summary>
+    /// Removes documents. <see cref="IVersioned"/> documents are deleted with <c>if_seq_no</c>/<c>if_primary_term</c> unless
+    /// <c>SkipVersionCheck()</c> is set, and fail with a <see cref="VersionConflictDocumentException"/> if they changed. A
+    /// versioned document with no version can't be checked (a delete has no create fallback), so it throws a
+    /// <see cref="DocumentException"/> before anything is deleted. A document that is already gone counts as removed.
+    /// </summary>
+    /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times. Removed documents are notified
+    /// before the exception for the others is thrown.</remarks>
     public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
@@ -671,115 +474,15 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (IsCacheEnabled && options.HasCacheKey())
             throw new ArgumentException("Cache key can't be set when calling RemoveAsync");
 
+        var items = CreateDeleteItems(docs, options);
         await OnDocumentsRemovingAsync(docs, options).AnyContext();
 
-        bool checkVersion = HasVersion && !options.ShouldSkipVersionCheck();
-        if (docs.Count == 1)
-        {
-            var document = docs.Single();
-            string index = ElasticIndex.GetIndex(document);
-            var elasticVersion = checkVersion ? ((IVersioned)document).GetElasticVersion() : ElasticDocumentVersion.Empty;
-            var policy = CreateWritePolicy(options, retryConflicts: false);
-            await policy.ExecuteAsync(async ct =>
-            {
-                var request = new DeleteRequest(index, document.Id)
-                {
-                    Refresh = options.GetRefreshMode(DefaultConsistency)
-                };
+        var run = await DeleteDocumentsAsync(items, options).AnyContext();
+        var removed = run.With(WriteOutcome.Succeeded, WriteOutcome.Missing).Select(i => i.Item.Document).ToList();
+        if (removed.Count > 0)
+            await OnDocumentsRemovedAsync(removed, options).AnyContext();
 
-                if (GetParentIdFunc is not null)
-                    request.Routing = GetParentIdFunc(document);
-
-                if (!elasticVersion.IsEmpty)
-                {
-                    request.IfSeqNo = elasticVersion.SequenceNumber;
-                    request.IfPrimaryTerm = elasticVersion.PrimaryTerm;
-                }
-
-                var response = await _client.DeleteAsync(request, ct).AnyContext();
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-
-                if (response.IsValidResponse || response.ApiCallDetails.HttpStatusCode is 404)
-                    return;
-
-                string? reason = response.ElasticsearchServerError?.Error?.Reason;
-                if (response.ApiCallDetails.HttpStatusCode is 409 && ElasticWriteErrors.IsMissingDocumentConflict(reason))
-                    return;
-
-                var exception = CreateWriteException(response, "removing", index, document.Id);
-                if (exception is VersionConflictDocumentException)
-                    LogVersionConflict("Remove", index, document.Id, 1, 0, elasticVersion.ToVersionString(), reason, "Failed");
-
-                throw exception;
-            }, DisposedCancellationToken).AnyContext();
-        }
-        else
-        {
-            IReadOnlyCollection<T> docsToDelete = docs;
-            var allSuccessfulDocs = new List<T>(docs.Count);
-            var allFatalIds = new HashSet<string>();
-            var allConflictIds = new HashSet<string>();
-            BulkResult result = BulkResult.Empty;
-            int retryBudget = options.GetRetryCount();
-
-            for (int attempt = 0; attempt <= retryBudget; attempt++)
-            {
-                var response = await _client.BulkAsync(bulk =>
-                {
-                    bulk.Refresh(options.GetRefreshMode(DefaultConsistency));
-                    foreach (var doc in docsToDelete)
-                        bulk.Delete<T>(d =>
-                        {
-                            d.Id(doc.Id).Index(ElasticIndex.GetIndex(doc));
-
-                            if (GetParentIdFunc is not null)
-                                d.Routing(GetParentIdFunc(doc));
-
-                            var elasticVersion = checkVersion ? ((IVersioned)doc).GetElasticVersion() : ElasticDocumentVersion.Empty;
-                            if (!elasticVersion.IsEmpty)
-                            {
-                                d.IfSequenceNumber(elasticVersion.SequenceNumber);
-                                d.IfPrimaryTerm(elasticVersion.PrimaryTerm);
-                            }
-                        });
-                }, DisposedCancellationToken).AnyContext();
-
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-
-                result = BulkResult.From(response);
-
-                var successDocs = result.IsSuccess
-                    ? docsToDelete.ToList()
-                    : docsToDelete.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
-                allSuccessfulDocs.AddRange(successDocs);
-                allFatalIds.UnionWith(result.FatalIds);
-                allFatalIds.UnionWith(result.VersioningNotSupportedIds);
-                allConflictIds.UnionWith(result.ConflictIds);
-                foreach (string id in result.ConflictIds)
-                    LogVersionConflict("BulkRemove", result.Errors.GetValueOrDefault(id)?.Index, id, attempt + 1, retryBudget, null, result.Errors.GetValueOrDefault(id)?.Reason, "Failed");
-
-                if (!result.HasRetryableErrors || attempt >= retryBudget)
-                    break;
-
-                _logger.LogWarning("Bulk remove had {RetryableCount} transient item failures, retry {Attempt} of {Budget}", result.RetryableIds.Count, attempt + 1, retryBudget);
-                docsToDelete = docsToDelete.Where(d => result.RetryableIds.Contains(d.Id)).ToList();
-                await ElasticIndex.Configuration.TimeProvider.SafeDelay(GetRetryDelayWithJitter(attempt + 1), DisposedCancellationToken).AnyContext();
-
-                if (DisposedCancellationToken.IsCancellationRequested)
-                    break;
-            }
-
-            if (allSuccessfulDocs.Count > 0)
-                await OnDocumentsRemovedAsync(allSuccessfulDocs, options).AnyContext();
-
-            var finalResult = result with { FatalIds = allFatalIds, ConflictIds = allConflictIds, VersioningNotSupportedIds = new HashSet<string>() };
-            if (finalResult.HasErrors)
-                ThrowForBulkErrors(finalResult, operationLabel: "removing");
-
-            return;
-        }
-
-        await OnDocumentsRemovedAsync(docs, options).AnyContext();
+        WriteExceptionMapper.ThrowIfFailed(run, "removing", MissingDocumentPolicy.Success);
     }
 
     public Task<long> RemoveAllAsync(CommandOptionsDescriptor<T>? options)
@@ -807,104 +510,62 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// </summary>
     /// <remarks>
     /// <para><b>Snapshot semantics.</b> Matching documents are read in batches from a point-in-time snapshot of the query, so
-    /// documents that start matching after the operation begins are not patched, and documents changed by another writer
-    /// after they were read are handled per patch type as described below. Running the same <c>PatchAllAsync</c> in parallel
-    /// patches documents more than once; make scripts idempotent (for example <c>ctx._source.count = params.value</c>
+    /// documents that start matching after the operation begins are not patched. Running the same <c>PatchAllAsync</c> in
+    /// parallel patches documents more than once; make scripts idempotent (for example <c>ctx._source.count = params.value</c>
     /// instead of <c>ctx._source.count++</c>) when the operation can be retried or run concurrently.</para>
-    /// <para><b>Script and partial patches</b> use the bulk Update API per batch. Elasticsearch re-runs the update on the latest
-    /// document up to <c>Retry(n)</c> times (<c>retry_on_conflict</c>, default 10), so concurrent changes are never lost.
-    /// Update-by-query is used only when requested with <c>UseUpdateByQuery()</c> and the cache is disabled; it skips
-    /// documents changed after its snapshot and throws a <see cref="VersionConflictDocumentException"/> with the count
-    /// unless <c>ProceedOnQueryConflicts()</c> is set.</para>
+    /// <para><b>Script and partial patches</b> use the bulk Update API per batch, re-run by Elasticsearch on the latest
+    /// document up to <c>Retry(n)</c> times (<c>retry_on_conflict</c>, default 10). With a default pipeline, script patches
+    /// run update-by-query on each document id (re-run on a conflict, refreshed once at the end). Update-by-query over the
+    /// whole query is used only with <c>UseUpdateByQuery()</c> and the cache disabled; it skips documents changed after its
+    /// snapshot and throws a <see cref="VersionConflictDocumentException"/> with the count unless
+    /// <c>ProceedOnQueryConflicts()</c> is set.</para>
     /// <para><b>JSON, action and pipeline partial patches</b> are applied in memory and written with <c>if_seq_no</c> for
-    /// versioned documents. Conflicting documents are re-read together with one multi-get, re-patched and written again in
-    /// grouped rounds (up to <c>Retry(n)</c>). <c>SkipVersionCheck()</c> writes without the check.</para>
-    /// <para>Documents deleted while the operation runs are skipped. Successful documents are invalidated in the cache and
-    /// notified as each batch completes; documents that still fail are reported at the end in a
-    /// <see cref="VersionConflictDocumentException"/> or <see cref="DocumentException"/>.</para>
+    /// versioned documents. Conflicting documents are re-read with one multi-get, re-patched and written again in grouped
+    /// rounds (up to <c>Retry(n)</c>). <c>SkipVersionCheck()</c> writes without the check.</para>
+    /// <para>Every document ends with an outcome. Documents deleted while the operation runs are skipped. Successful
+    /// documents are invalidated in the cache and notified as each batch completes; documents that still fail are reported
+    /// at the end in a <see cref="VersionConflictDocumentException"/> or <see cref="DocumentException"/>. If the repository
+    /// is disposed, the remaining batches are not processed and an <see cref="OperationCanceledException"/> is thrown after
+    /// the completed documents are notified. <c>IfVersion</c> is not supported.</para>
     /// </remarks>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(operation);
-
-        if (operation is JsonPatch { Patch: null or { Operations: null or { Count: 0 } } })
+        if (IsEmptyPatch(operation))
             return 0;
 
-        if (operation is ActionPatch<T> { Actions: null or { Count: 0 } })
-            return 0;
-
-        if (operation is not (ScriptPatch or PartialPatch or JsonPatch or ActionPatch<T>))
-            throw new ArgumentException("Unknown operation type", nameof(operation));
+        ClientPatchApplier<T>.ValidateOperation(operation);
+        operation = PreparePatch(operation);
 
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
         options = ConfigureOptions(options?.As<T>());
-        if (options.HasExpectedVersion())
-            throw new ArgumentException("IfVersion is only supported when patching a single document.", nameof(options));
+        ThrowIfExpectedVersion(options);
 
-        if (operation is ScriptPatch scriptPatchOp)
-            operation = ApplyDateTracking(scriptPatchOp);
-        else if (operation is PartialPatch partialPatchOp)
-            operation = ApplyDateTracking(partialPatchOp);
-
+        var strategy = PatchStrategyResolver.Resolve<T>(operation, !String.IsNullOrEmpty(DefaultPipeline), options.ShouldUseUpdateByQuery() && !IsCacheEnabled);
+        string operationName = $"PatchAll {operation.GetType().Name}";
         long affectedRecords = 0;
         long queryConflicts = 0;
-        bool notifiedPerBatch = false;
-        var failures = new PatchBatchResult<T>();
-        string operationName = $"PatchAll {operation.GetType().Name}";
+        long skippedMissing = 0;
+        WriteRunResult<IndexItem>? clientFailures = null;
+        WriteRunResult<UpdateItem>? serverFailures = null;
 
-        if (operation is ScriptPatch scriptOperation && options.ShouldUseUpdateByQuery() && !IsCacheEnabled)
+        if (strategy is PatchStrategy.UpdateByQueryBulk)
         {
-            (affectedRecords, queryConflicts) = await PatchAllWithUpdateByQueryAsync(query, scriptOperation, options).AnyContext();
+            (affectedRecords, queryConflicts) = await PatchAllWithUpdateByQueryAsync(query, (ScriptPatch)operation, options).AnyContext();
         }
-        else if (operation is ScriptPatch pipelineScriptOperation && !String.IsNullOrEmpty(DefaultPipeline))
-        {
-            // The Update API cannot run ingest pipelines, so each document is patched with update-by-query on its id.
-            if (HasIdentity && !query.GetIncludes().Contains(_idField!.Value))
-                query.Include(_idField!.Value);
-
-            await BatchProcessAsync(query, async results =>
-            {
-                var modifiedIds = new List<string>(results.Hits.Count);
-                foreach (var hit in results.Hits.Where(h => h.Id is not null))
-                {
-                    try
-                    {
-                        if (await PatchScriptWithPipelineAsync(new Id(hit.Id!, hit.Routing), pipelineScriptOperation, options).AnyContext())
-                            modifiedIds.Add(hit.Id!);
-                    }
-                    catch (DocumentNotFoundException)
-                    {
-                        failures.MissingIds.Add(hit.Id!);
-                    }
-                    catch (VersionConflictDocumentException)
-                    {
-                        failures.ConflictIds.Add(hit.Id!);
-                    }
-                }
-
-                affectedRecords += modifiedIds.Count;
-                if (modifiedIds.Count > 0)
-                    notifiedPerBatch = true;
-
-                await OnBatchPatchedAsync(modifiedIds, null, options).AnyContext();
-                failures.ModifiedIds.AddRange(modifiedIds);
-                return true;
-            }, options.Clone()).AnyContext();
-        }
-        else if (operation is JsonPatch or ActionPatch<T> || (operation is PartialPatch && !String.IsNullOrEmpty(DefaultPipeline)))
+        else if (strategy is PatchStrategy.ClientSide)
         {
             await BatchProcessAsync(query, async results =>
             {
-                var batch = await ApplyClientPatchesAsync(results.Hits, h => ApplyClientPatch(h, operation, singleDocument: false), operationName, options, Refresh.False).AnyContext();
-                affectedRecords += batch.ModifiedIds.Count;
-                if (batch.ModifiedIds.Count > 0)
-                    notifiedPerBatch = true;
-
-                await OnBatchPatchedAsync(batch.ModifiedIds, batch.ModifiedDocuments, options).AnyContext();
-                failures.MergeFailures(batch);
-                return true;
+                var run = await PatchClientSideAsync(results.Hits.Where(h => h.Id is not null).ToList(), operation, null, options, Refresh.False, operationName).AnyContext();
+                var patched = run.Succeeded;
+                affectedRecords += patched.Count;
+                skippedMissing += run.Count(WriteOutcome.Missing);
+                await OnPatchedAsync(patched.Select(i => i.Key.Id).ToList(), patched.Select(i => i.Document).ToList(), options).AnyContext();
+                clientFailures = WriteRunResult<IndexItem>.Accumulate(clientFailures, run);
+                return run.Count(WriteOutcome.Cancelled) is 0;
             }, options.Clone()).AnyContext();
         }
         else
@@ -914,34 +575,28 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
             await BatchProcessAsync(query, async results =>
             {
-                var targets = results.Hits
+                var items = results.Hits
                     .Where(h => h.Id is not null)
-                    .Select(h => new UpdateTarget(h.Id!, h.GetIndex() ?? ElasticIndex.GetIndex(h.Id!), h.Routing))
+                    .Select(h => new UpdateItem(new DocumentKey(h.GetIndex() ?? ElasticIndex.GetIndex(h.Id!), h.Id!), h.Routing, ElasticDocumentVersion.Empty))
                     .ToList();
 
-                var batch = await ApplyServerPatchesAsync(targets, operation, operationName, options, Refresh.False, missingIsSkipped: true).AnyContext();
-                affectedRecords += batch.ModifiedIds.Count;
-                if (batch.ModifiedIds.Count > 0)
-                    notifiedPerBatch = true;
-
-                // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
-                await OnBatchPatchedAsync(batch.ModifiedIds, null, options).AnyContext();
-                failures.MergeFailures(batch);
-                return true;
+                var run = await PatchServerSideAsync(items, operation, strategy, options, Refresh.False, operationName).AnyContext();
+                var modifiedIds = run.Succeeded.Select(i => i.Key.Id).ToList();
+                affectedRecords += modifiedIds.Count;
+                skippedMissing += run.Count(WriteOutcome.Missing);
+                await OnPatchedAsync(modifiedIds, null, options).AnyContext();
+                serverFailures = WriteRunResult<UpdateItem>.Accumulate(serverFailures, run);
+                return run.Count(WriteOutcome.Cancelled) is 0;
             }, options.Clone()).AnyContext();
         }
 
-        if (affectedRecords > 0)
+        if (strategy is PatchStrategy.UpdateByQueryBulk && affectedRecords > 0)
         {
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
-            // Empty list: batch callbacks handle per-document cache invalidation for client-side patches.
-            // This fires the DocumentsChanged event so subscribers know documents were modified.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-
-            if (!notifiedPerBatch)
-                await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
+            await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
         }
 
         if (queryConflicts > 0)
@@ -952,137 +607,16 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             _logger.LogWarning("Update by query patched {Affected} documents and skipped {Conflicts} documents with version conflicts", affectedRecords, queryConflicts);
         }
 
-        if (failures.MissingIds.Count > 0)
-            _logger.LogInformation("{Operation} skipped {Count} documents that were deleted while the operation ran", operationName, failures.MissingIds.Count);
+        if (skippedMissing > 0)
+            _logger.LogInformation("{Operation} skipped {Count} documents that were deleted while the operation ran", operationName, skippedMissing);
 
-        ThrowForPatchErrors(failures, "patching");
+        if (clientFailures is not null)
+            WriteExceptionMapper.ThrowIfFailed(clientFailures, "patching", MissingDocumentPolicy.Skip);
+        if (serverFailures is not null)
+            WriteExceptionMapper.ThrowIfFailed(serverFailures, "patching", MissingDocumentPolicy.Skip);
 
+        DisposedCancellationToken.ThrowIfCancellationRequested();
         return affectedRecords;
-    }
-
-    /// <summary>
-    /// Invalidates the cache, sends notifications and calls the updated-ids callback once for the documents patched in a batch.
-    /// </summary>
-    private async Task OnBatchPatchedAsync(IReadOnlyCollection<string> modifiedIds, IReadOnlyCollection<T>? modifiedDocuments, ICommandOptions options)
-    {
-        if (modifiedIds.Count is 0)
-            return;
-
-        if (IsCacheEnabled)
-        {
-            if (modifiedDocuments is { Count: > 0 })
-                await InvalidateCacheAsync(modifiedDocuments).AnyContext();
-            else
-                await InvalidateCacheAsync(modifiedIds).AnyContext();
-        }
-
-        await SendNotificationsAsync(ChangeType.Saved, modifiedIds, options).AnyContext();
-
-        try
-        {
-            options.GetUpdatedIdsCallback()?.Invoke(modifiedIds.ToList());
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
-        }
-    }
-
-    /// <summary>
-    /// Runs a script patch as an asynchronous update-by-query task and waits for it. Returns the number of documents
-    /// changed and the number skipped because they changed after the query snapshot was taken.
-    /// </summary>
-    private async Task<(long Affected, long Conflicts)> PatchAllWithUpdateByQueryAsync(IRepositoryQuery query, ScriptPatch scriptOperation, ICommandOptions options)
-    {
-        var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
-        {
-            Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext(),
-            Conflicts = Conflicts.Proceed,
-            Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
-            Pipeline = DefaultPipeline,
-            Version = HasVersion,
-            Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
-            IgnoreUnavailable = true,
-            WaitForCompletion = false
-        };
-
-        var response = await _client.UpdateByQueryAsync(request, DisposedCancellationToken).AnyContext();
-        _logger.LogRequest(response, options.GetQueryLogLevel());
-        if (!response.IsValidResponse)
-            throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException());
-
-        if (response.Task is null)
-            throw new DocumentException("Update by query did not return a task identifier.", response.OriginalException());
-
-        var taskId = response.Task.ToString();
-        int attempts = 0;
-        do
-        {
-            attempts++;
-            var taskRequest = new Tasks.GetTasksRequest(taskId) { WaitForCompletion = false };
-            var taskStatus = await _client.Tasks.GetAsync(taskRequest, DisposedCancellationToken).AnyContext();
-            _logger.LogRequest(taskStatus, options.GetQueryLogLevel());
-
-            if (!taskStatus.IsValidResponse)
-            {
-                if (taskStatus.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
-                {
-                    _logger.LogWarning("Task {TaskId} not found (404), treating as completed", taskId);
-                    break;
-                }
-
-                _logger.LogError("Error getting task status for {TaskId}: {Error}", taskId, taskStatus.ElasticsearchServerError);
-                if (attempts >= 20)
-                    throw new DocumentException($"Failed to get task status for {taskId} after {attempts} attempts");
-
-                var retryDelay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
-                await ElasticIndex.Configuration.TimeProvider.SafeDelay(retryDelay, DisposedCancellationToken).AnyContext();
-                continue;
-            }
-
-            var status = ReadTaskStatus(taskStatus.Task.Status);
-            if (taskStatus.Completed)
-            {
-                if (taskStatus.Error is not null)
-                    throw new DocumentException($"Script operation task ({taskId}) failed: {taskStatus.Error.Type} - {taskStatus.Error.Reason}", taskStatus.OriginalException());
-
-                _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
-                return (status.Created + status.Updated + status.Deleted, status.VersionConflicts);
-            }
-
-            _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
-            var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
-            await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
-        } while (!DisposedCancellationToken.IsCancellationRequested);
-
-        return (0, 0);
-    }
-
-    private readonly record struct QueryTaskStatus(long Total, long Created, long Updated, long Deleted, long VersionConflicts);
-
-    /// <summary>
-    /// Reads task status counters. The status is <c>object?</c> and may be a <see cref="JsonElement"/> or a dictionary
-    /// depending on the serializer configuration.
-    /// </summary>
-    private static QueryTaskStatus ReadTaskStatus(object? status)
-    {
-        return status switch
-        {
-            JsonElement element => new QueryTaskStatus(
-                element.TryGetProperty("total", out var total) ? total.GetInt64() : 0,
-                element.TryGetProperty("created", out var created) ? created.GetInt64() : 0,
-                element.TryGetProperty("updated", out var updated) ? updated.GetInt64() : 0,
-                element.TryGetProperty("deleted", out var deleted) ? deleted.GetInt64() : 0,
-                element.TryGetProperty("version_conflicts", out var conflicts) ? conflicts.GetInt64() : 0),
-            IDictionary<string, object> dict => new QueryTaskStatus(
-                dict.TryGetValue("total", out var total) ? Convert.ToInt64(total) : 0,
-                dict.TryGetValue("created", out var created) ? Convert.ToInt64(created) : 0,
-                dict.TryGetValue("updated", out var updated) ? Convert.ToInt64(updated) : 0,
-                dict.TryGetValue("deleted", out var deleted) ? Convert.ToInt64(deleted) : 0,
-                dict.TryGetValue("version_conflicts", out var conflicts) ? Convert.ToInt64(conflicts) : 0),
-            _ => default
-        };
     }
 
     public Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
@@ -1100,6 +634,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// idempotent, so the query is re-run up to <c>Retry(n)</c> more times (default 10) with backoff until no conflicts remain.
     /// If conflicts are still left, a <see cref="VersionConflictDocumentException"/> is thrown unless
     /// <c>ProceedOnQueryConflicts()</c> is set. Documents that start matching after the last pass are not removed.</para>
+    /// <para>Documents removed by completed passes are always invalidated and notified before a failure is thrown; a failed
+    /// pass throws a <see cref="DocumentException"/> and disposal throws an <see cref="OperationCanceledException"/>.</para>
     /// </remarks>
     public virtual async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
@@ -1126,50 +662,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             }, options).AnyContext();
         }
 
-        // Elasticsearch's delete-by-query snapshots document versions when it begins and skips any document
-        // whose version changed before the delete executes (counted as a version conflict via Conflicts.Proceed).
-        // Unlike single-document updates, delete-by-query does not support retry_on_conflict, so we re-run the
-        // query at the application level until no conflicts remain or the retry budget is exhausted.
-        var esQuery = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext();
-        var indices = Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query)));
-        int maxAttempts = options.GetRetryCount() + 1;
-        int attempt = 0;
-        long totalDeleted = 0;
-        long lastConflicts;
-
-        do
-        {
-            attempt++;
-            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(indices)
-            {
-                // Force a refresh on retry passes so the next snapshot observes the resolved versions and converges.
-                Refresh = attempt > 1 || options.GetRefreshMode(DefaultConsistency) != Refresh.False,
-                Conflicts = Conflicts.Proceed,
-                IgnoreUnavailable = true,
-                Query = esQuery
-            }, DisposedCancellationToken).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-
-            if (!response.IsValidResponse)
-                throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException());
-
-            totalDeleted += response.Deleted ?? 0;
-            lastConflicts = response.VersionConflicts ?? 0;
-
-            if (lastConflicts > 0 && attempt < maxAttempts)
-            {
-                _logger.LogWarning("RemoveAll pass {Attempt} of {MaxAttempts} skipped {Conflicts} documents with version conflicts, retrying", attempt, maxAttempts, lastConflicts);
-                await ElasticIndex.Configuration.TimeProvider.SafeDelay(GetRetryDelayWithJitter(attempt), DisposedCancellationToken).AnyContext();
-
-                // Refresh right before the next pass so its snapshot sees the versions written by concurrent writers.
-                var refreshResponse = await _client.Indices.RefreshAsync(indices, cancellationToken: DisposedCancellationToken).AnyContext();
-                if (!refreshResponse.IsValidResponse)
-                    _logger.LogErrorRequest(refreshResponse, "Failed to refresh indices before delete-by-query retry");
-            }
-        }
-        while (lastConflicts > 0 && attempt < maxAttempts && !DisposedCancellationToken.IsCancellationRequested);
-
-        if (totalDeleted > 0)
+        var (deleted, conflicts, run) = await DeleteByQueryAsync(query, options).AnyContext();
+        if (deleted > 0)
         {
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
@@ -1178,15 +672,17 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
         }
 
-        if (lastConflicts > 0)
+        if (run.Count(WriteOutcome.Conflict) > 0)
         {
             if (!options.ShouldProceedOnQueryConflicts())
-                throw new VersionConflictDocumentException($"RemoveAll removed {totalDeleted} documents but {lastConflicts} documents still had version conflicts after {attempt} passes.");
+                throw new VersionConflictDocumentException($"RemoveAll removed {deleted} documents but {conflicts} documents still had version conflicts after {run.Rounds} passes.");
 
-            _logger.LogWarning("RemoveAll: {Deleted} records removed after {Attempts} attempts ({Conflicts} unresolved version conflicts)", totalDeleted, attempt, lastConflicts);
+            _logger.LogWarning("RemoveAll: {Deleted} records removed after {Passes} passes ({Conflicts} unresolved version conflicts)", deleted, run.Rounds, conflicts);
+            return deleted;
         }
 
-        return totalDeleted;
+        WriteExceptionMapper.ThrowIfFailed(run, "removing", MissingDocumentPolicy.Success);
+        return deleted;
     }
 
     public Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T>? options = null)
@@ -1686,240 +1182,6 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         originals.AddRange(await GetByIdsAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
 
         return originals.AsReadOnly();
-    }
-
-    private async Task<BulkResult> IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
-    {
-        if (ElasticIndex.HasMultipleIndexes)
-        {
-            foreach (var documentGroup in documents.GroupBy(ElasticIndex.GetIndex))
-                await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
-        }
-        else
-        {
-            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
-        }
-
-        if (documents.Count == 1)
-            return await IndexSingleDocumentAsync(documents.Single(), isCreateOperation, options).AnyContext();
-
-        return await IndexDocumentsBulkAsync(documents, isCreateOperation, options).AnyContext();
-    }
-
-    private async Task<BulkResult> IndexSingleDocumentAsync(T document, bool isCreateOperation, ICommandOptions options)
-    {
-        var policy = CreateWritePolicy(options, retryConflicts: false);
-        await policy.ExecuteAsync(async _ => await IndexSingleDocumentCoreAsync(document, isCreateOperation, options).AnyContext(), DisposedCancellationToken).AnyContext();
-        return BulkResult.Empty;
-    }
-
-    /// <summary>
-    /// Indexes one document without retries. Version-checked writes send <c>if_seq_no</c>/<c>if_primary_term</c> from
-    /// <see cref="IVersioned.Version"/> and update it from the response.
-    /// </summary>
-    private async Task IndexSingleDocumentCoreAsync(T document, bool isCreateOperation, ICommandOptions options)
-    {
-        string index = ElasticIndex.GetIndex(document);
-        var elasticVersion = HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck()
-            ? ((IVersioned)document).GetElasticVersion()
-            : ElasticDocumentVersion.Empty;
-
-        if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
-            ThrowIfMissingVersion(elasticVersion, index, document.Id);
-
-        var response = await _client.IndexAsync(document, i =>
-        {
-            i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
-            if (DefaultPipeline is not null)
-                i.Pipeline(DefaultPipeline);
-            i.Refresh(options.GetRefreshMode(DefaultConsistency));
-
-            if (GetParentIdFunc is not null)
-                i.Routing(GetParentIdFunc(document));
-
-            i.Index(index);
-
-            if (!elasticVersion.IsEmpty)
-            {
-                i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
-                i.IfSeqNo(elasticVersion.SequenceNumber);
-            }
-        }, DisposedCancellationToken).AnyContext();
-        _logger.LogRequest(response, options.GetQueryLogLevel());
-
-        if (!response.IsValidResponse)
-        {
-            var exception = CreateWriteException(response, isCreateOperation ? "adding" : "saving", index, document.Id, isCreateOperation);
-            if (exception is VersionConflictDocumentException)
-                LogVersionConflict(isCreateOperation ? "Add" : "Save", index, document.Id, 1, 0, elasticVersion.ToVersionString(), response.ElasticsearchServerError?.Error?.Reason, "Failed");
-
-            throw exception;
-        }
-
-        if (HasVersion)
-            document.SetDocumentVersion(response.GetElasticVersion());
-    }
-
-    private async Task<BulkResult> IndexDocumentsBulkAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
-    {
-        bool checkVersion = HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck();
-        if (checkVersion)
-        {
-            foreach (var document in documents)
-                ThrowIfMissingVersion(((IVersioned)document).GetElasticVersion(), ElasticIndex.GetIndex(document), document.Id);
-        }
-
-        IReadOnlyCollection<T> docsToIndex = documents;
-        var allSuccessfulIds = new HashSet<string>();
-        var allConflictIds = new HashSet<string>();
-        var allFatalIds = new HashSet<string>();
-        var allUnsupportedIds = new HashSet<string>();
-        var allErrors = new Dictionary<string, BulkItemError>();
-        BulkResult result = BulkResult.Empty;
-        int retryBudget = options.GetRetryCount();
-
-        for (int attempt = 0; attempt <= retryBudget; attempt++)
-        {
-            var bulkRequest = new BulkRequest();
-            var list = docsToIndex.Select(d =>
-            {
-                var routing = GetParentIdFunc?.Invoke(d);
-                var index = ElasticIndex.GetIndex(d);
-
-                if (isCreateOperation)
-                {
-                    var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
-                    if (routing != null)
-                        createOperation.Routing = routing;
-                    createOperation.Index = index;
-                    return (IBulkOperation)createOperation;
-                }
-
-                var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
-                if (routing != null)
-                    indexOperation.Routing = routing;
-                indexOperation.Index = index;
-                if (checkVersion)
-                {
-                    var elasticVersion = ((IVersioned)d).GetElasticVersion();
-                    indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
-                    indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
-                }
-
-                return (IBulkOperation)indexOperation;
-            }).ToList();
-            bulkRequest.Operations = list;
-            bulkRequest.Refresh = options.GetRefreshMode(DefaultConsistency);
-
-            var response = await _client.BulkAsync(bulkRequest, DisposedCancellationToken).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-
-            result = BulkResult.From(response);
-
-            if (result.HasTransportError)
-            {
-                bool transient = result.TransportStatusCode is null || ElasticWriteErrors.IsTransientStatus(result.TransportStatusCode);
-                if (transient && attempt < retryBudget)
-                {
-                    _logger.LogWarning("Transient bulk {Operation} failure (status {StatusCode}), retry {Attempt} of {Budget}", isCreateOperation ? "add" : "save", result.TransportStatusCode, attempt + 1, retryBudget);
-                    await ElasticIndex.Configuration.TimeProvider.SafeDelay(GetRetryDelayWithJitter(attempt + 1), DisposedCancellationToken).AnyContext();
-                    continue;
-                }
-
-                return new BulkResult
-                {
-                    SuccessfulIds = allSuccessfulIds,
-                    ConflictIds = allConflictIds,
-                    FatalIds = allFatalIds,
-                    VersioningNotSupportedIds = allUnsupportedIds,
-                    Errors = allErrors,
-                    TransportError = result.TransportError,
-                    TransportException = result.TransportException,
-                    TransportStatusCode = result.TransportStatusCode
-                };
-            }
-
-            if (HasVersion)
-            {
-                var documentsById = new Dictionary<string, T>();
-                foreach (var d in docsToIndex.Where(d => !String.IsNullOrEmpty(d.Id)))
-                    documentsById.TryAdd(d.Id, d);
-                foreach (var hit in response.Items)
-                {
-                    if (!hit.IsValid || hit.Id is null || !documentsById.TryGetValue(hit.Id, out var document))
-                        continue;
-
-                    document.SetDocumentVersion(hit.GetElasticVersion());
-                }
-            }
-
-            allSuccessfulIds.UnionWith(result.SuccessfulIds);
-            allConflictIds.UnionWith(result.ConflictIds);
-            allConflictIds.UnionWith(result.MissingIds);
-            allFatalIds.UnionWith(result.FatalIds);
-            allUnsupportedIds.UnionWith(result.VersioningNotSupportedIds);
-            foreach (var error in result.Errors)
-                allErrors[error.Key] = error.Value;
-
-            foreach (string id in result.ConflictIds)
-                LogVersionConflict(isCreateOperation ? "BulkAdd" : "BulkSave", result.Errors.GetValueOrDefault(id)?.Index, id, attempt + 1, retryBudget, null, result.Errors.GetValueOrDefault(id)?.Reason, "Failed");
-
-            if (!result.HasRetryableErrors || attempt >= retryBudget)
-                break;
-
-            _logger.LogWarning("Bulk {Operation} had {RetryableCount} transient item failures, retry {Attempt} of {Budget}", isCreateOperation ? "add" : "save", result.RetryableIds.Count, attempt + 1, retryBudget);
-            docsToIndex = docsToIndex.Where(d => result.RetryableIds.Contains(d.Id)).ToList();
-            await ElasticIndex.Configuration.TimeProvider.SafeDelay(GetRetryDelayWithJitter(attempt + 1), DisposedCancellationToken).AnyContext();
-
-            if (DisposedCancellationToken.IsCancellationRequested)
-                break;
-        }
-
-        if (allUnsupportedIds.Count > 0)
-            _logger.LogError("Bulk {Operation} failed for {Count} documents because the index has sequence numbers disabled", isCreateOperation ? "add" : "save", allUnsupportedIds.Count);
-
-        return new BulkResult
-        {
-            SuccessfulIds = allSuccessfulIds,
-            ConflictIds = allConflictIds,
-            RetryableIds = result.RetryableIds,
-            FatalIds = allFatalIds,
-            VersioningNotSupportedIds = allUnsupportedIds,
-            Errors = allErrors
-        };
-    }
-
-    private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string? operationLabel = null)
-    {
-        if (result.IsSuccess)
-            return;
-
-        if (result.HasTransportError)
-        {
-            if (result.TransportException is not null)
-                throw new DocumentException(result.TransportError ?? "Unknown transport error", result.TransportException);
-
-            throw new DocumentException(result.TransportError ?? "Unknown transport error");
-        }
-
-        string label = operationLabel ?? (isCreateOperation ? "adding" : "saving");
-        int totalErrors = result.ConflictIds.Count + result.RetryableIds.Count + result.FatalIds.Count + result.VersioningNotSupportedIds.Count;
-
-        if (result.VersioningNotSupportedIds.Count > 0)
-        {
-            string index = result.Errors.GetValueOrDefault(result.VersioningNotSupportedIds.First())?.Index ?? "unknown";
-            throw new DocumentVersioningNotSupportedException(ElasticWriteErrors.VersioningNotSupportedMessage(index));
-        }
-
-        if (result.HasConflicts)
-        {
-            if (isCreateOperation)
-                throw new DuplicateDocumentException($"Error {label} documents: {result.ConflictIds.Count} duplicates ({totalErrors} total errors)");
-            throw new VersionConflictDocumentException($"Error {label} documents: {result.ConflictIds.Count} conflicts ({totalErrors} total errors). Ids: {FormatIds(result.ConflictIds)}");
-        }
-
-        string? reason = result.Errors.Values.Select(e => e.Reason).FirstOrDefault(r => r is not null);
-        throw new DocumentException($"Error {label} documents: {totalErrors} failures{(reason is null ? "" : $". First error: {reason}")}");
     }
 
     /// <summary>

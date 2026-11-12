@@ -399,7 +399,7 @@ public static class ElasticIndexExtensions
     internal static void SetDocumentVersion(this object? document, ElasticDocumentVersion version)
     {
         if (document is IVersioned versionedDoc)
-            versionedDoc.Version = version.ToVersionString()!;
+            versionedDoc.Version = version.ToVersionString();
     }
 
     public static FindHit<T> ToFindHit<T>(this Hit<T> hit) where T : class
@@ -418,46 +418,22 @@ public static class ElasticIndexExtensions
         return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), version.ToVersionString(), hit.Routing, data);
     }
 
+    /// <summary>
+    /// Returns the documents that were found. An item-level error (for example an unavailable shard) is not the same as
+    /// "not found", so it throws a <see cref="DocumentException"/> instead of silently dropping the document.
+    /// </summary>
     public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
     {
-        foreach (var doc in response.Docs)
+        var items = response.ToMultiGetItems();
+        var errors = items.Where(i => i.IsError).ToList();
+        if (errors.Count > 0)
         {
-            FindHit<T>? findHit = null;
-            doc.Match(
-                result =>
-                {
-                    if (result is null)
-                    {
-                        return;
-                    }
-
-                    if (result.Found)
-                    {
-                        var data = new DataDictionary { { ElasticDataKeys.Index, result.Index } };
-
-                        var version = ToElasticVersion(result.PrimaryTerm, result.SeqNo);
-                        result.Source.SetDocumentVersion(version);
-
-                        findHit = new FindHit<T>(result.Id, result.Source, 0, version.ToVersionString(), result.Routing, data);
-                    }
-                    else
-                    {
-                        logger?.LogDebug("MultiGet document not found: index={Index}, id={Id}", result.Index, result.Id);
-                    }
-                },
-                error =>
-                {
-                    if (error is null)
-                    {
-                        return;
-                    }
-
-                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
-                }
-            );
-            if (findHit is not null)
-                yield return findHit;
+            var first = errors[0];
+            logger?.LogWarning("MultiGet returned {Count} item errors, first: index={Index}, id={Id}, reason={Reason}", errors.Count, first.Index, first.Id, first.ErrorReason);
+            throw new DocumentException($"Error getting {errors.Count} documents. First error for {first.Index}/{first.Id}: {first.ErrorType}: {first.ErrorReason}");
         }
+
+        return items.Where(i => i.IsFound).Select(i => i.Hit!).ToList();
     }
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;

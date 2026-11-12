@@ -1,28 +1,18 @@
 using System;
 using System.Text.RegularExpressions;
-using Foundatio.Repositories.Exceptions;
 
 namespace Foundatio.Repositories.Elasticsearch;
-
-/// <summary>
-/// A write failed with a transient error (HTTP 429, 502, 503, 504 or a transport failure) and may succeed if retried.
-/// </summary>
-internal sealed class TransientDocumentException : DocumentException
-{
-    public TransientDocumentException(string message, int? statusCode, Exception? innerException) : base(message, innerException)
-    {
-        StatusCode = statusCode;
-    }
-
-    public int? StatusCode { get; }
-}
 
 /// <summary>
 /// Classifies Elasticsearch write errors for retry, conflict and configuration handling.
 /// </summary>
 internal static partial class ElasticWriteErrors
 {
-    public static bool IsTransientStatus(int? status) => status is 429 or 502 or 503 or 504;
+    /// <summary>
+    /// <c>true</c> for HTTP 429 and 503, where Elasticsearch rejected the request before applying it. HTTP 502 and 504
+    /// come from a proxy or gateway that may already have forwarded the write, so they are not retried.
+    /// </summary>
+    public static bool IsTransientStatus(int? status) => status is 429 or 503;
 
     public static bool IsVersioningNotSupported(string? errorType)
     {
@@ -35,7 +25,10 @@ internal static partial class ElasticWriteErrors
     }
 
     /// <summary>
-    /// <c>true</c> when a 409 reason says the document no longer exists (for example it was deleted after it was read).
+    /// <c>true</c> when a 409 reason says the document no longer exists (a version-checked write or delete found no
+    /// document, for example because it was deleted after it was read). Elasticsearch reports this as
+    /// <c>version_conflict_engine_exception</c> with a reason ending in <c>but no document was found</c>; the contract is
+    /// pinned by an integration test against a real cluster.
     /// </summary>
     public static bool IsMissingDocumentConflict(string? reason)
     {
