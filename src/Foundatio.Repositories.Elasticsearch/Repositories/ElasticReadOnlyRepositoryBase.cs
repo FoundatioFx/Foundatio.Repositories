@@ -59,6 +59,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected ElasticReadOnlyRepositoryBase(IIndex index)
     {
         ElasticIndex = index;
+        DocumentVersionSourceExclusion.RegisterDocumentType(typeof(T));
         if (HasIdentity)
             _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
         if (HasDates)
@@ -422,6 +423,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             result = await GetCachedQueryResultAsync<FindResults<TResult>>(options!, cacheSuffix: cacheSuffix).AnyContext();
             if (result != null)
             {
+                SyncDocumentVersions(result.Hits);
                 ((IFindResults<TResult>)result).GetNextPageFunc = async previousResults => await GetNextPageFunc(previousResults, query, options!).AnyContext();
                 return result;
             }
@@ -1101,6 +1103,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
 
             var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value : null;
+            if (result is not null)
+                SyncDocumentVersions(result);
 
             _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
 
@@ -1123,6 +1127,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
                 ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document != null && String.Equals(v.Id, id))
                 : null;
+            if (result is not null)
+                SyncDocumentVersion(result);
 
             _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
             return result;
@@ -1160,6 +1166,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             // Note: the distinct by is an extra safety check just in case we ever get into a weird state.
             var distinctResults = result.DistinctBy(v => v.Id).ToList();
+            SyncDocumentVersions(distinctResults);
 
             _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", idList));
 
@@ -1170,6 +1177,25 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? String.Join(", ", idList));
 
             return Enumerable.Empty<FindHit<T>>().ToList();
+        }
+    }
+
+    /// <summary>
+    /// Copies <see cref="FindHit{T}.Version"/> (which always comes from Elasticsearch metadata) onto the cached document's
+    /// <see cref="IVersioned.Version"/>, so a document read from the cache can be saved with the right optimistic concurrency check.
+    /// </summary>
+    private static void SyncDocumentVersion<TDocument>(FindHit<TDocument> hit) where TDocument : class
+    {
+        if (hit.Document is IVersioned versioned && hit.Version is not null)
+            versioned.Version = hit.Version;
+    }
+
+    private static void SyncDocumentVersions<TDocument>(IEnumerable<FindHit<TDocument>> hits) where TDocument : class
+    {
+        foreach (var hit in hits)
+        {
+            if (hit is not null)
+                SyncDocumentVersion(hit);
         }
     }
 

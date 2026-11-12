@@ -336,33 +336,34 @@ public static class ElasticIndexExtensions
     public static FindHit<T> ToFindHit<T>(this GetResponse<T> hit) where T : class
     {
         var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
+        var version = hit.GetElasticVersion();
+        hit.Source.SetDocumentVersion(version);
 
-        if (hit.Source is IVersioned versionedDoc)
-            versionedDoc.Version = hit.GetElasticVersion();
+        return new FindHit<T>(hit.Id, hit.Source, 0, version.ToVersionString(), hit.Routing, data);
+    }
 
-        return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
+    /// <summary>
+    /// Creates an <see cref="ElasticDocumentVersion"/> from hit metadata. Returns <see cref="ElasticDocumentVersion.Empty"/>
+    /// when either value is missing, when the primary term is not positive or when the sequence number is negative
+    /// (for example the <c>-2</c>/<c>0</c> sentinel returned by indexes with sequence numbers disabled).
+    /// </summary>
+    public static ElasticDocumentVersion ToElasticVersion(long? primaryTerm, long? sequenceNumber)
+    {
+        if (primaryTerm is not { } term || sequenceNumber is not { } seqNo)
+            return ElasticDocumentVersion.Empty;
+
+        var version = new ElasticDocumentVersion(term, seqNo);
+        return version.IsEmpty ? ElasticDocumentVersion.Empty : version;
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this GetResponse<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
-            return ElasticDocumentVersion.Empty;
-
-        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this Hit<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
-            return ElasticDocumentVersion.Empty;
-
-        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this FindHit<T> hit) where T : class
@@ -370,23 +371,17 @@ public static class ElasticIndexExtensions
         if (hit == null || String.IsNullOrEmpty(hit.Version))
             return ElasticDocumentVersion.Empty;
 
-        return hit.Version;
+        return ElasticDocumentVersion.Parse(hit.Version);
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this IndexResponse hit)
     {
-        if (hit.PrimaryTerm.GetValueOrDefault() == 0 && hit.SeqNo.GetValueOrDefault() == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.GetValueOrDefault(), hit.SeqNo.GetValueOrDefault());
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this ResponseItem hit)
     {
-        if (hit.PrimaryTerm.GetValueOrDefault() == 0 && hit.SeqNo.GetValueOrDefault() == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.GetValueOrDefault(), hit.SeqNo.GetValueOrDefault());
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this IVersioned versioned)
@@ -394,7 +389,17 @@ public static class ElasticIndexExtensions
         if (versioned == null || String.IsNullOrEmpty(versioned.Version))
             return ElasticDocumentVersion.Empty;
 
-        return versioned.Version;
+        return ElasticDocumentVersion.Parse(versioned.Version);
+    }
+
+    /// <summary>
+    /// Sets <see cref="IVersioned.Version"/> on <paramref name="document"/> from hit metadata. An empty version sets
+    /// the property to <c>null</c>. Documents that do not implement <see cref="IVersioned"/> are left unchanged.
+    /// </summary>
+    internal static void SetDocumentVersion(this object? document, ElasticDocumentVersion version)
+    {
+        if (document is IVersioned versionedDoc)
+            versionedDoc.Version = version.ToVersionString()!;
     }
 
     public static FindHit<T> ToFindHit<T>(this Hit<T> hit) where T : class
@@ -407,10 +412,10 @@ public static class ElasticIndexExtensions
         if (hit.Sort != null && hit.Sort.Count > 0)
             data[ElasticDataKeys.Sorts] = hit.Sort;
 
-        if (hit.Source is IVersioned versionedDoc && hit.PrimaryTerm.HasValue)
-            versionedDoc.Version = hit.GetElasticVersion();
+        var version = hit.GetElasticVersion();
+        hit.Source.SetDocumentVersion(version);
 
-        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), hit.GetElasticVersion(), hit.Routing, data);
+        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), version.ToVersionString(), hit.Routing, data);
     }
 
     public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
@@ -430,14 +435,10 @@ public static class ElasticIndexExtensions
                     {
                         var data = new DataDictionary { { ElasticDataKeys.Index, result.Index } };
 
-                        var version = ElasticDocumentVersion.Empty;
-                        if (result.PrimaryTerm.HasValue && result.SeqNo.HasValue && (result.PrimaryTerm.Value != 0 || result.SeqNo.Value != 0))
-                            version = new ElasticDocumentVersion(result.PrimaryTerm.Value, result.SeqNo.Value);
+                        var version = ToElasticVersion(result.PrimaryTerm, result.SeqNo);
+                        result.Source.SetDocumentVersion(version);
 
-                        if (result.Source is IVersioned versionedDoc)
-                            versionedDoc.Version = version;
-
-                        findHit = new FindHit<T>(result.Id, result.Source, 0, version, result.Routing, data);
+                        findHit = new FindHit<T>(result.Id, result.Source, 0, version.ToVersionString(), result.Routing, data);
                     }
                     else
                     {
