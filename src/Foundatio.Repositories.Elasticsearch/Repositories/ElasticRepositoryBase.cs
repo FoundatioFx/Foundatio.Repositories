@@ -858,6 +858,41 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         {
             (affectedRecords, queryConflicts) = await PatchAllWithUpdateByQueryAsync(query, scriptOperation, options).AnyContext();
         }
+        else if (operation is ScriptPatch pipelineScriptOperation && !String.IsNullOrEmpty(DefaultPipeline))
+        {
+            // The Update API cannot run ingest pipelines, so each document is patched with update-by-query on its id.
+            if (HasIdentity && !query.GetIncludes().Contains(_idField!.Value))
+                query.Include(_idField!.Value);
+
+            await BatchProcessAsync(query, async results =>
+            {
+                var modifiedIds = new List<string>(results.Hits.Count);
+                foreach (var hit in results.Hits.Where(h => h.Id is not null))
+                {
+                    try
+                    {
+                        if (await PatchScriptWithPipelineAsync(new Id(hit.Id!, hit.Routing), pipelineScriptOperation, options).AnyContext())
+                            modifiedIds.Add(hit.Id!);
+                    }
+                    catch (DocumentNotFoundException)
+                    {
+                        failures.MissingIds.Add(hit.Id!);
+                    }
+                    catch (VersionConflictDocumentException)
+                    {
+                        failures.ConflictIds.Add(hit.Id!);
+                    }
+                }
+
+                affectedRecords += modifiedIds.Count;
+                if (modifiedIds.Count > 0)
+                    notifiedPerBatch = true;
+
+                await OnBatchPatchedAsync(modifiedIds, null, options).AnyContext();
+                failures.ModifiedIds.AddRange(modifiedIds);
+                return true;
+            }, options.Clone()).AnyContext();
+        }
         else if (operation is JsonPatch or ActionPatch<T> || (operation is PartialPatch && !String.IsNullOrEmpty(DefaultPipeline)))
         {
             await BatchProcessAsync(query, async results =>

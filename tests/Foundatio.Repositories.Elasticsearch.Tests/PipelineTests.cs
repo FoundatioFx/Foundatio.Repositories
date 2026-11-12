@@ -202,6 +202,27 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task ScriptPatchAllAsync_ByQueryWithLowercasePipeline_LowercasesNames()
+    {
+        // Arrange
+        var employees = new List<Employee>
+        {
+            EmployeeGenerator.Generate(companyId: "1", name: "employee1"),
+            EmployeeGenerator.Generate(companyId: "1", name: "employee2"),
+        };
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        long patched = await _employeeRepository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(2, patched);
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.Equal(2, results.Count);
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact]
     public Task ScriptPatchAsync_WithPipeline_MissingDocument_ThrowsDocumentNotFound()
     {
         // Arrange
