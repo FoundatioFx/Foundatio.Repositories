@@ -25,7 +25,7 @@ For `ScriptPatch` and `PartialPatch`, if you explicitly provide `updatedUtc` in 
 For `JsonPatch` and `ActionPatch`, `UpdatedUtc` is always set by the framework after applying your changes — matching `SaveAsync` semantics. If you need explicit control over the timestamp, use `ScriptPatch` or `PartialPatch`.
 
 ::: warning Stale timestamps on server-side retries
-For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured once when the request is built and is fixed for any server-side retries (`RetryOnConflict`). If a version conflict causes Elasticsearch to retry the update, the retried write carries the **original timestamp**, not a fresh one. This means a document updated after several retries will have an `UpdatedUtc` that is slightly older than the actual commit time. For `JsonPatch` and `ActionPatch`, the timestamp is refreshed on each client-side retry since the entire operation (fetch + mutate + index) re-executes.
+For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured once when the request is built and is fixed for any server-side retries (Elasticsearch `retry_on_conflict`, controlled by `o.Retry(n)`). If a version conflict causes Elasticsearch to retry the update, the retried write carries the **original timestamp**, not a fresh one. This means a document updated after several retries will have an `UpdatedUtc` that is slightly older than the actual commit time. For `JsonPatch` and `ActionPatch`, the timestamp is refreshed on each client-side retry since the entire operation (fetch + mutate + index) re-executes.
 
 This matches `SaveAsync` behavior, where `SetDates` is called once before the Elasticsearch request. In most scenarios the retry window is milliseconds, but callers relying on `UpdatedUtc` for strict ordering or audit trails should be aware of this.
 :::
@@ -336,8 +336,11 @@ await repository.PatchAllAsync(
 // Immediate consistency
 await repository.PatchAsync(id, patch, o => o.ImmediateConsistency());
 
-// Skip version check
+// Skip the version check on the write (JsonPatch, ActionPatch and pipeline PartialPatch on a single id)
 await repository.PatchAsync(id, patch, o => o.SkipVersionCheck());
+
+// Change the conflict retry budget (default 10)
+await repository.PatchAsync(id, patch, o => o.Retry(3));
 
 // Disable notifications
 await repository.PatchAsync(id, patch, o => o.Notifications(false));
@@ -538,18 +541,35 @@ All patch types can throw `DocumentNotFoundException` (HTTP 404) or `VersionConf
 
 | Patch Type | 404 (Not Found) | 409 (Version Conflict) | Notes |
 |------------|-----------------|------------------------|-------|
-| `PartialPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Uses Elasticsearch Update API |
-| `ScriptPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Use `RetryOnConflict` for server-side retry |
+| `PartialPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Update API with `retry_on_conflict` (with a default pipeline: get, merge, index) |
+| `ScriptPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Update API with `retry_on_conflict`; thrown only after the server-side retries run out |
 | `JsonPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Fetches document, applies patch, then indexes |
 | `ActionPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Fetches document, applies lambda, then indexes |
 
 ::: tip
-`ScriptPatch` and `PartialPatch` execute on the Elasticsearch node via the Update API, so you can set `RetryOnConflict` for server-side retries without a round trip. `JsonPatch` and `ActionPatch` perform a client-side fetch-mutate-index cycle, so version conflicts require the caller to retry the full operation.
+`ScriptPatch` and `PartialPatch` execute on the Elasticsearch node via the Update API. On a conflict, Elasticsearch re-applies them to the latest document up to `o.Retry(n)` times (default 10) without a round trip. `JsonPatch` and `ActionPatch` perform a client-side fetch-mutate-index cycle. On a conflict the resilience policy re-runs the whole cycle with a fresh fetch (see [Automatic Retry Behavior](#automatic-retry-behavior)).
 :::
+
+### Concurrency semantics
+
+Patches never compare against a version **you** read. They're applied to the latest document, so they're last-write-wins for your copy:
+
+- **Update API (Script/Partial):** no version check at all; conflicts are retried server-side.
+- **JsonPatch/ActionPatch (single id):** the write is checked against the version from the fetch inside the same attempt, so a concurrent change between that fetch and the write is detected and the attempt is retried.
+- **Batch patches (`PatchAsync(ids)`, `PatchAllAsync`):** each document is written with the version from the search hit. Conflicting documents are re-run one at a time through `PatchAsync(id)`.
+
+Known gaps tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344):
+- the batch paths ignore `SkipVersionCheck()`;
+- `PatchAllAsync` with a `ScriptPatch` and caching disabled uses update-by-query with `conflicts=proceed`, which **skips** conflicting documents and only logs a warning;
+- an invalid bulk response in the `PatchAllAsync` bulk-update branch stops the remaining batches without throwing.
+
+See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full table.
 
 ### Automatic Retry Behavior
 
-Transient errors (HTTP 429/503) are automatically retried with exponential backoff (up to 3 retries). Version conflicts (409) are **not** retried by the resilience policy — they indicate a genuine concurrency issue the caller should handle.
+- `o.Retry(n)` means n server-side retries on the Update API paths (default 10). On the resilience policy paths (JsonPatch, ActionPatch, pipeline PartialPatch) it means n total attempts. When `Retry` isn't set, those paths use the repository's resilience policy as configured; the Foundatio default is 3 attempts with exponential backoff starting at 1 second.
+- The resilience policy retries version conflicts and transient errors. It doesn't retry `DocumentNotFoundException`.
+- Single-document writes inside the patch paths don't have a separate 429/503 retry loop.
 
 ## Performance Considerations
 

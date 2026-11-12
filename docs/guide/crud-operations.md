@@ -128,7 +128,7 @@ await repository.SaveAsync(employee);
 
 The repository automatically:
 - Updates `UpdatedUtc` (if `IHaveDates`)
-- Checks version for conflicts (if `IVersioned`)
+- Checks the document's `Version` against Elasticsearch and throws `VersionConflictDocumentException` if it changed since you read it (if `IVersioned`). See [Versioning](/guide/versioning).
 - Invalidates cache
 - Publishes `EntityChanged` notification
 
@@ -151,7 +151,7 @@ await repository.SaveAsync(employees);
 ### Save with Options
 
 ```csharp
-// Skip version check
+// Skip version check (last write wins; can overwrite concurrent changes)
 await repository.SaveAsync(employee, o => o.SkipVersionCheck());
 
 // Immediate consistency
@@ -160,6 +160,10 @@ await repository.SaveAsync(employee, o => o.ImmediateConsistency());
 // Provide original for change detection
 await repository.SaveAsync(employee, o => o.AddOriginals(originalEmployee));
 ```
+
+::: warning
+Don't use `o.VersionCheck(false)` to skip the check. It's currently inverted: `VersionCheck(false)` keeps the check on and `VersionCheck(true)` skips it. Use `SkipVersionCheck()`. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+:::
 
 ## Deleting Documents
 
@@ -205,9 +209,9 @@ long deleted = await repository.RemoveAllAsync(
 ```
 
 ::: tip Version Conflicts and Retries
-When no event listeners are registered and caching is disabled, `RemoveAllAsync` uses Elasticsearch's `delete_by_query`. This API snapshots document versions when it begins and skips any document modified before the delete executes, counting it as a version conflict. Because `delete_by_query` does not support `retry_on_conflict`, the repository automatically re-runs the query up to the configured retry count (default `10`, override with `o.Retry(n)`) until no conflicts remain.
+When no event listeners are registered and caching is disabled, `RemoveAllAsync` uses Elasticsearch's `delete_by_query`. This API snapshots document versions when it begins and skips any document modified before the delete executes, counting it as a version conflict. Because `delete_by_query` does not support `retry_on_conflict`, the repository re-runs the query up to `Retry(n) + 1` times (default `10`, so 11 passes), with no delay between passes, until no conflicts remain.
 
-The returned count is the cumulative number of documents deleted across all attempts. If conflicts persist after the retry budget is exhausted, a warning is logged and the partial count is returned; no exception is thrown.
+The returned count is the cumulative number of documents deleted across all attempts. If conflicts persist after the retry budget is exhausted, a warning is logged and the partial count is returned; no exception is thrown. Check the logs, or re-query, if you need to know that everything matching was deleted. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
 :::
 
 ### Soft Delete vs Hard Delete
@@ -419,28 +423,26 @@ catch (DuplicateDocumentException ex)
 
 ### Retry Pattern
 
-```csharp
-var employee = await repository.GetByIdAsync(id);
-int retries = 3;
+A version conflict means someone else changed the document. Re-read it (bypassing the cache, which may hold the old version), re-apply your change, and save again:
 
-while (retries > 0)
+```csharp
+for (int attempt = 1; ; attempt++)
 {
+    var employee = await repository.GetByIdAsync(id, o => o.Cache(false));
+    employee.Counter++;
+
     try
     {
-        employee.Counter++;
         await repository.SaveAsync(employee);
         break;
     }
-    catch (VersionConflictDocumentException)
+    catch (VersionConflictDocumentException) when (attempt < 3)
     {
-        retries--;
-        if (retries == 0) throw;
-        
-        // Refresh and retry
-        employee = await repository.GetByIdAsync(id);
     }
 }
 ```
+
+For simple changes like counters, a `ScriptPatch` avoids the round trip entirely.
 
 ## Partial Failure Behavior
 
@@ -480,16 +482,16 @@ catch (DuplicateDocumentException ex)
 
 ### Automatic Retry Behavior
 
-The repository includes a resilience policy for transient Elasticsearch errors:
-
-- **HTTP 429 (Too Many Requests)** and **503 (Service Unavailable)** are automatically retried with exponential backoff (up to 3 retries).
-- **Version conflicts (409)** on `AddAsync`/`SaveAsync` are **not** retried — the caller should handle these.
-- `DuplicateDocumentException` is **not** retried by the resilience policy.
+- **Bulk `AddAsync`/`SaveAsync`** (more than one document) retry items that fail with HTTP **429** or **503** up to 3 more times with exponential backoff (1s, 2s, 4s).
+- **Single-document `AddAsync`/`SaveAsync`** are **not** retried on 429/503 today. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+- **Version conflicts (409)** on `AddAsync`/`SaveAsync` are **never** retried; the caller has to re-read and re-apply.
+- `o.Retry(n)` has **no effect** on `AddAsync`/`SaveAsync`.
+- `DuplicateDocumentException` is **not** retried.
 
 **Bulk delete retry**: Multi-document `RemoveAsync` (bulk delete) has its own dedicated retry loop — up to 3 retries with exponential backoff (1s, 2s, 4s) for transient 429/503 errors. Successfully deleted documents from earlier attempts are processed (events, cache, notifications) even if later retries fail for remaining documents. Fatal and conflict (HTTP 409) item IDs are accumulated across all attempts; remaining retryable errors and transport failures are surfaced through the final `BulkResult`, and any final error state (`HasErrors`) is thrown after the loop.
 
 ::: tip
-For operations where version conflicts are expected (e.g., high-contention counters), use `ScriptPatch` with `RetryOnConflict` instead of `SaveAsync`. Script patches are executed atomically on the Elasticsearch node and can be retried server-side.
+For operations where version conflicts are expected (e.g., high-contention counters), use a `ScriptPatch` instead of `SaveAsync`. Script patches run on the Elasticsearch node and conflicts are retried server-side (`retry_on_conflict`, set with `o.Retry(n)`, default 10).
 :::
 
 ## Next Steps

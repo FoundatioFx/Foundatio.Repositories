@@ -131,6 +131,11 @@ IReadOnlyRepository<T>
 - **`ImmediateConsistency()` is for tests only**: It triggers an Elasticsearch index refresh after writes. Never use in production.
 - **`ExistsAsync(query)` is a dirty read**: Uses the Search API (`size: 0`), NOT the realtime Document Exists API. After a write without `ImmediateConsistency`, it can return stale results.
 - **`ExistsAsync(id)` is real-time even with soft deletes**: Uses the GET API with a source filter for `IsDeleted`.
+- **Versioning is only checked on `SaveAsync`**: `Version` is `"primaryTerm:seqNo"` from Elasticsearch metadata. `SaveAsync` sends it as `if_seq_no`/`if_primary_term` and throws `VersionConflictDocumentException` on 409; it is never retried automatically. Patches never compare against a version the caller read (last write wins), and `RemoveAsync(T)` has no version check. Re-read with `o.Cache(false)` before retrying a conflict. Details in `docs/guide/versioning.md`; open gaps in issue #344.
+- **`VersionCheck(bool)` is inverted**: `VersionCheck(false)` keeps checking and `VersionCheck(true)` skips. Always use `SkipVersionCheck()`.
+- **`Retry(n)` means different things per path**: n server retries for ScriptPatch/PartialPatch (`retry_on_conflict`, default 10), n total attempts for JsonPatch/ActionPatch, n + 1 passes for delete-by-query, and no effect on `AddAsync`/`SaveAsync`.
+- **Don't trust `_source.version`**: The `version` field stored in the document body is the version the last write started from, not the current one. Repository reads overwrite it from metadata; raw Elasticsearch queries and `FindAs<TResult>` projections don't.
+- **`PatchAllAsync` ScriptPatch without cache can skip documents**: It uses update-by-query with `conflicts=proceed`; documents modified concurrently are skipped and only a warning is logged.
 - **Register repositories as singletons**: Repository instances maintain internal state (index configuration, cache references).
 - **`FieldEquals` with multiple values is OR**: `.FieldEquals(e => e.Field, "A", "B")` produces an OR filter, not AND.
 - **`FieldContains` is token matching, NOT wildcard**: `FieldContains(f => f.Name, "Er")` will NOT match "Eric". Use `FilterExpression("field:pattern*")` for prefix/wildcard matching.

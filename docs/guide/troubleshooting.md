@@ -255,39 +255,41 @@ var results = await repository.FindOneAsync(query, o => o.Cache(key));
 
 **Solutions:**
 
-1. **Implement retry logic:**
+1. **Re-read, re-apply, and retry** (bypass the cache so you don't re-read the stale copy):
 
 ```csharp
-int retries = 3;
-while (retries > 0)
+for (int attempt = 1; ; attempt++)
 {
+    var doc = await repository.GetByIdAsync(id, o => o.Cache(false));
+    doc.Name = "Updated";
+
     try
     {
-        var doc = await repository.GetByIdAsync(id);
-        doc.Name = "Updated";
         await repository.SaveAsync(doc);
         break;
     }
-    catch (VersionConflictDocumentException)
+    catch (VersionConflictDocumentException) when (attempt < 3)
     {
-        retries--;
-        if (retries == 0) throw;
     }
 }
 ```
 
-2. **Skip version check (if appropriate):**
+2. **Skip version check (only if overwriting concurrent changes is acceptable):**
 
 ```csharp
 await repository.SaveAsync(document, o => o.SkipVersionCheck());
 ```
 
-3. **Use atomic operations:**
+Don't use `VersionCheck(false)` for this; it's inverted today ([#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344)).
+
+3. **Use server-side operations:**
 
 ```csharp
-// Atomic increment avoids conflicts
+// Applied to the latest document on the node; conflicts are retried there
 await repository.PatchAsync(id, new ScriptPatch("ctx._source.counter++"));
 ```
+
+4. **Make sure `Version` came from a read.** A `Version` you set yourself, or one from a `FindAs<TResult>` projection, can be stale. See [Versioning](/guide/versioning#where-the-version-comes-from-on-reads).
 
 ## Performance Issues
 
@@ -540,12 +542,14 @@ catch (VersionConflictDocumentException ex)
 
 ### Transient Error Retries
 
-The repository automatically retries transient Elasticsearch errors:
+Bulk writes (`AddAsync`/`SaveAsync` with more than one document, bulk `RemoveAsync`) retry failed items:
 
 - **HTTP 429** (Too Many Requests) — retried with exponential backoff, up to 3 retries (4 total attempts)
 - **HTTP 503** (Service Unavailable) — retried with exponential backoff, up to 3 retries (4 total attempts)
 - **HTTP 409** (Version Conflict) — **not** retried; the caller must handle conflict resolution
-- `DuplicateDocumentException` — **not** retried by the resilience policy
+- `DuplicateDocumentException` — **not** retried
+
+Single-document `AddAsync`/`SaveAsync` aren't retried on 429/503 today. Patches go through the repository resilience policy, which also retries version conflicts on the fetch-and-index paths. See [Versioning: Retry options](/guide/versioning#retry-options) and [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
 
 ::: info Reindex task-status polling uses its own backoff
 This resilience policy covers the initial reindex kickoff request. Once reindexing has started, progress is monitored by repeatedly polling the Elasticsearch task status API, which is a plain "did this succeed" response rather than a thrown exception — so it isn't covered by the policy above. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.
