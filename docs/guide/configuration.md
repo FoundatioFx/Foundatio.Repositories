@@ -256,10 +256,11 @@ await repository.FindAsync(query, o => o.SoftDeleteMode(SoftDeleteQueryMode.Acti
 ```csharp
 // Skip optimistic concurrency check
 await repository.SaveAsync(entity, o => o.SkipVersionCheck());
-
-// Explicitly control version checking
-await repository.SaveAsync(entity, o => o.VersionCheck(false));
 ```
+
+::: warning
+`o.VersionCheck(bool)` is currently inverted: `VersionCheck(false)` keeps the check on and `VersionCheck(true)` skips it. Use `SkipVersionCheck()`. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+:::
 
 ### Originals Options
 
@@ -299,9 +300,11 @@ await repository.FindAsync(query, o => o.ExcludeMask("largeContent,internal*"));
 // Set query timeout
 await repository.FindAsync(query, o => o.Timeout(TimeSpan.FromSeconds(30)));
 
-// Set retry count
-await repository.SaveAsync(entity, o => o.Retry(5));
+// Set the conflict retry budget for patches and delete-by-query
+await repository.PatchAsync(id, patch, o => o.Retry(5));
 ```
+
+`Retry(n)` has no effect on `AddAsync`/`SaveAsync`, and its meaning differs between the patch paths. See [Versioning: Retry options](/guide/versioning#retry-options).
 
 ### Query Logging Options
 
