@@ -289,7 +289,7 @@ await repository.PatchAsync(id, new ScriptPatch("ctx._source.counter++"));
 await repository.PatchAsync(id, new ActionPatch<Employee>(e => e.Status = "Active"));
 ```
 
-4. **Make sure `Version` came from a read.** A `Version` you set yourself, or one captured before a reindex, can be stale. See [Versioning](/guide/versioning#where-the-version-comes-from).
+4. **Make sure `Version` came from a read.** A `Version` you set yourself, or one captured before a reindex, can be stale. A pre-reindex version may even pass the check against the new index and overwrite the migrated document, so always re-read after a reindex. See [Versioning](/guide/versioning#where-the-version-comes-from).
 
 5. **`RemoveAsync(T)` throws a conflict.** Removing a versioned document checks its version since this release. Re-read it, use `RemoveAsync(id)`, or pass `o.SkipVersionCheck()`.
 

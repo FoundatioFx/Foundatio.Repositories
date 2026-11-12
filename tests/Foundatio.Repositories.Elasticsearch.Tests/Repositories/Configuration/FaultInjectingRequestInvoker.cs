@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -34,6 +35,18 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
 
     private readonly ConcurrentQueue<(HttpMethod Method, string Path)> _requests = new();
     private Func<Task>? _beforeNextBulk;
+    private (int Status, string Type, string Reason)? _nextBulkItemFailure;
+    private readonly ConcurrentQueue<string> _failedBulkItemIds = new();
+
+    /// <summary>
+    /// Rewrites the response of the next <c>_bulk</c> request so its first item reports <paramref name="status"/> with the
+    /// given error. The real write still happened in Elasticsearch; only the reported outcome changes. The id of the
+    /// rewritten item is added to <see cref="FailedBulkItemIds"/>.
+    /// </summary>
+    public void FailFirstItemOfNextBulk(int status, string type, string reason) => _nextBulkItemFailure = (status, type, reason);
+
+    /// <summary>Ids of bulk items whose reported outcome was rewritten to a failure.</summary>
+    public IReadOnlyCollection<string> FailedBulkItemIds => _failedBulkItemIds.ToArray();
 
     /// <summary>
     /// Runs <paramref name="action"/> once, right before the next <c>_bulk</c> request is sent. Use it to change documents
@@ -57,7 +70,36 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
         if (TryTakeFault(endpoint, out var fault))
             return CreateFaultResponse<TResponse>(endpoint, boundConfiguration, postData, fault.StatusCode, fault.Body);
 
-        return await inner.RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken).ConfigureAwait(false);
+        var response = await inner.RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken).ConfigureAwait(false);
+        if (endpoint.PathAndQuery.Contains("_bulk", StringComparison.Ordinal) && _nextBulkItemFailure is { } failure)
+        {
+            _nextBulkItemFailure = null;
+            return RewriteFirstBulkItem(response, endpoint, boundConfiguration, postData, failure);
+        }
+
+        return response;
+    }
+
+    private TResponse RewriteFirstBulkItem<TResponse>(TResponse response, Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, (int Status, string Type, string Reason) failure)
+        where TResponse : TransportResponse, new()
+    {
+        var bytes = response.ApiCallDetails.ResponseBodyInBytes
+            ?? throw new InvalidOperationException("Rewriting bulk items requires DisableDirectStreaming.");
+
+        var root = System.Text.Json.Nodes.JsonNode.Parse(bytes)!.AsObject();
+        var items = root["items"]!.AsArray();
+        var item = items[0]!.AsObject().First().Value!.AsObject();
+        _failedBulkItemIds.Enqueue(item["_id"]!.GetValue<string>());
+
+        item.Remove("result");
+        item.Remove("_seq_no");
+        item.Remove("_primary_term");
+        item["status"] = failure.Status;
+        item["error"] = new System.Text.Json.Nodes.JsonObject { ["type"] = failure.Type, ["reason"] = failure.Reason };
+        root["errors"] = true;
+
+        string body = root.ToJsonString();
+        return CreateFaultResponse<TResponse>(endpoint, boundConfiguration, postData, 200, body);
     }
 
     public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)

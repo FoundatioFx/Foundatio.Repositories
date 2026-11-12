@@ -105,7 +105,7 @@ In Kibana Discover, add the `_seq_no` and `_primary_term` columns. Range queries
 
 ### Versions after reindex
 
-Reindexing (schema migrations via `VersionedIndex`, `ReindexAsync`, moving documents between daily or monthly indexes) writes documents into a new index with fresh sequence numbers. Elasticsearch does **not** preserve `_seq_no`/`_primary_term`. A version captured before the reindex usually causes a 409 on the next save, but that isn't guaranteed: the new index can assign the same pair. Re-read documents after a reindex instead of reusing versions captured before it.
+Reindexing (schema migrations via `VersionedIndex`, `ReindexAsync`, moving documents between daily or monthly indexes) writes documents into a new index with fresh sequence numbers. Elasticsearch does **not** preserve `_seq_no`/`_primary_term`. A version captured before the reindex is **not guaranteed** to cause a 409 on the next save: it's rejected only if the new index happens to assign a different pair. The new index can assign the same pair (sequence numbers restart in the new index, so a document updated only a few times before the reindex can easily land on the same numbers), and then the stale copy passes the check and overwrites the migrated document. Always re-read documents after a reindex instead of reusing versions captured before it.
 
 ### Caching and versions
 
@@ -114,6 +114,10 @@ Cached reads return the version from when the entry was cached. If the document 
 ## Concurrency Model per Operation
 
 "Checks your `Version`" means the write is rejected when the stored document changed after the version you hold. "Never loses a concurrent change" means a write that loses a race is re-applied on the latest document instead of overwriting it.
+
+::: warning Entities that don't implement `IVersioned`
+The version checks below only exist for `IVersioned` entities. For any other entity, `SaveAsync` and the read-modify-write patches (JSON, action and pipeline partial patches, single or batch) write without a check, so a change made by someone else between the read and the write is **silently overwritten**. Script and partial patches through the Update API are still applied server-side to the latest document.
+:::
 
 | Operation | Mechanism | Checks your `Version`? | Retries (`Retry(n)`, default 10) |
 | --- | --- | --- | --- |
@@ -130,7 +134,7 @@ Cached reads return the version from when the entry was cached. If the document 
 | `RemoveAllAsync` (no listeners, no cache) | delete-by-query, `conflicts=proceed` | Snapshot only | Up to n more passes with backoff. Throws on leftovers unless `ProceedOnQueryConflicts()` |
 | `RemoveAllAsync` (listeners or cache) | batched `RemoveAsync` without a check | No | 429/502/503/504 |
 
-Patches never lose a concurrent change: a patch that loses a race is re-applied to the latest document. That makes patches last-write-wins **per field you change**, not for your whole copy of the document. Use `IfVersion` when the patch must only apply to the version you read.
+For `IVersioned` entities, patches never lose a concurrent change: a patch that loses a race is re-applied to the latest document. That makes patches last-write-wins **per field you change**, not for your whole copy of the document. Use `IfVersion` when the patch must only apply to the version you read. Script and partial patches through the Update API behave this way for every entity; JSON, action and pipeline partial patches on entities that don't implement `IVersioned` have **no conflict protection** and overwrite concurrent changes.
 
 ### Expected-version patches (`IfVersion`)
 

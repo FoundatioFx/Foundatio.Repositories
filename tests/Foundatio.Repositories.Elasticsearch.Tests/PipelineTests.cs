@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
@@ -261,6 +262,58 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         Assert.NotNull(result);
         Assert.Equal("updated", result.Name); // lowercased by pipeline
         Assert.Equal("OriginalCo", result.CompanyName);
+    }
+
+    [Theory]
+    [InlineData(409, 0)]
+    [InlineData(400, 10)]
+    public async Task PartialPatchAllAsync_WithPipelineWhenBatchItemFails_ProcessesEveryBatchAndReportsFailure(int status, int retries)
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(12, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+        var updatedIds = new List<string>();
+        invoker.FailFirstItemOfNextBulk(status, status is 409 ? "version_conflict_engine_exception" : "illegal_argument_exception", "injected failure");
+
+        // Act
+        Task Patch() => repository.PatchAllAsync(q => q.Company("1"), new PartialPatch(new { name = "PATCHED" }), o => o.PageLimit(5).Retry(retries).ImmediateConsistency().UpdateCallback(updatedIds.AddRange));
+        var exception = status is 409
+            ? await Assert.ThrowsAsync<VersionConflictDocumentException>(Patch)
+            : await Assert.ThrowsAsync<DocumentException>(Patch);
+
+        // Assert
+        string failedId = Assert.Single(invoker.FailedBulkItemIds);
+        Assert.Contains(failedId, exception.Message);
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_bulk"));
+        Assert.Equal(11, updatedIds.Count);
+        Assert.DoesNotContain(failedId, updatedIds);
+        var results = await _employeeRepository.GetByIdsAsync(updatedIds);
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact]
+    public async Task PartialPatchAllAsync_WithPipelineWhenBatchItemConflicts_RetriesAndPatchesAll()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(12, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+        invoker.FailFirstItemOfNextBulk(409, "version_conflict_engine_exception", "injected conflict");
+
+        // Act
+        long patched = await repository.PatchAllAsync(q => q.Company("1"), new PartialPatch(new { name = "PATCHED" }), o => o.PageLimit(5).ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(12, patched);
+        Assert.Equal(4, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_bulk"));
+        Assert.Equal(1, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_mget"));
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
     }
 
     public override async ValueTask DisposeAsync()

@@ -555,7 +555,7 @@ All patch types can throw `DocumentNotFoundException` (HTTP 404) or `VersionConf
 
 ### Concurrency semantics
 
-Patches never lose a concurrent change: a patch that loses a race is re-applied to the latest document. They're last-write-wins **for the fields they change**, not for your whole copy of the document:
+For `IVersioned` entities, patches never lose a concurrent change: a patch that loses a race is re-applied to the latest document. They're last-write-wins **for the fields they change**, not for your whole copy of the document. JSON, action and pipeline partial patches on entities that **don't** implement `IVersioned` have no conflict protection (see below):
 
 - **Update API (Script/Partial):** Elasticsearch re-runs the update on the latest document (`retry_on_conflict`).
 - **JsonPatch/ActionPatch/pipeline PartialPatch:** for `IVersioned` entities, the write is checked against the version the patch read, so a concurrent change is detected and the patch is re-applied on a fresh read. `SkipVersionCheck()` writes without the check. For entities that don't implement `IVersioned` there is no check, and a change made between the read and the write is silently overwritten.

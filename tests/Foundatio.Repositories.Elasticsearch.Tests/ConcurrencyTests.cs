@@ -89,7 +89,6 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
     public async Task PatchAllAsync_WithConcurrentWriters_LosesNoUpdates(string patchType)
     {
         // Arrange
-        Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
         var employees = EmployeeGenerator.GenerateEmployees(40, companyId: "1", yearsEmployed: 0);
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
         var hotIds = employees.Take(10).Select(e => e.Id).ToList();
@@ -111,9 +110,9 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
         foreach (string id in hotIds)
             Assert.Equal(acknowledged[id], results.Single(e => e.Id == id).YearsEmployed);
 
+        // Whether a writer collides with a batch is timing-dependent, so conflicts aren't asserted here. They are covered
+        // deterministically by PatchAllAsync_WhenEveryDocumentChangesAfterRead_RetriesInOneGroupedRound.
         Assert.True(acknowledged.Values.Sum() > 0);
-        if (patchType is "JsonPatch" or "ActionPatch")
-            Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("Version conflict during"));
     }
 
     [Theory]
@@ -205,6 +204,7 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(20, patched);
         Assert.Equal(2, invoker.CountRequests(HttpMethod.POST, "_bulk"));
+        Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("Version conflict during"));
         Assert.Equal(1, invoker.CountRequests(HttpMethod.POST, "_mget"));
         var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
         Assert.All(results, e =>
@@ -642,8 +642,19 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
         });
     }
 
-    [Fact]
-    public async Task SaveAsync_AfterReindex_WithPreReindexVersion_ThrowsVersionConflict()
+    /// <summary>
+    /// Reindexing doesn't preserve <c>_seq_no</c>/<c>_primary_term</c>, and the version check only compares that pair, so a
+    /// version captured before the reindex is rejected only when the new index assigned a different pair. The pair the new
+    /// index assigns depends on the reindexer's passes, so this test doesn't assume it: it asserts the guaranteed rule
+    /// (conflict if and only if the pairs differ) for documents saved a different number of times before the reindex. When
+    /// the pairs match, the stale copy silently overwrites the migrated document, which is why callers must re-read after a
+    /// reindex.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task SaveAsync_AfterReindex_WithPreReindexVersion_ConflictsOnlyWhenSequencePairDiffers(int savesBeforeReindex)
     {
         // Arrange
         var version1Index = new VersionedEmployeeIndex(_configuration, 1);
@@ -656,13 +667,14 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
             await version1Index.ConfigureAsync();
             var repository = new EmployeeRepository(version1Index);
             var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < savesBeforeReindex; i++)
             {
                 employee.Name = $"update {i}";
                 await repository.SaveAsync(employee, o => o.ImmediateConsistency());
             }
 
             string preReindexVersion = employee.Version;
+            Assert.Equal($"1:{savesBeforeReindex}", preReindexVersion);
 
             await version2Index.ConfigureAsync();
             await version2Index.ReindexAsync();
@@ -675,8 +687,17 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
             employee.Name = "stale";
 
             // Assert
-            Assert.NotEqual(preReindexVersion, reindexed.Version);
-            await Assert.ThrowsAsync<VersionConflictDocumentException>(() => reindexedRepository.SaveAsync(employee, o => o.Cache(false)));
+            Assert.NotNull(reindexed.Version);
+            if (preReindexVersion != reindexed.Version)
+            {
+                await Assert.ThrowsAsync<VersionConflictDocumentException>(() => reindexedRepository.SaveAsync(employee, o => o.Cache(false)));
+            }
+            else
+            {
+                await reindexedRepository.SaveAsync(employee, o => o.Cache(false).ImmediateConsistency());
+                var overwritten = await reindexedRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+                Assert.Equal("stale", overwritten?.Name);
+            }
 
             var source = await _client.GetAsync<Dictionary<string, object?>>(new Elastic.Clients.Elasticsearch.GetRequest(version2Index.Name, employee.Id), TestCancellationToken);
             Assert.True(source.Found);
@@ -728,5 +749,76 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
         {
             await index.DeleteAsync();
         }
+    }
+
+    [Theory]
+    [InlineData("PartialPatch", true, 409)]
+    [InlineData("PartialPatch", true, 400)]
+    [InlineData("PartialPatch", false, 409)]
+    [InlineData("PartialPatch", false, 400)]
+    [InlineData("ScriptPatch", true, 409)]
+    [InlineData("ScriptPatch", true, 400)]
+    [InlineData("ScriptPatch", false, 409)]
+    [InlineData("ScriptPatch", false, 400)]
+    public async Task PatchAllAsync_WhenBatchItemFails_ProcessesEveryBatchAndReportsFailure(string patchType, bool cacheEnabled, int status)
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(12, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        IEmployeeRepository repository = cacheEnabled ? new EmployeeRepository(configuration) : new NoCacheEmployeeRepository(configuration);
+        var ids = employees.Select(e => e.Id).ToArray();
+        if (cacheEnabled)
+            Assert.Equal(12, (await repository.GetByIdsAsync(ids, o => o.Cache())).Count);
+
+        _messageBus.ResetMessagesSent();
+        var updatedIds = new List<string>();
+        invoker.FailFirstItemOfNextBulk(status, status is 409 ? "version_conflict_engine_exception" : "illegal_argument_exception", "injected failure");
+
+        // Act
+        Task Patch() => repository.PatchAllAsync(q => q.Company("1"), CreatePatch(patchType), o => o.PageLimit(5).ImmediateConsistency().UpdateCallback(updatedIds.AddRange));
+        var exception = status is 409
+            ? await Assert.ThrowsAsync<VersionConflictDocumentException>(Patch)
+            : await Assert.ThrowsAsync<DocumentException>(Patch);
+
+        // Assert
+        string failedId = Assert.Single(invoker.FailedBulkItemIds);
+        Assert.Contains(failedId, exception.Message);
+        Assert.Equal(3, invoker.CountRequests(HttpMethod.POST, "_bulk"));
+        Assert.Equal(11, updatedIds.Count);
+        Assert.DoesNotContain(failedId, updatedIds);
+        Assert.Equal(11, _messageBus.MessagesSent);
+
+        foreach (string id in updatedIds)
+        {
+            var current = await repository.GetByIdAsync(id, o => o.Cache());
+            Assert.NotNull(current);
+            Assert.Equal("Patched", current.CompanyName);
+        }
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ScriptPatchWithCacheWhenScriptFailsForOneDocument_PatchesTheRestAndThrows()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(12, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        string failId = employees[3].Id;
+        var script = new ScriptPatch("if (ctx._id == params.failId) { throw new IllegalArgumentException('boom'); } ctx._source.companyName = 'Patched';")
+        {
+            Params = new Dictionary<string, object> { ["failId"] = failId }
+        };
+        var updatedIds = new List<string>();
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            _employeeRepository.PatchAllAsync(q => q.Company("1"), script, o => o.PageLimit(5).ImmediateConsistency().UpdateCallback(updatedIds.AddRange)));
+
+        // Assert
+        Assert.Contains(failId, exception.Message);
+        Assert.Equal(11, updatedIds.Count);
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
+        Assert.All(results, e => Assert.Equal(e.Id == failId ? employees[3].CompanyName : "Patched", e.CompanyName));
     }
 }
