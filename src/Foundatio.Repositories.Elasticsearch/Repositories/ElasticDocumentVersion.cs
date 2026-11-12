@@ -16,7 +16,8 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// </remarks>
 public readonly struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComparable<ElasticDocumentVersion>, IComparable
 {
-    /// <summary>The empty version (<c>0:0</c>).</summary>
+    /// <summary>The empty version. Its <see cref="ToString"/> is <c>0:0</c>; <see cref="ToVersionString"/> and the
+    /// implicit <see cref="string"/> conversion return <c>null</c>.</summary>
     public static readonly ElasticDocumentVersion Empty = new();
 
     public ElasticDocumentVersion(long primaryTerm, long sequenceNumber)
@@ -95,8 +96,10 @@ public readonly struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersio
         return parsed.IsEmpty ? Empty : parsed;
     }
 
-    public static implicit operator ElasticDocumentVersion(string version) => Parse(version);
-    public static implicit operator string(ElasticDocumentVersion version) => version.ToString();
+    public static implicit operator ElasticDocumentVersion(string? version) => Parse(version);
+
+    /// <summary>Same as <see cref="ToVersionString"/>: <c>null</c> for an empty version, never <c>"0:0"</c>.</summary>
+    public static implicit operator string?(ElasticDocumentVersion version) => version.ToVersionString();
 
     public int CompareTo(ElasticDocumentVersion other)
     {

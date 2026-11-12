@@ -142,11 +142,16 @@ public sealed class ElasticDocumentVersionTests
     public void ImplicitConversions_RoundTrip()
     {
         ElasticDocumentVersion version = "4:12";
-        string value = version;
+        string? value = version;
+        string? empty = ElasticDocumentVersion.Empty;
+        string? sentinel = new ElasticDocumentVersion(0, -2);
 
         Assert.Equal(4, version.PrimaryTerm);
         Assert.Equal(12, version.SequenceNumber);
         Assert.Equal("4:12", value);
+        Assert.Null(empty);
+        Assert.Null(sentinel);
+        Assert.Equal(ElasticDocumentVersion.Empty.ToVersionString(), empty);
     }
 
     [Fact]

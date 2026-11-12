@@ -1,7 +1,9 @@
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Foundatio.Repositories.Models;
 
@@ -13,85 +15,125 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 /// is always stale. Every read populates <see cref="IVersioned.Version"/> from hit metadata instead.
 /// </summary>
 /// <remarks>
-/// <para>The property is removed only from registered root document types (the <c>T</c> of every repository and
-/// <see cref="IIndex{T}"/>). Nested objects that implement <see cref="IVersioned"/> keep their <c>version</c> field, which
-/// lets models store their own business version on a child object.</para>
+/// <para>The property is removed only from root document types: the <c>T</c> of every <see cref="IIndex{T}"/> in a
+/// configuration, and types derived from them (a derived document stored through a base repository). The set of types is
+/// scoped to the serializer options it is applied to, so two configurations never affect each other.</para>
+/// <para>Only the document itself loses the property. Wherever a root document type appears nested inside another value
+/// (for example an <c>Employee</c> embedded in another document, or in a list), it is serialized with the unmodified
+/// options and keeps its <c>version</c>. Nested objects that implement <see cref="IVersioned"/> but are not root document
+/// types are never changed, which lets models store a business version on a child object.</para>
 /// <para>Removing the property also means a <c>version</c> value already stored in an older document's <c>_source</c> is
 /// ignored when it is read.</para>
 /// <para><see cref="ElasticConfiguration"/> applies this to its source serializer automatically. If you replace the
-/// source serializer, call <see cref="ExcludeDocumentVersionFromSource(JsonSerializerOptions)"/> on its options.</para>
-/// <para>Apply this only to the Elasticsearch source serializer. The cache serializer must keep the version so cached
-/// documents can still be saved with an optimistic concurrency check.</para>
+/// source serializer, call <see cref="ExcludeDocumentVersionFromSource(JsonSerializerOptions, IEnumerable{Type})"/> on
+/// its options. Never apply it to the cache serializer: cached documents must keep their version so they can still be
+/// saved with an optimistic concurrency check.</para>
 /// </remarks>
 public static class DocumentVersionSourceExclusion
 {
-    private static readonly ConcurrentDictionary<Type, byte> _documentTypes = new();
-
     /// <summary>
-    /// Registers a root document type whose <see cref="IVersioned.Version"/> property is excluded from <c>_source</c>.
-    /// Types that do not implement <see cref="IVersioned"/> are ignored. Register before the type is first serialized.
+    /// Wraps the options' type info resolver so <see cref="IVersioned.Version"/> is excluded when one of
+    /// <paramref name="documentTypes"/> (or a type derived from one) is the serialized document. Types that don't
+    /// implement <see cref="IVersioned"/> are ignored. Call before the options are first used.
     /// </summary>
-    public static void RegisterDocumentType(Type documentType)
-    {
-        ArgumentNullException.ThrowIfNull(documentType);
-
-        if (typeof(IVersioned).IsAssignableFrom(documentType))
-            _documentTypes.TryAdd(documentType, 0);
-    }
-
-    /// <summary>
-    /// Returns <c>true</c> when <paramref name="documentType"/> is a registered root document type.
-    /// </summary>
-    public static bool IsDocumentType(Type documentType)
-    {
-        ArgumentNullException.ThrowIfNull(documentType);
-        return _documentTypes.ContainsKey(documentType);
-    }
-
-    /// <summary>
-    /// A <see cref="JsonTypeInfo"/> modifier that removes the <see cref="IVersioned.Version"/> property from registered
-    /// root document types.
-    /// </summary>
-    public static void Modify(JsonTypeInfo typeInfo)
-    {
-        ArgumentNullException.ThrowIfNull(typeInfo);
-
-        if (typeInfo.Kind is not JsonTypeInfoKind.Object || !IsDocumentType(typeInfo.Type))
-            return;
-
-        for (int index = typeInfo.Properties.Count - 1; index >= 0; index--)
-        {
-            if (typeInfo.Properties[index].AttributeProvider is PropertyInfo { Name: nameof(IVersioned.Version) } property
-                && property.PropertyType == typeof(string))
-            {
-                typeInfo.Properties.RemoveAt(index);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Wraps the options' type info resolver so <see cref="IVersioned.Version"/> is excluded from registered root document types.
-    /// </summary>
-    public static JsonSerializerOptions ExcludeDocumentVersionFromSource(this JsonSerializerOptions options)
+    public static JsonSerializerOptions ExcludeDocumentVersionFromSource(this JsonSerializerOptions options, IEnumerable<Type> documentTypes)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(documentTypes);
 
-        if (options.TypeInfoResolver is ModifyingTypeInfoResolver)
-            return options;
+        var roots = documentTypes.Where(t => typeof(IVersioned).IsAssignableFrom(t)).ToHashSet();
+        return roots.Count is 0 ? options : options.ExcludeDocumentVersionFromSource(roots.Contains);
+    }
 
-        options.TypeInfoResolver = new ModifyingTypeInfoResolver(options.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver(), Modify);
+    /// <summary>
+    /// Same as <see cref="ExcludeDocumentVersionFromSource(JsonSerializerOptions, IEnumerable{Type})"/>, with a live
+    /// registry: <paramref name="isRegisteredDocumentType"/> is evaluated when a type is first serialized.
+    /// </summary>
+    internal static JsonSerializerOptions ExcludeDocumentVersionFromSource(this JsonSerializerOptions options, Func<Type, bool> isRegisteredDocumentType)
+    {
+        options.TypeInfoResolver = new RootVersionExcludingResolver(options.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver(), isRegisteredDocumentType);
         return options;
     }
 
-    private sealed class ModifyingTypeInfoResolver(IJsonTypeInfoResolver inner, Action<JsonTypeInfo> modifier) : IJsonTypeInfoResolver
+    /// <summary><c>true</c> when <paramref name="type"/> is a registered document type or derives from one.</summary>
+    internal static bool IsRootDocumentType(Type type, Func<Type, bool> isRegistered)
     {
+        for (var current = type; current is not null && current != typeof(object); current = current.BaseType)
+        {
+            if (isRegistered(current))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary><c>true</c> when <paramref name="type"/> is, or contains (array element or generic argument), a root type.</summary>
+    internal static bool ContainsRootDocumentType(Type type, Func<Type, bool> isRegistered)
+    {
+        if (IsRootDocumentType(type, isRegistered))
+            return true;
+
+        if (type.IsArray)
+            return ContainsRootDocumentType(type.GetElementType()!, isRegistered);
+
+        return type.IsGenericType && type.GetGenericArguments().Any(a => ContainsRootDocumentType(a, isRegistered));
+    }
+
+    private sealed class RootVersionExcludingResolver : IJsonTypeInfoResolver
+    {
+        private readonly IJsonTypeInfoResolver _inner;
+        private readonly Func<Type, bool> _isRegistered;
+        private JsonSerializerOptions? _nestedOptions;
+
+        public RootVersionExcludingResolver(IJsonTypeInfoResolver inner, Func<Type, bool> isRegistered)
+        {
+            _inner = inner;
+            _isRegistered = isRegistered;
+        }
+
         public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
         {
-            var typeInfo = inner.GetTypeInfo(type, options);
-            if (typeInfo is not null)
-                modifier(typeInfo);
+            var typeInfo = _inner.GetTypeInfo(type, options);
+            if (typeInfo is not { Kind: JsonTypeInfoKind.Object })
+                return typeInfo;
+
+            bool isRoot = IsRootDocumentType(type, _isRegistered);
+            for (int index = typeInfo.Properties.Count - 1; index >= 0; index--)
+            {
+                var property = typeInfo.Properties[index];
+                if (isRoot && property.AttributeProvider is PropertyInfo { Name: nameof(IVersioned.Version) } info && info.PropertyType == typeof(string))
+                {
+                    typeInfo.Properties.RemoveAt(index);
+                    continue;
+                }
+
+                if (property.CustomConverter is null && ContainsRootDocumentType(property.PropertyType, _isRegistered))
+                    property.CustomConverter = CreateNestedConverter(property.PropertyType, options);
+            }
 
             return typeInfo;
+        }
+
+        /// <summary>Serializes a nested value with the original resolver, so root types inside it keep their version.</summary>
+        private JsonConverter CreateNestedConverter(Type propertyType, JsonSerializerOptions options)
+        {
+            _nestedOptions ??= new JsonSerializerOptions(options) { TypeInfoResolver = _inner };
+            return (JsonConverter)Activator.CreateInstance(typeof(NestedValueConverter<>).MakeGenericType(propertyType), _nestedOptions)!;
+        }
+    }
+
+    private sealed class NestedValueConverter<TValue>(JsonSerializerOptions nestedOptions) : JsonConverter<TValue>
+    {
+        public override bool HandleNull => true;
+
+        public override TValue? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return JsonSerializer.Deserialize<TValue>(ref reader, nestedOptions);
+        }
+
+        public override void Write(Utf8JsonWriter writer, TValue value, JsonSerializerOptions options)
+        {
+            JsonSerializer.Serialize(writer, value, nestedOptions);
         }
     }
 }

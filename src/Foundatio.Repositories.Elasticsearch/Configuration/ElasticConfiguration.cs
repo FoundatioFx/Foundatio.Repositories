@@ -41,6 +41,7 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly bool _shouldDisposeMessageBus;
     private readonly ICacheClient _configureIndexesCache;
     public const string ConfigureIndexesResourceName = "configure-indexes";
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Type, byte> _documentTypes = new();
     private int _disposed;
 
     public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
@@ -76,7 +77,7 @@ public class ElasticConfiguration : IElasticConfiguration
     protected virtual ElasticsearchClient CreateElasticClient()
     {
         foreach (var documentType in Indexes.SelectMany(GetIndexDocumentTypes))
-            DocumentVersionSourceExclusion.RegisterDocumentType(documentType);
+            RegisterDocumentType(documentType);
 
         var nodePool = CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200"));
         var requestInvoker = CreateRequestInvoker();
@@ -94,15 +95,28 @@ public class ElasticConfiguration : IElasticConfiguration
 
     /// <summary>
     /// Configures the <see cref="JsonSerializerOptions"/> used to serialize documents to and from <c>_source</c>.
-    /// Applies <c>ConfigureFoundatioRepositoryDefaults</c> and excludes
-    /// <see cref="Models.IVersioned.Version"/> from root documents (see <see cref="DocumentVersionSourceExclusion"/>).
+    /// Applies <c>ConfigureFoundatioRepositoryDefaults</c> and excludes <see cref="Models.IVersioned.Version"/> from the
+    /// document types of this configuration's indexes and repositories (see <see cref="DocumentVersionSourceExclusion"/>).
     /// Call the base implementation when overriding.
     /// </summary>
     protected virtual void ConfigureSourceSerializerOptions(JsonSerializerOptions options)
     {
         options.ConfigureFoundatioRepositoryDefaults();
-        options.ExcludeDocumentVersionFromSource();
+        options.ExcludeDocumentVersionFromSource(IsRegisteredDocumentType);
     }
+
+    /// <summary>
+    /// Registers a root document type of this configuration, so its <see cref="Models.IVersioned.Version"/> is kept out
+    /// of <c>_source</c>. Index document types are registered when the client is created, and every repository registers
+    /// its type when it is constructed.
+    /// </summary>
+    internal void RegisterDocumentType(Type documentType)
+    {
+        if (typeof(Models.IVersioned).IsAssignableFrom(documentType))
+            _documentTypes.TryAdd(documentType, 0);
+    }
+
+    private bool IsRegisteredDocumentType(Type type) => _documentTypes.ContainsKey(type);
 
     private static IEnumerable<Type> GetIndexDocumentTypes(IIndex index)
     {

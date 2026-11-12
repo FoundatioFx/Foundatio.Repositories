@@ -111,7 +111,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         employee = await _employeeRepository.SaveAsync(employee);
         Assert.Equal("1:1", employee.Version);
 
-        string version = employeeCopy.Version;
+        string? version = employeeCopy.Version;
         await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
         Assert.Equal(version, employeeCopy.Version);
 
@@ -217,7 +217,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         Assert.Equal(employees.First(e => e.CompanyId == "2"), results.Documents.First());
 
         var company2Employees = results.Documents.ToList();
-        string company2EmployeesVersion = company2Employees.First().Version;
+        string? company2EmployeesVersion = company2Employees.First().Version;
         Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeedAsync(company2Employees.Select(e => e.Id).ToArray()));
 
         results = await _employeeRepository.GetAllByCompanyAsync("2");

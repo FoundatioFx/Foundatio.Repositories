@@ -2190,7 +2190,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         var original = await _employeeRepository.GetByIdAsync(employee.Id);
         Assert.NotNull(original);
-        string originalVersion = original.Version;
+        string? originalVersion = original.Version;
 
         // Act — noop action should NOT write to Elasticsearch
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => false));
