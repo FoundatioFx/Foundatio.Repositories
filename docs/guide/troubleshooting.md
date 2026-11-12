@@ -289,7 +289,7 @@ Don't use `VersionCheck(false)` for this; it's inverted today ([#344](https://gi
 await repository.PatchAsync(id, new ScriptPatch("ctx._source.counter++"));
 ```
 
-4. **Make sure `Version` came from a read.** A `Version` you set yourself, or one from a `FindAs<TResult>` projection, can be stale. See [Versioning](/guide/versioning#where-the-version-comes-from-on-reads).
+4. **Make sure `Version` came from a read.** A `Version` you set yourself, one read from `_source` (raw queries, `top_hits` aggregations), or one captured before a reindex can be stale. See [Versioning](/guide/versioning#where-the-version-comes-from-on-reads).
 
 ## Performance Issues
 

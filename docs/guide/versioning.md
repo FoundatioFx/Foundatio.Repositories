@@ -77,7 +77,8 @@ sequenceDiagram
 | `GetByIdAsync` / `GetByIdsAsync` | Always overwritten from GET metadata. **Known gap:** when metadata is missing it becomes `"0:0"`. |
 | `FindAsync` / `FindOneAsync` / `SearchAsync` | Overwritten from hit metadata **when present**. Otherwise the stored `_source` value is kept. |
 | Cache hit | Returns the cached `FindHit`, whose `Version` was taken when it was cached. A cached document can be stale; saving it fails safely with a 409. |
-| `FindAsAsync<TResult>`, `top_hits` aggregations | Built from `_source` only. Any `Version` here is the stale stored value. |
+| `FindAsAsync<TResult>` | On an `IVersioned` repository the search requests sequence numbers, so a `TResult` that implements `IVersioned` gets `Version` overwritten from hit metadata, like `FindAsync`. If `TResult` doesn't implement `IVersioned`, only `hit.Version` carries the current version. |
+| `top_hits` aggregations | Built from `_source` only. Any `version` here is the stale stored value. |
 
 `hit.Version` (on `FindHit<T>`) and `hit.Document.Version` normally agree for repository reads.
 
@@ -89,7 +90,7 @@ The repository ignores it on reads (see the table above), but raw Elasticsearch 
 
 ### Versions after reindex
 
-Reindexing (schema migrations via `VersionedIndex`, `ReindexAsync`, moving documents between daily or monthly indexes) writes the documents into a new index with fresh sequence numbers. Elasticsearch does **not** preserve `_seq_no`/`_primary_term`. A version captured before the reindex will cause a 409 on the next save. Re-read the document after a reindex.
+Reindexing (schema migrations via `VersionedIndex`, `ReindexAsync`, moving documents between daily or monthly indexes) writes the documents into a new index with fresh sequence numbers. Elasticsearch does **not** preserve `_seq_no`/`_primary_term`. A version captured before the reindex is meaningless against the new index. It usually causes a 409 on the next save, but that isn't guaranteed: the new index can assign the same `primaryTerm:sequenceNumber` pair, and since the save only sends that pair (not the index it came from), a stale copy can pass the check and overwrite migrated data. Re-read documents after a reindex instead of reusing versions captured before it.
 
 ### Caching and versions
 
