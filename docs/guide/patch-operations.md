@@ -555,13 +555,15 @@ All patch types can throw `DocumentNotFoundException` (HTTP 404) or `VersionConf
 Patches never compare against a version **you** read. They're applied to the latest document, so they're last-write-wins for your copy:
 
 - **Update API (Script/Partial):** no version check at all; conflicts are retried server-side.
-- **JsonPatch/ActionPatch (single id):** the write is checked against the version from the fetch inside the same attempt, so a concurrent change between that fetch and the write is detected and the attempt is retried.
-- **Batch patches (`PatchAsync(ids)`, `PatchAllAsync`):** each document is written with the version from the search hit. Conflicting documents are re-run one at a time through `PatchAsync(id)`.
+- **JsonPatch/ActionPatch/pipeline PartialPatch (single id):** for `IVersioned` entities without `SkipVersionCheck()`, the write is checked against the version from the fetch inside the same attempt, so a concurrent change between that fetch and the write is detected and the attempt is retried. For entities that don't implement `IVersioned` there is no check, and a change made between the fetch and the write (including to unrelated fields) is silently overwritten.
+- **Batch JsonPatch/ActionPatch (`PatchAsync(ids)`, `PatchAllAsync`):** for `IVersioned` entities, each document is written with the version from the search hit, and conflicting documents are re-run one at a time through `PatchAsync(id)`. Non-versioned entities get no check.
+- **`PatchAsync(ids)` with a default pipeline (Script/Partial):** runs `PatchAsync(id)` for each id.
+- **`PatchAllAsync` PartialPatch / ScriptPatch with caching enabled:** sent as one bulk request per batch (pipeline PartialPatch as a bulk index with the hit's version for `IVersioned` entities). Conflicts aren't re-run; see the known gap below.
 
 Known gaps tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344):
 - the batch paths ignore `SkipVersionCheck()`;
 - `PatchAllAsync` with a `ScriptPatch` and caching disabled uses update-by-query with `conflicts=proceed`, which **skips** conflicting documents and only logs a warning;
-- an invalid bulk response in the `PatchAllAsync` bulk-update branch stops the remaining batches without throwing.
+- in the `PatchAllAsync` PartialPatch / ScriptPatch-with-cache branch, any failed item (including a version conflict) makes the batch log an error and stop: no exception, no retry, the batch's successful documents aren't counted or notified, and the remaining batches aren't processed.
 
 See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full table.
 

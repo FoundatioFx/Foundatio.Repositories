@@ -104,10 +104,13 @@ When caching is enabled, cached reads return the `FindHit` (and its `Version`) a
 | `SaveAsync` (one document) | index with `if_seq_no`/`if_primary_term` from `Version` | **Yes**, unless `SkipVersionCheck()` | None. **Known gap:** no 429/503 retry |
 | `SaveAsync` / `AddAsync` (many documents) | bulk with `if_seq_no` per document | **Yes**, unless `SkipVersionCheck()` | 429/503: up to 4 attempts (1s/2s/4s backoff). 409 is never retried |
 | `PatchAsync(id)` ScriptPatch / PartialPatch | Update API with `retry_on_conflict` | No: last write wins | Server-side, `Retry(n)` times (default 10) |
-| `PatchAsync(id)` JsonPatch / ActionPatch, or Partial with a default pipeline | GET, apply, index with `if_seq_no` **from that GET** | No: checks against the fresh GET | Resilience policy: `Retry(n)` **attempts**, otherwise the policy default |
+| `PatchAsync(id)` JsonPatch / ActionPatch, or Partial with a default pipeline | GET, apply, index. `if_seq_no` **from that GET** only for `IVersioned` entities without `SkipVersionCheck()` | No: checks against the fresh GET (versioned only). **Non-versioned entities:** no check, so a change between the GET and the write is silently overwritten | Resilience policy: `Retry(n)` **attempts**, otherwise the policy default |
 | `PatchAsync(id)` ScriptPatch with a default pipeline | update-by-query on the id | No | None. Throws on conflict |
-| `PatchAsync(ids)` / `PatchAllAsync` JsonPatch / ActionPatch / pipeline Partial | bulk index with `if_seq_no` from the search hits | No | Conflicting ids are re-run one at a time through `PatchAsync(id)`. **Known gap:** ignores `SkipVersionCheck()` |
-| `PatchAllAsync` ScriptPatch / PartialPatch (bulk Update API) | bulk update with `retry_on_conflict` | No | Server-side |
+| `PatchAsync(ids)` / `PatchAllAsync` JsonPatch / ActionPatch | bulk index; `if_seq_no` from the search hits only for `IVersioned` entities | No | Conflicting ids are re-run one at a time through `PatchAsync(id)`. **Known gap:** ignores `SkipVersionCheck()` |
+| `PatchAsync(ids)` ScriptPatch / PartialPatch with a default pipeline | runs `PatchAsync(id)` for each id | As for `PatchAsync(id)` | As for `PatchAsync(id)` |
+| `PatchAsync(ids)` ScriptPatch / PartialPatch | bulk update with `retry_on_conflict` | No | Server-side. Throws after processing the successes if any item still fails |
+| `PatchAllAsync` PartialPatch with a default pipeline | bulk index; `if_seq_no` from the search hits only for `IVersioned` entities | No | None. **Known gap:** a conflict aborts processing, as in the next row |
+| `PatchAllAsync` ScriptPatch (caching enabled) / PartialPatch | bulk update with `retry_on_conflict` | No | Server-side. **Known gap:** if any item in a batch still fails, the error is logged and processing stops: no exception, the batch's successes aren't counted or notified, and later batches aren't processed |
 | `PatchAllAsync` ScriptPatch with caching disabled | update-by-query, `conflicts=proceed` | No | **Known gap:** conflicting documents are skipped and only logged |
 | `RemoveAsync` | delete | **No** | Bulk only: 429/503 |
 | `RemoveAllAsync` (no listeners, no cache) | delete-by-query, `conflicts=proceed` | No | Re-runs up to `Retry(n) + 1` passes while conflicts remain. Leftovers are only logged |
