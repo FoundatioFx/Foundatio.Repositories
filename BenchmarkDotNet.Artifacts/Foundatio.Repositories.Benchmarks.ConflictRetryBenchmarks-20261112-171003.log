@@ -1,0 +1,643 @@
+// Validating benchmarks:
+// ***** BenchmarkRunner: Start   *****
+// ***** Found 6 benchmark(s) in total *****
+// ***** Building 1 exe(s) in Parallel: Start   *****
+// ***** Done, took 00:00:00 (0.02 sec)   *****
+// Found 6 benchmarks:
+//   ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=10]
+//   ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=10]
+//   ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=100]
+//   ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=100]
+//   ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=500]
+//   ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=500]
+
+// **************************
+// Benchmark: ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=10]
+// *** Execute ***
+// Launch: 1 / 1
+// ! Failed to set up priority High for process System.Diagnostics.Process (dotnet). Make sure you have the right permissions. Message: Permission denied
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.15.8
+// Runtime=.NET 10.0.14 (10.0.14, 10.0.1426.52326), Arm64 RyuJIT armv8.0-a
+// GC=Concurrent Workstation
+// HardwareIntrinsics=ArmBase+AdvSimd,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: Job-DMHENR(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2)
+
+OverheadJitting  1: 1 op, 142291.00 ns, 142.2910 us/op
+WorkloadJitting  1: 1 op, 203131791.00 ns, 203.1318 ms/op
+
+OverheadWarmup   1: 1 op, 1250.00 ns, 1.2500 us/op
+OverheadWarmup   2: 1 op, 41.00 ns, 41.0000 ns/op
+OverheadWarmup   3: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadWarmup   4: 1 op, 459.00 ns, 459.0000 ns/op
+OverheadWarmup   5: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadWarmup   6: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadWarmup   7: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadWarmup   8: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadWarmup   9: 1 op, 41.00 ns, 41.0000 ns/op
+
+OverheadActual   1: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual   2: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual   3: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadActual   4: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual   5: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual   6: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual   7: 1 op, 84.00 ns, 84.0000 ns/op
+OverheadActual   8: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual   9: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual  10: 1 op, 41.00 ns, 41.0000 ns/op
+OverheadActual  11: 1 op, 209.00 ns, 209.0000 ns/op
+OverheadActual  12: 1 op, 84.00 ns, 84.0000 ns/op
+OverheadActual  13: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual  14: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  15: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual  16: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  17: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  18: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual  19: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  20: 1 op, 208.00 ns, 208.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 88691958.00 ns, 88.6920 ms/op
+WorkloadWarmup   2: 1 op, 154581042.00 ns, 154.5810 ms/op
+
+WorkloadActual   1: 1 op, 99139708.00 ns, 99.1397 ms/op
+WorkloadActual   2: 1 op, 91565750.00 ns, 91.5658 ms/op
+WorkloadActual   3: 1 op, 85967708.00 ns, 85.9677 ms/op
+WorkloadActual   4: 1 op, 93876958.00 ns, 93.8770 ms/op
+WorkloadActual   5: 1 op, 94787666.00 ns, 94.7877 ms/op
+WorkloadActual   6: 1 op, 85360250.00 ns, 85.3603 ms/op
+WorkloadActual   7: 1 op, 85982042.00 ns, 85.9820 ms/op
+WorkloadActual   8: 1 op, 83089792.00 ns, 83.0898 ms/op
+WorkloadActual   9: 1 op, 87049833.00 ns, 87.0498 ms/op
+WorkloadActual  10: 1 op, 87850042.00 ns, 87.8500 ms/op
+
+WorkloadResult   1: 1 op, 99139583.00 ns, 99.1396 ms/op
+WorkloadResult   2: 1 op, 91565625.00 ns, 91.5656 ms/op
+WorkloadResult   3: 1 op, 85967583.00 ns, 85.9676 ms/op
+WorkloadResult   4: 1 op, 93876833.00 ns, 93.8768 ms/op
+WorkloadResult   5: 1 op, 94787541.00 ns, 94.7875 ms/op
+WorkloadResult   6: 1 op, 85360125.00 ns, 85.3601 ms/op
+WorkloadResult   7: 1 op, 85981917.00 ns, 85.9819 ms/op
+WorkloadResult   8: 1 op, 83089667.00 ns, 83.0897 ms/op
+WorkloadResult   9: 1 op, 87049708.00 ns, 87.0497 ms/op
+WorkloadResult  10: 1 op, 87849917.00 ns, 87.8499 ms/op
+// GC:  0 0 0 506256 1
+// Threading:  50 0 1
+// Exceptions:  2
+
+
+Mean = 89.467 ms, StdErr = 1.620 ms (1.81%), N = 10, StdDev = 5.122 ms
+Min = 83.090 ms, Q1 = 85.971 ms, Median = 87.450 ms, Q3 = 93.299 ms, Max = 99.140 ms
+IQR = 7.328 ms, LowerFence = 74.979 ms, UpperFence = 104.291 ms
+ConfidenceInterval = [81.723 ms; 97.210 ms] (CI 99.9%), Margin = 7.744 ms (8.66% of Mean)
+Skewness = 0.53, Kurtosis = 1.78, MValue = 2
+
+// ** Remained 5 (83.3%) benchmark(s) to run. Estimated finish 2026-11-12 17:10 (0h 0m from now) **
+// **************************
+// Benchmark: ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=10]
+// *** Execute ***
+// Launch: 1 / 1
+// ! Failed to set up priority High for process System.Diagnostics.Process (dotnet). Make sure you have the right permissions. Message: Permission denied
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.15.8
+// Runtime=.NET 10.0.14 (10.0.14, 10.0.1426.52326), Arm64 RyuJIT armv8.0-a
+// GC=Concurrent Workstation
+// HardwareIntrinsics=ArmBase+AdvSimd,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: Job-DMHENR(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2)
+
+OverheadJitting  1: 1 op, 221833.00 ns, 221.8330 us/op
+WorkloadJitting  1: 1 op, 77562959.00 ns, 77.5630 ms/op
+
+OverheadWarmup   1: 1 op, 2667.00 ns, 2.6670 us/op
+OverheadWarmup   2: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadWarmup   3: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadWarmup   4: 1 op, 542.00 ns, 542.0000 ns/op
+OverheadWarmup   5: 1 op, 416.00 ns, 416.0000 ns/op
+OverheadWarmup   6: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadWarmup   7: 1 op, 416.00 ns, 416.0000 ns/op
+OverheadWarmup   8: 1 op, 333.00 ns, 333.0000 ns/op
+
+OverheadActual   1: 1 op, 584.00 ns, 584.0000 ns/op
+OverheadActual   2: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual   3: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual   4: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadActual   5: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadActual   6: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadActual   7: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual   8: 1 op, 542.00 ns, 542.0000 ns/op
+OverheadActual   9: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  10: 1 op, 166.00 ns, 166.0000 ns/op
+OverheadActual  11: 1 op, 459.00 ns, 459.0000 ns/op
+OverheadActual  12: 1 op, 709.00 ns, 709.0000 ns/op
+OverheadActual  13: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  14: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  15: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  16: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadActual  17: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadActual  18: 1 op, 458.00 ns, 458.0000 ns/op
+OverheadActual  19: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadActual  20: 1 op, 333.00 ns, 333.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 65142791.00 ns, 65.1428 ms/op
+WorkloadWarmup   2: 1 op, 76734833.00 ns, 76.7348 ms/op
+
+WorkloadActual   1: 1 op, 68176500.00 ns, 68.1765 ms/op
+WorkloadActual   2: 1 op, 77782250.00 ns, 77.7823 ms/op
+WorkloadActual   3: 1 op, 80346333.00 ns, 80.3463 ms/op
+WorkloadActual   4: 1 op, 58578834.00 ns, 58.5788 ms/op
+WorkloadActual   5: 1 op, 63323209.00 ns, 63.3232 ms/op
+WorkloadActual   6: 1 op, 66753958.00 ns, 66.7540 ms/op
+WorkloadActual   7: 1 op, 83924125.00 ns, 83.9241 ms/op
+WorkloadActual   8: 1 op, 62853333.00 ns, 62.8533 ms/op
+WorkloadActual   9: 1 op, 73585792.00 ns, 73.5858 ms/op
+WorkloadActual  10: 1 op, 74135458.00 ns, 74.1355 ms/op
+
+WorkloadResult   1: 1 op, 68176167.00 ns, 68.1762 ms/op
+WorkloadResult   2: 1 op, 77781917.00 ns, 77.7819 ms/op
+WorkloadResult   3: 1 op, 80346000.00 ns, 80.3460 ms/op
+WorkloadResult   4: 1 op, 58578501.00 ns, 58.5785 ms/op
+WorkloadResult   5: 1 op, 63322876.00 ns, 63.3229 ms/op
+WorkloadResult   6: 1 op, 66753625.00 ns, 66.7536 ms/op
+WorkloadResult   7: 1 op, 83923792.00 ns, 83.9238 ms/op
+WorkloadResult   8: 1 op, 62853000.00 ns, 62.8530 ms/op
+WorkloadResult   9: 1 op, 73585459.00 ns, 73.5855 ms/op
+WorkloadResult  10: 1 op, 74135125.00 ns, 74.1351 ms/op
+// GC:  0 0 0 237648 1
+// Threading:  15 0 1
+
+
+Mean = 70.946 ms, StdErr = 2.630 ms (3.71%), N = 10, StdDev = 8.316 ms
+Min = 58.579 ms, Q1 = 64.181 ms, Median = 70.881 ms, Q3 = 76.870 ms, Max = 83.924 ms
+IQR = 12.690 ms, LowerFence = 45.146 ms, UpperFence = 95.905 ms
+ConfidenceInterval = [58.372 ms; 83.519 ms] (CI 99.9%), Margin = 12.573 ms (17.72% of Mean)
+Skewness = 0.07, Kurtosis = 1.46, MValue = 3.6
+
+// ** Remained 4 (66.7%) benchmark(s) to run. Estimated finish 2026-11-12 17:10 (0h 0m from now) **
+// **************************
+// Benchmark: ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=100]
+// *** Execute ***
+// Launch: 1 / 1
+// ! Failed to set up priority High for process System.Diagnostics.Process (dotnet). Make sure you have the right permissions. Message: Permission denied
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.15.8
+// Runtime=.NET 10.0.14 (10.0.14, 10.0.1426.52326), Arm64 RyuJIT armv8.0-a
+// GC=Concurrent Workstation
+// HardwareIntrinsics=ArmBase+AdvSimd,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: Job-DMHENR(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2)
+
+OverheadJitting  1: 1 op, 176708.00 ns, 176.7080 us/op
+WorkloadJitting  1: 1 op, 733165833.00 ns, 733.1658 ms/op
+
+OverheadWarmup   1: 1 op, 1916.00 ns, 1.9160 us/op
+OverheadWarmup   2: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadWarmup   3: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadWarmup   4: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadWarmup   5: 1 op, 166.00 ns, 166.0000 ns/op
+OverheadWarmup   6: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadWarmup   7: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadWarmup   8: 1 op, 125.00 ns, 125.0000 ns/op
+
+OverheadActual   1: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual   2: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual   3: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual   4: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual   5: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual   6: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual   7: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual   8: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual   9: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  10: 1 op, 84.00 ns, 84.0000 ns/op
+OverheadActual  11: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual  12: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadActual  13: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  14: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  15: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual  16: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  17: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  18: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual  19: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual  20: 1 op, 41.00 ns, 41.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 692786667.00 ns, 692.7867 ms/op
+WorkloadWarmup   2: 1 op, 743418500.00 ns, 743.4185 ms/op
+
+WorkloadActual   1: 1 op, 687795375.00 ns, 687.7954 ms/op
+WorkloadActual   2: 1 op, 705554666.00 ns, 705.5547 ms/op
+WorkloadActual   3: 1 op, 715221042.00 ns, 715.2210 ms/op
+WorkloadActual   4: 1 op, 699169250.00 ns, 699.1693 ms/op
+WorkloadActual   5: 1 op, 785727458.00 ns, 785.7275 ms/op
+WorkloadActual   6: 1 op, 758959458.00 ns, 758.9595 ms/op
+WorkloadActual   7: 1 op, 734719208.00 ns, 734.7192 ms/op
+WorkloadActual   8: 1 op, 961594167.00 ns, 961.5942 ms/op
+WorkloadActual   9: 1 op, 750505417.00 ns, 750.5054 ms/op
+WorkloadActual  10: 1 op, 1060154541.00 ns, 1.0602 s/op
+
+WorkloadResult   1: 1 op, 687795250.00 ns, 687.7953 ms/op
+WorkloadResult   2: 1 op, 705554541.00 ns, 705.5545 ms/op
+WorkloadResult   3: 1 op, 715220917.00 ns, 715.2209 ms/op
+WorkloadResult   4: 1 op, 699169125.00 ns, 699.1691 ms/op
+WorkloadResult   5: 1 op, 785727333.00 ns, 785.7273 ms/op
+WorkloadResult   6: 1 op, 758959333.00 ns, 758.9593 ms/op
+WorkloadResult   7: 1 op, 734719083.00 ns, 734.7191 ms/op
+WorkloadResult   8: 1 op, 750505292.00 ns, 750.5053 ms/op
+// GC:  0 0 0 4305792 1
+// Threading:  410 0 1
+// Exceptions:  2
+
+
+Mean = 729.706 ms, StdErr = 11.903 ms (1.63%), N = 8, StdDev = 33.666 ms
+Min = 687.795 ms, Q1 = 703.958 ms, Median = 724.970 ms, Q3 = 752.619 ms, Max = 785.727 ms
+IQR = 48.661 ms, LowerFence = 630.967 ms, UpperFence = 825.610 ms
+ConfidenceInterval = [665.337 ms; 794.076 ms] (CI 99.9%), Margin = 64.369 ms (8.82% of Mean)
+Skewness = 0.3, Kurtosis = 1.47, MValue = 2
+
+// ** Remained 3 (50.0%) benchmark(s) to run. Estimated finish 2026-11-12 17:10 (0h 0m from now) **
+// **************************
+// Benchmark: ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=100]
+// *** Execute ***
+// Launch: 1 / 1
+// ! Failed to set up priority High for process System.Diagnostics.Process (dotnet). Make sure you have the right permissions. Message: Permission denied
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.15.8
+// Runtime=.NET 10.0.14 (10.0.14, 10.0.1426.52326), Arm64 RyuJIT armv8.0-a
+// GC=Concurrent Workstation
+// HardwareIntrinsics=ArmBase+AdvSimd,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: Job-DMHENR(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2)
+
+OverheadJitting  1: 1 op, 214084.00 ns, 214.0840 us/op
+WorkloadJitting  1: 1 op, 92519291.00 ns, 92.5193 ms/op
+
+OverheadWarmup   1: 1 op, 1833.00 ns, 1.8330 us/op
+OverheadWarmup   2: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadWarmup   3: 1 op, 417.00 ns, 417.0000 ns/op
+OverheadWarmup   4: 1 op, 292.00 ns, 292.0000 ns/op
+OverheadWarmup   5: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadWarmup   6: 1 op, 84.00 ns, 84.0000 ns/op
+OverheadWarmup   7: 1 op, 41.00 ns, 41.0000 ns/op
+OverheadWarmup   8: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadWarmup   9: 1 op, 42.00 ns, 42.0000 ns/op
+
+OverheadActual   1: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual   2: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual   3: 1 op, 84.00 ns, 84.0000 ns/op
+OverheadActual   4: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadActual   5: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual   6: 1 op, 166.00 ns, 166.0000 ns/op
+OverheadActual   7: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual   8: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual   9: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  10: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual  11: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual  12: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  13: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadActual  14: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadActual  15: 1 op, 292.00 ns, 292.0000 ns/op
+OverheadActual  16: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  17: 1 op, 417.00 ns, 417.0000 ns/op
+OverheadActual  18: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual  19: 1 op, 250.00 ns, 250.0000 ns/op
+OverheadActual  20: 1 op, 334.00 ns, 334.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 82983541.00 ns, 82.9835 ms/op
+WorkloadWarmup   2: 1 op, 70747750.00 ns, 70.7478 ms/op
+
+WorkloadActual   1: 1 op, 69389041.00 ns, 69.3890 ms/op
+WorkloadActual   2: 1 op, 71189458.00 ns, 71.1895 ms/op
+WorkloadActual   3: 1 op, 82828250.00 ns, 82.8283 ms/op
+WorkloadActual   4: 1 op, 79502375.00 ns, 79.5024 ms/op
+WorkloadActual   5: 1 op, 108901083.00 ns, 108.9011 ms/op
+WorkloadActual   6: 1 op, 67883958.00 ns, 67.8840 ms/op
+WorkloadActual   7: 1 op, 75596334.00 ns, 75.5963 ms/op
+WorkloadActual   8: 1 op, 80100500.00 ns, 80.1005 ms/op
+WorkloadActual   9: 1 op, 93899291.00 ns, 93.8993 ms/op
+WorkloadActual  10: 1 op, 89151375.00 ns, 89.1514 ms/op
+
+WorkloadResult   1: 1 op, 69388874.00 ns, 69.3889 ms/op
+WorkloadResult   2: 1 op, 71189291.00 ns, 71.1893 ms/op
+WorkloadResult   3: 1 op, 82828083.00 ns, 82.8281 ms/op
+WorkloadResult   4: 1 op, 79502208.00 ns, 79.5022 ms/op
+WorkloadResult   5: 1 op, 108900916.00 ns, 108.9009 ms/op
+WorkloadResult   6: 1 op, 67883791.00 ns, 67.8838 ms/op
+WorkloadResult   7: 1 op, 75596167.00 ns, 75.5962 ms/op
+WorkloadResult   8: 1 op, 80100333.00 ns, 80.1003 ms/op
+WorkloadResult   9: 1 op, 93899124.00 ns, 93.8991 ms/op
+WorkloadResult  10: 1 op, 89151208.00 ns, 89.1512 ms/op
+// GC:  0 0 0 1388840 1
+// Threading:  16 0 1
+
+
+Mean = 81.844 ms, StdErr = 4.004 ms (4.89%), N = 10, StdDev = 12.662 ms
+Min = 67.884 ms, Q1 = 72.291 ms, Median = 79.801 ms, Q3 = 87.570 ms, Max = 108.901 ms
+IQR = 15.279 ms, LowerFence = 49.372 ms, UpperFence = 110.490 ms
+ConfidenceInterval = [62.701 ms; 100.987 ms] (CI 99.9%), Margin = 19.143 ms (23.39% of Mean)
+Skewness = 0.78, Kurtosis = 2.48, MValue = 2
+
+// ** Remained 2 (33.3%) benchmark(s) to run. Estimated finish 2026-11-12 17:10 (0h 0m from now) **
+// **************************
+// Benchmark: ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=500]
+// *** Execute ***
+// Launch: 1 / 1
+// ! Failed to set up priority High for process System.Diagnostics.Process (dotnet). Make sure you have the right permissions. Message: Permission denied
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.15.8
+// Runtime=.NET 10.0.14 (10.0.14, 10.0.1426.52326), Arm64 RyuJIT armv8.0-a
+// GC=Concurrent Workstation
+// HardwareIntrinsics=ArmBase+AdvSimd,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: Job-DMHENR(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2)
+
+OverheadJitting  1: 1 op, 204667.00 ns, 204.6670 us/op
+WorkloadJitting  1: 1 op, 4079675167.00 ns, 4.0797 s/op
+
+OverheadWarmup   1: 1 op, 2000.00 ns, 2.0000 us/op
+OverheadWarmup   2: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadWarmup   3: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadWarmup   4: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadWarmup   5: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadWarmup   6: 1 op, 42.00 ns, 42.0000 ns/op
+
+OverheadActual   1: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual   2: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual   3: 1 op, 500.00 ns, 500.0000 ns/op
+OverheadActual   4: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual   5: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual   6: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadActual   7: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual   8: 1 op, 84.00 ns, 84.0000 ns/op
+OverheadActual   9: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  10: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  11: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual  12: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual  13: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadActual  14: 1 op, 209.00 ns, 209.0000 ns/op
+OverheadActual  15: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadActual  16: 1 op, 209.00 ns, 209.0000 ns/op
+OverheadActual  17: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  18: 1 op, 209.00 ns, 209.0000 ns/op
+OverheadActual  19: 1 op, 291.00 ns, 291.0000 ns/op
+OverheadActual  20: 1 op, 250.00 ns, 250.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 4041523500.00 ns, 4.0415 s/op
+WorkloadWarmup   2: 1 op, 4194920125.00 ns, 4.1949 s/op
+
+WorkloadActual   1: 1 op, 4689616667.00 ns, 4.6896 s/op
+WorkloadActual   2: 1 op, 7333533250.00 ns, 7.3335 s/op
+WorkloadActual   3: 1 op, 6231014834.00 ns, 6.2310 s/op
+WorkloadActual   4: 1 op, 6086472375.00 ns, 6.0865 s/op
+WorkloadActual   5: 1 op, 6548045666.00 ns, 6.5480 s/op
+WorkloadActual   6: 1 op, 6420253166.00 ns, 6.4203 s/op
+WorkloadActual   7: 1 op, 6074806250.00 ns, 6.0748 s/op
+WorkloadActual   8: 1 op, 6441834958.00 ns, 6.4418 s/op
+WorkloadActual   9: 1 op, 5956228916.00 ns, 5.9562 s/op
+WorkloadActual  10: 1 op, 6338937708.00 ns, 6.3389 s/op
+
+WorkloadResult   1: 1 op, 4689616521.00 ns, 4.6896 s/op
+WorkloadResult   2: 1 op, 6231014688.00 ns, 6.2310 s/op
+WorkloadResult   3: 1 op, 6086472229.00 ns, 6.0865 s/op
+WorkloadResult   4: 1 op, 6548045520.00 ns, 6.5480 s/op
+WorkloadResult   5: 1 op, 6420253020.00 ns, 6.4203 s/op
+WorkloadResult   6: 1 op, 6074806104.00 ns, 6.0748 s/op
+WorkloadResult   7: 1 op, 6441834812.00 ns, 6.4418 s/op
+WorkloadResult   8: 1 op, 5956228770.00 ns, 5.9562 s/op
+WorkloadResult   9: 1 op, 6338937562.00 ns, 6.3389 s/op
+// GC:  3 0 0 21314272 1
+// Threading:  2012 0 1
+// Exceptions:  2
+
+
+Mean = 6.087 s, StdErr = 0.186 s (3.06%), N = 9, StdDev = 0.559 s
+Min = 4.690 s, Q1 = 6.075 s, Median = 6.231 s, Q3 = 6.420 s, Max = 6.548 s
+IQR = 0.345 s, LowerFence = 5.557 s, UpperFence = 6.938 s
+ConfidenceInterval = [5.147 s; 7.028 s] (CI 99.9%), Margin = 0.940 s (15.44% of Mean)
+Skewness = -1.61, Kurtosis = 4.42, MValue = 3
+
+// ** Remained 1 (16.7%) benchmark(s) to run. Estimated finish 2026-11-12 17:12 (0h 0m from now) **
+// **************************
+// Benchmark: ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=500]
+// *** Execute ***
+// Launch: 1 / 1
+// ! Failed to set up priority High for process System.Diagnostics.Process (dotnet). Make sure you have the right permissions. Message: Permission denied
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.15.8
+// Runtime=.NET 10.0.14 (10.0.14, 10.0.1426.52326), Arm64 RyuJIT armv8.0-a
+// GC=Concurrent Workstation
+// HardwareIntrinsics=ArmBase+AdvSimd,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: Job-DMHENR(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2)
+
+OverheadJitting  1: 1 op, 245083.00 ns, 245.0830 us/op
+WorkloadJitting  1: 1 op, 128995708.00 ns, 128.9957 ms/op
+
+OverheadWarmup   1: 1 op, 2958.00 ns, 2.9580 us/op
+OverheadWarmup   2: 1 op, 584.00 ns, 584.0000 ns/op
+OverheadWarmup   3: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadWarmup   4: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadWarmup   5: 1 op, 458.00 ns, 458.0000 ns/op
+OverheadWarmup   6: 1 op, 375.00 ns, 375.0000 ns/op
+OverheadWarmup   7: 1 op, 333.00 ns, 333.0000 ns/op
+OverheadWarmup   8: 1 op, 41.00 ns, 41.0000 ns/op
+OverheadWarmup   9: 1 op, 84.00 ns, 84.0000 ns/op
+
+OverheadActual   1: 1 op, 166.00 ns, 166.0000 ns/op
+OverheadActual   2: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual   3: 1 op, 84.00 ns, 84.0000 ns/op
+OverheadActual   4: 1 op, 208.00 ns, 208.0000 ns/op
+OverheadActual   5: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual   6: 1 op, 41.00 ns, 41.0000 ns/op
+OverheadActual   7: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual   8: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual   9: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual  10: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual  11: 1 op, 83.00 ns, 83.0000 ns/op
+OverheadActual  12: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual  13: 1 op, 42.00 ns, 42.0000 ns/op
+OverheadActual  14: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual  15: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual  16: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual  17: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  18: 1 op, 167.00 ns, 167.0000 ns/op
+OverheadActual  19: 1 op, 125.00 ns, 125.0000 ns/op
+OverheadActual  20: 1 op, 167.00 ns, 167.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 107025458.00 ns, 107.0255 ms/op
+WorkloadWarmup   2: 1 op, 113911291.00 ns, 113.9113 ms/op
+
+WorkloadActual   1: 1 op, 105845541.00 ns, 105.8455 ms/op
+WorkloadActual   2: 1 op, 111324625.00 ns, 111.3246 ms/op
+WorkloadActual   3: 1 op, 115796333.00 ns, 115.7963 ms/op
+WorkloadActual   4: 1 op, 111329667.00 ns, 111.3297 ms/op
+WorkloadActual   5: 1 op, 106905000.00 ns, 106.9050 ms/op
+WorkloadActual   6: 1 op, 111178333.00 ns, 111.1783 ms/op
+WorkloadActual   7: 1 op, 116214083.00 ns, 116.2141 ms/op
+WorkloadActual   8: 1 op, 122512209.00 ns, 122.5122 ms/op
+WorkloadActual   9: 1 op, 98846750.00 ns, 98.8468 ms/op
+WorkloadActual  10: 1 op, 119579875.00 ns, 119.5799 ms/op
+
+WorkloadResult   1: 1 op, 105845458.00 ns, 105.8455 ms/op
+WorkloadResult   2: 1 op, 111324542.00 ns, 111.3245 ms/op
+WorkloadResult   3: 1 op, 115796250.00 ns, 115.7963 ms/op
+WorkloadResult   4: 1 op, 111329584.00 ns, 111.3296 ms/op
+WorkloadResult   5: 1 op, 106904917.00 ns, 106.9049 ms/op
+WorkloadResult   6: 1 op, 111178250.00 ns, 111.1783 ms/op
+WorkloadResult   7: 1 op, 116214000.00 ns, 116.2140 ms/op
+WorkloadResult   8: 1 op, 122512126.00 ns, 122.5121 ms/op
+WorkloadResult   9: 1 op, 98846667.00 ns, 98.8467 ms/op
+WorkloadResult  10: 1 op, 119579792.00 ns, 119.5798 ms/op
+// GC:  1 0 0 6483016 1
+// Threading:  15 0 1
+
+
+Mean = 111.953 ms, StdErr = 2.207 ms (1.97%), N = 10, StdDev = 6.980 ms
+Min = 98.847 ms, Q1 = 107.973 ms, Median = 111.327 ms, Q3 = 116.110 ms, Max = 122.512 ms
+IQR = 8.136 ms, LowerFence = 95.769 ms, UpperFence = 128.314 ms
+ConfidenceInterval = [101.400 ms; 122.507 ms] (CI 99.9%), Margin = 10.553 ms (9.43% of Mean)
+Skewness = -0.25, Kurtosis = 2.02, MValue = 3
+
+// ** Remained 0 (0.0%) benchmark(s) to run. Estimated finish 2026-11-12 17:11 (0h 0m from now) **
+// ***** BenchmarkRunner: Finish  *****
+
+// * Export *
+  BenchmarkDotNet.Artifacts/results/Foundatio.Repositories.Benchmarks.ConflictRetryBenchmarks-report.csv
+  BenchmarkDotNet.Artifacts/results/Foundatio.Repositories.Benchmarks.ConflictRetryBenchmarks-report-github.md
+  BenchmarkDotNet.Artifacts/results/Foundatio.Repositories.Benchmarks.ConflictRetryBenchmarks-report.html
+
+// * Detailed results *
+ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=10]
+Runtime = ; GC = 
+Mean = 89.467 ms, StdErr = 1.620 ms (1.81%), N = 10, StdDev = 5.122 ms
+Min = 83.090 ms, Q1 = 85.971 ms, Median = 87.450 ms, Q3 = 93.299 ms, Max = 99.140 ms
+IQR = 7.328 ms, LowerFence = 74.979 ms, UpperFence = 104.291 ms
+ConfidenceInterval = [81.723 ms; 97.210 ms] (CI 99.9%), Margin = 7.744 ms (8.66% of Mean)
+Skewness = 0.53, Kurtosis = 1.78, MValue = 2
+-------------------- Histogram --------------------
+[82.349 ms ;  88.590 ms) | @@@@@@
+[88.590 ms ;  96.297 ms) | @@@
+[96.297 ms ; 102.260 ms) | @
+---------------------------------------------------
+
+ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=10]
+Runtime = ; GC = 
+Mean = 70.946 ms, StdErr = 2.630 ms (3.71%), N = 10, StdDev = 8.316 ms
+Min = 58.579 ms, Q1 = 64.181 ms, Median = 70.881 ms, Q3 = 76.870 ms, Max = 83.924 ms
+IQR = 12.690 ms, LowerFence = 45.146 ms, UpperFence = 95.905 ms
+ConfidenceInterval = [58.372 ms; 83.519 ms] (CI 99.9%), Margin = 12.573 ms (17.72% of Mean)
+Skewness = 0.07, Kurtosis = 1.46, MValue = 3.6
+-------------------- Histogram --------------------
+[58.311 ms ; 68.444 ms) | @@@@@
+[68.444 ms ; 71.899 ms) | 
+[71.899 ms ; 82.032 ms) | @@@@
+[82.032 ms ; 88.990 ms) | @
+---------------------------------------------------
+
+ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=100]
+Runtime = ; GC = 
+Mean = 729.706 ms, StdErr = 11.903 ms (1.63%), N = 8, StdDev = 33.666 ms
+Min = 687.795 ms, Q1 = 703.958 ms, Median = 724.970 ms, Q3 = 752.619 ms, Max = 785.727 ms
+IQR = 48.661 ms, LowerFence = 630.967 ms, UpperFence = 825.610 ms
+ConfidenceInterval = [665.337 ms; 794.076 ms] (CI 99.9%), Margin = 64.369 ms (8.82% of Mean)
+Skewness = 0.3, Kurtosis = 1.47, MValue = 2
+-------------------- Histogram --------------------
+[679.414 ms ; 723.602 ms) | @@@@
+[723.602 ms ; 768.933 ms) | @@@
+[768.933 ms ; 807.821 ms) | @
+---------------------------------------------------
+
+ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=100]
+Runtime = ; GC = 
+Mean = 81.844 ms, StdErr = 4.004 ms (4.89%), N = 10, StdDev = 12.662 ms
+Min = 67.884 ms, Q1 = 72.291 ms, Median = 79.801 ms, Q3 = 87.570 ms, Max = 108.901 ms
+IQR = 15.279 ms, LowerFence = 49.372 ms, UpperFence = 110.490 ms
+ConfidenceInterval = [62.701 ms; 100.987 ms] (CI 99.9%), Margin = 19.143 ms (23.39% of Mean)
+Skewness = 0.78, Kurtosis = 2.48, MValue = 2
+-------------------- Histogram --------------------
+[67.642 ms ;  83.070 ms) | @@@@@@@
+[83.070 ms ;  99.239 ms) | @@
+[99.239 ms ; 116.615 ms) | @
+---------------------------------------------------
+
+ConflictRetryBenchmarks.PerIdRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=500]
+Runtime = ; GC = 
+Mean = 6.087 s, StdErr = 0.186 s (3.06%), N = 9, StdDev = 0.559 s
+Min = 4.690 s, Q1 = 6.075 s, Median = 6.231 s, Q3 = 6.420 s, Max = 6.548 s
+IQR = 0.345 s, LowerFence = 5.557 s, UpperFence = 6.938 s
+ConfidenceInterval = [5.147 s; 7.028 s] (CI 99.9%), Margin = 0.940 s (15.44% of Mean)
+Skewness = -1.61, Kurtosis = 4.42, MValue = 3
+-------------------- Histogram --------------------
+[4.337 s ; 5.043 s) | @
+[5.043 s ; 5.749 s) | 
+[5.749 s ; 6.605 s) | @@@@@@@@
+---------------------------------------------------
+
+ConflictRetryBenchmarks.GroupedRetry: ShortRun(Toolchain=InProcessEmitToolchain, InvocationCount=1, IterationCount=10, LaunchCount=1, UnrollFactor=1, WarmupCount=2) [ConflictingDocuments=500]
+Runtime = ; GC = 
+Mean = 111.953 ms, StdErr = 2.207 ms (1.97%), N = 10, StdDev = 6.980 ms
+Min = 98.847 ms, Q1 = 107.973 ms, Median = 111.327 ms, Q3 = 116.110 ms, Max = 122.512 ms
+IQR = 8.136 ms, LowerFence = 95.769 ms, UpperFence = 128.314 ms
+ConfidenceInterval = [101.400 ms; 122.507 ms] (CI 99.9%), Margin = 10.553 ms (9.43% of Mean)
+Skewness = -0.25, Kurtosis = 2.02, MValue = 3
+-------------------- Histogram --------------------
+[ 98.623 ms ; 107.128 ms) | @@@
+[107.128 ms ; 111.126 ms) | 
+[111.126 ms ; 119.632 ms) | @@@@@@
+[119.632 ms ; 126.765 ms) | @
+---------------------------------------------------
+
+// * Summary *
+
+BenchmarkDotNet v0.15.8, macOS 27.2 (26B123) [Darwin 27.2.0]
+Apple M1 Max, 1 CPU, 10 logical and 10 physical cores
+.NET SDK 11.0.100
+  [Host] : .NET 10.0.14 (10.0.14, 10.0.1426.52326), Arm64 RyuJIT armv8.0-a
+
+Job=ShortRun  Toolchain=InProcessEmitToolchain  InvocationCount=1  
+IterationCount=10  LaunchCount=1  UnrollFactor=1  
+WarmupCount=2  
+
+| Method       | ConflictingDocuments | Mean        | Error      | StdDev     | Ratio | RatioSD | Gen0      | Allocated   | Alloc Ratio |
+|------------- |--------------------- |------------:|-----------:|-----------:|------:|--------:|----------:|------------:|------------:|
+| PerIdRetry   | 10                   |    89.47 ms |   7.744 ms |   5.122 ms |  1.00 |    0.08 |         - |   494.39 KB |        1.00 |
+| GroupedRetry | 10                   |    70.95 ms |  12.573 ms |   8.316 ms |  0.80 |    0.10 |         - |   232.08 KB |        0.47 |
+|              |                      |             |            |            |       |         |           |             |             |
+| PerIdRetry   | 100                  |   729.71 ms |  64.369 ms |  33.666 ms |  1.00 |    0.06 |         - |  4204.88 KB |        1.00 |
+| GroupedRetry | 100                  |    81.84 ms |  19.143 ms |  12.662 ms |  0.11 |    0.02 |         - |  1356.29 KB |        0.32 |
+|              |                      |             |            |            |       |         |           |             |             |
+| PerIdRetry   | 500                  | 6,087.47 ms | 940.081 ms | 559.427 ms |  1.01 |    0.14 | 3000.0000 | 20814.72 KB |        1.00 |
+| GroupedRetry | 500                  |   111.95 ms |  10.553 ms |   6.980 ms |  0.02 |    0.00 | 1000.0000 |  6331.07 KB |        0.30 |
+
+// * Warnings *
+MinIterationTime
+  ConflictRetryBenchmarks.PerIdRetry: ShortRun   -> The minimum observed iteration time is 83.09ms which is very small. It's recommended to increase it to at least 100ms using more operations.
+  ConflictRetryBenchmarks.GroupedRetry: ShortRun -> The minimum observed iteration time is 58.579ms which is very small. It's recommended to increase it to at least 100ms using more operations.
+  ConflictRetryBenchmarks.GroupedRetry: ShortRun -> The minimum observed iteration time is 67.884ms which is very small. It's recommended to increase it to at least 100ms using more operations.
+  ConflictRetryBenchmarks.GroupedRetry: ShortRun -> The minimum observed iteration time is 98.847ms which is very small. It's recommended to increase it to at least 100ms using more operations.
+
+// * Hints *
+Outliers
+  ConflictRetryBenchmarks.PerIdRetry: ShortRun -> 2 outliers were removed (961.59 ms, 1.06 s)
+  ConflictRetryBenchmarks.PerIdRetry: ShortRun -> 1 outlier  was  removed, 2 outliers were detected (4.69 s, 7.33 s)
+
+// * Legends *
+  ConflictingDocuments : Value of the 'ConflictingDocuments' parameter
+  Mean                 : Arithmetic mean of all measurements
+  Error                : Half of 99.9% confidence interval
+  StdDev               : Standard deviation of all measurements
+  Ratio                : Mean of the ratio distribution ([Current]/[Baseline])
+  RatioSD              : Standard deviation of the ratio distribution ([Current]/[Baseline])
+  Gen0                 : GC Generation 0 collects per 1000 operations
+  Allocated            : Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)
+  Alloc Ratio          : Allocated memory ratio distribution ([Current]/[Baseline])
+  1 ms                 : 1 Millisecond (0.001 sec)
+
+// * Diagnostic Output - MemoryDiagnoser *
+
+
+// ***** BenchmarkRunner: End *****
+Run time: 00:01:39 (99.71 sec), executed benchmarks: 6
+
+Global total time: 00:01:40 (100.21 sec), executed benchmarks: 6
+// * Artifacts cleanup *
+Artifacts cleanup is finished
