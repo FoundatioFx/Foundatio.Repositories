@@ -301,11 +301,19 @@ The Warning-level log entries `Version conflict during {Operation} on {Index}/{D
 
 **Symptoms:** `Index ... has sequence numbers disabled`, or HTTP 400 `o_c_c_not_supported_exception` / `update_not_supported_exception`.
 
-The index was created with `index.disable_sequence_numbers: true` (the default for Elasticsearch 9.4+ time series data stream backing indexes), so version checks and the Update API are unavailable. Store `IVersioned` documents in an index with sequence numbers enabled, or use `SkipVersionCheck()` with `SaveAsync`, JSON patches and action patches. See [Versioning: Indexes without sequence numbers](/guide/versioning#indexes-without-sequence-numbers-elasticsearch-9-4).
+The index was created with `index.disable_sequence_numbers: true` (the default for Elasticsearch 9.4+ time series data stream backing indexes), so version checks and the Update API are unavailable. Store `IVersioned` documents in an index with sequence numbers enabled, or use `SkipVersionCheck()` with `SaveAsync`, `RemoveAsync`, JSON patches and action patches. See [Versioning: Indexes without sequence numbers](/guide/versioning#indexes-without-sequence-numbers-elasticsearch-9-4).
+
+### DuplicateDocumentException from SaveAsync
+
+`SaveAsync` on an `IVersioned` document whose `Version` is empty creates it with `op_type=create`, so it fails when the id already exists. The document was never read (or was read from an index with sequence numbers disabled). Load the document before saving it, or use `SkipVersionCheck()` when overwriting is intended.
 
 ### "has no version" DocumentException
 
-`SaveAsync` or a batch patch on an existing `IVersioned` document whose `Version` is empty. Load the document before saving it, or skip the version check when overwriting is intended.
+`RemoveAsync(T)` on an `IVersioned` document whose `Version` is empty. Remove the document as it was loaded, use `RemoveAsync(id)`, or use `SkipVersionCheck()`.
+
+### OperationCanceledException from a write
+
+The repository was disposed while the write was running or waiting to retry. Documents written before that were notified and invalidated; the rest were not written (or, for an update-by-query task, may still be written by Elasticsearch).
 
 ## Performance Issues
 
@@ -560,11 +568,12 @@ catch (VersionConflictDocumentException ex)
 
 All writes (`AddAsync`, `SaveAsync`, `RemoveAsync`, patches, single and bulk) retry transient failures up to `o.Retry(n)` times (default 10) with exponential backoff (50 ms doubling, capped at 2 s) and jitter:
 
-- **HTTP 429** (Too Many Requests), **502**, **503** and **504**, and transport errors — retried. Bulk requests retry only the failed items.
+- **HTTP 429** (Too Many Requests) and **503** (Service Unavailable), and connection failures where the request was never sent (refused connection, DNS or TLS failure) — retried. Bulk requests retry only the failed items.
+- **HTTP 502, 504, timeouts** and failures without a status after the request was sent — **not** retried, because the write may already have been applied. They're reported as `DocumentException`; re-read before retrying.
 - **HTTP 409** (Version Conflict) on `AddAsync`/`SaveAsync`/`RemoveAsync` — **not** retried; the caller must handle conflict resolution. Patches re-apply themselves to the latest document instead.
 - `DuplicateDocumentException` — **not** retried
 
-`o.Retry(0)` makes a single attempt. See [Versioning: Retry options](/guide/versioning#retry-options).
+`o.Retry(0)` makes a single attempt. Writes use these rules instead of the repository's `IResiliencePolicy`. See [Versioning: Retry options](/guide/versioning#retry-options).
 
 ::: info Reindex task-status polling uses its own backoff
 This resilience policy covers the initial reindex kickoff request. Once reindexing has started, progress is monitored by repeatedly polling the Elasticsearch task status API, which is a plain "did this succeed" response rather than a thrown exception — so it isn't covered by the policy above. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.

@@ -561,7 +561,8 @@ For `IVersioned` entities, patches never lose a concurrent change: a patch that 
 - **JsonPatch/ActionPatch/pipeline PartialPatch:** for `IVersioned` entities, the write is checked against the version the patch read, so a concurrent change is detected and the patch is re-applied on a fresh read. `SkipVersionCheck()` writes without the check. For entities that don't implement `IVersioned` there is no check, and a change made between the read and the write is silently overwritten.
 - **Batch JsonPatch/ActionPatch/pipeline PartialPatch (`PatchAsync(ids)`, `PatchAllAsync`):** documents that conflict (or fail with 429/503) are re-read together with one multi-get, re-patched and re-written in one bulk request per round. Documents deleted in the meantime are skipped.
 - **`PatchAllAsync` ScriptPatch:** uses the bulk Update API per batch by default. `o.UseUpdateByQuery()` (cache disabled) uses update-by-query instead, which skips documents changed after its snapshot and throws unless `o.ProceedOnQueryConflicts()`. With a default pipeline, each document is patched by update-by-query on its id so the pipeline runs.
-- **Expected version (`IfVersion`):** supported only by `PatchAsync(id)`. Script and partial patches send `if_seq_no`/`if_primary_term` (without `retry_on_conflict`); JSON and action patches compare the version they read.
+- **Expected version (`IfVersion`):** supported only by `PatchAsync(id)`, for any entity. Every attempt (including transient retries) sends `if_seq_no`/`if_primary_term` from the expected version (script and partial patches leave out `retry_on_conflict`); JSON and action patches compare the version they read and never re-read. It's rejected with `SkipVersionCheck()` and by `PatchAsync(ids)` for any number of ids.
+- **Pipeline ScriptPatch batches** (`PatchAsync(ids)`/`PatchAllAsync` with a default pipeline) send one update-by-query request per document, because the Update API can't run ingest pipelines. They aren't batched; the batch is refreshed once at the end instead of after each document. Prefer a PartialPatch, JSON or action patch (which are batched) when the pipeline must run on many documents.
 
 Successful documents are invalidated in the cache and notified as each batch completes. Documents still failing after the retry budget are reported at the end in a `VersionConflictDocumentException` (or `DocumentException`) with counts and ids. Make scripts idempotent when an operation may be retried or run in parallel.
 
@@ -570,7 +571,9 @@ See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full
 ### Automatic Retry Behavior
 
 - `o.Retry(n)` means n retries after the first attempt on every patch path (default 10): `retry_on_conflict = n` on the Update API, and up to n re-read-and-re-apply rounds for JSON, action and pipeline partial patches.
-- Transient errors (HTTP 429, 502, 503, 504) are retried within the same budget with exponential backoff and jitter. `DocumentNotFoundException` is not retried.
+- Transient errors (HTTP 429 and 503, and requests that were never sent) are retried within the same budget with exponential backoff and jitter. HTTP 502, 504 and timeouts are reported, not retried. `DocumentNotFoundException` is not retried.
+- With `IfVersion`, every attempt (including transient retries) is sent with the expected version and the document is never re-read.
+- A JSON patch operation on `/version` is rejected with `ArgumentException`: the version is metadata, not part of the document.
 - Conflicts and retries are logged at Warning level with the expected and current versions; an exhausted budget is logged at Error level.
 ## Performance Considerations
 

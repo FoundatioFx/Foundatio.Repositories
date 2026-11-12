@@ -161,7 +161,7 @@ await repository.SaveAsync(employee, o => o.ImmediateConsistency());
 await repository.SaveAsync(employee, o => o.AddOriginals(originalEmployee));
 ```
 
-`o.VersionCheck(false)` is equivalent to `SkipVersionCheck()`. Saving an existing `IVersioned` document whose `Version` is empty (never read, or from an index with sequence numbers disabled) throws a `DocumentException` unless the check is skipped.
+`o.VersionCheck(false)` is equivalent to `SkipVersionCheck()`. Saving an `IVersioned` document whose `Version` is empty (never read, or read from an index with sequence numbers disabled) creates it with `op_type=create`: it throws `DuplicateDocumentException` if a document with that id already exists, unless the check is skipped. See [Documents without a version](/guide/versioning#documents-without-a-version).
 
 ## Deleting Documents
 
@@ -178,7 +178,7 @@ var employee = await repository.GetByIdAsync(id);
 await repository.RemoveAsync(employee);
 ```
 
-For `IVersioned` documents, `RemoveAsync(T)` and `RemoveAsync(IEnumerable<T>)` send the document's version, like `SaveAsync`. If the document changed since you read it, `VersionConflictDocumentException` is thrown and nothing is deleted. Use `o.SkipVersionCheck()` to delete regardless. `RemoveAsync(id)` and `RemoveAsync(ids)` load the documents themselves and delete without a check. A document that was already deleted is treated as removed.
+For `IVersioned` documents, `RemoveAsync(T)` and `RemoveAsync(IEnumerable<T>)` send the document's version, like `SaveAsync`. If the document changed since you read it, `VersionConflictDocumentException` is thrown and nothing is deleted. A document with no version can't be checked (a delete has no create fallback), so it throws `DocumentException` before anything is deleted. Use `o.SkipVersionCheck()` to delete regardless. `RemoveAsync(id)` and `RemoveAsync(ids)` load the documents themselves and delete without a check. A document that was already deleted is treated as removed, for single and bulk removes alike.
 
 ### Remove Multiple Documents
 
@@ -482,10 +482,12 @@ catch (DuplicateDocumentException ex)
 
 ### Automatic Retry Behavior
 
-- **`AddAsync`, `SaveAsync` and `RemoveAsync`** (single and bulk) retry transient failures (HTTP **429**, **502**, **503**, **504** and transport errors) up to `o.Retry(n)` times (default 10) with exponential backoff (50 ms doubling, capped at 2 s) and jitter. Bulk requests retry only the failed items.
+- **`AddAsync`, `SaveAsync` and `RemoveAsync`** (single and bulk) retry transient failures up to `o.Retry(n)` times (default 10) with exponential backoff (50 ms doubling, capped at 2 s) and jitter: HTTP **429** and **503**, and connection failures where the request was never sent (refused connection, DNS or TLS failure). Bulk requests retry only the failed items.
+- **HTTP 502, 504, timeouts** and failures without a status after the request was sent are **not** retried, because the write may already have been applied. They're reported as `DocumentException`; re-read before retrying.
 - **Version conflicts (409)** on `AddAsync`/`SaveAsync`/`RemoveAsync` are **never** retried; the caller has to re-read and re-apply.
 - `DuplicateDocumentException` is **not** retried.
-- Successful documents from earlier attempts are processed (events, cache, notifications) even if later retries fail for the remaining documents. The final error state is thrown after the loop.
+- Successful documents are processed (events, cache, notifications) even if other documents fail. One exception is thrown at the end, chosen as described in [Failure handling](/guide/versioning#failure-handling).
+- Writes don't use the repository's `IResiliencePolicy`; see [Retry Options](/guide/versioning#retry-options).
 
 ::: tip
 For operations where version conflicts are expected (e.g., high-contention counters), use a `ScriptPatch` instead of `SaveAsync`. Script patches run on the Elasticsearch node and conflicts are retried server-side (`retry_on_conflict`, set with `o.Retry(n)`, default 10).
