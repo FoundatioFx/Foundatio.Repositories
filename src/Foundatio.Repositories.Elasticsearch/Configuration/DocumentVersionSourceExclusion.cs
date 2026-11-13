@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Threading;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
@@ -21,7 +22,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 /// <para>Only the document itself loses the property. Wherever a root document type appears nested inside another value
 /// (for example an <c>Employee</c> embedded in another document, or in a list), it is serialized with the unmodified
 /// options and keeps its <c>version</c>. Nested objects that implement <see cref="IVersioned"/> but are not root document
-/// types are never changed, which lets models store a business version on a child object.</para>
+/// types are never changed, which lets models store a business version on a child object. This also holds for values
+/// reached through <see cref="object"/> properties and collections such as <c>Dictionary&lt;string, object&gt;</c>,
+/// where the document type is only known at runtime.</para>
+/// <para>With a source-generated <c>JsonSerializerContext</c> the property metadata carries no reflection information, so
+/// the <c>Version</c> property is recognized by its serialized name (<c>version</c>, case-insensitive) instead.</para>
 /// <para>Removing the property also means a <c>version</c> value already stored in an older document's <c>_source</c> is
 /// ignored when it is read.</para>
 /// <para><see cref="ElasticConfiguration"/> applies this to its source serializer automatically. If you replace the
@@ -67,10 +72,13 @@ public static class DocumentVersionSourceExclusion
         return false;
     }
 
-    /// <summary><c>true</c> when <paramref name="type"/> is, or contains (array element or generic argument), a root type.</summary>
+    /// <summary>
+    /// <c>true</c> when <paramref name="type"/> is, contains (array element or generic argument), or may hold at runtime
+    /// (<see cref="object"/>) a root type.
+    /// </summary>
     internal static bool ContainsRootDocumentType(Type type, Func<Type, bool> isRegistered)
     {
-        if (IsRootDocumentType(type, isRegistered))
+        if (type == typeof(object) || IsRootDocumentType(type, isRegistered))
             return true;
 
         if (type.IsArray)
@@ -83,7 +91,7 @@ public static class DocumentVersionSourceExclusion
     {
         private readonly IJsonTypeInfoResolver _inner;
         private readonly Func<Type, bool> _isRegistered;
-        private JsonSerializerOptions? _nestedOptions;
+        private volatile JsonSerializerOptions? _nestedOptions;
 
         public RootVersionExcludingResolver(IJsonTypeInfoResolver inner, Func<Type, bool> isRegistered)
         {
@@ -101,7 +109,7 @@ public static class DocumentVersionSourceExclusion
             for (int index = typeInfo.Properties.Count - 1; index >= 0; index--)
             {
                 var property = typeInfo.Properties[index];
-                if (isRoot && property.AttributeProvider is PropertyInfo { Name: nameof(IVersioned.Version) } info && info.PropertyType == typeof(string))
+                if (isRoot && IsDocumentVersionProperty(property))
                 {
                     typeInfo.Properties.RemoveAt(index);
                     continue;
@@ -114,11 +122,24 @@ public static class DocumentVersionSourceExclusion
             return typeInfo;
         }
 
+        /// <summary>
+        /// Reflection-based resolvers expose the <see cref="PropertyInfo"/>. Source-generated resolvers don't, so the
+        /// serialized name is matched instead; the type is already known to implement <see cref="IVersioned"/>, whose
+        /// <c>Version</c> is the only string member of that name.
+        /// </summary>
+        private static bool IsDocumentVersionProperty(JsonPropertyInfo property)
+        {
+            if (property.AttributeProvider is PropertyInfo info)
+                return info.Name == nameof(IVersioned.Version) && info.PropertyType == typeof(string);
+
+            return property.PropertyType == typeof(string) && string.Equals(property.Name, nameof(IVersioned.Version), StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>Serializes a nested value with the original resolver, so root types inside it keep their version.</summary>
         private JsonConverter CreateNestedConverter(Type propertyType, JsonSerializerOptions options)
         {
-            _nestedOptions ??= new JsonSerializerOptions(options) { TypeInfoResolver = _inner };
-            return (JsonConverter)Activator.CreateInstance(typeof(NestedValueConverter<>).MakeGenericType(propertyType), _nestedOptions)!;
+            var nestedOptions = _nestedOptions ?? Interlocked.CompareExchange(ref _nestedOptions, new JsonSerializerOptions(options) { TypeInfoResolver = _inner }, null) ?? _nestedOptions!;
+            return (JsonConverter)Activator.CreateInstance(typeof(NestedValueConverter<>).MakeGenericType(propertyType), nestedOptions)!;
         }
     }
 
