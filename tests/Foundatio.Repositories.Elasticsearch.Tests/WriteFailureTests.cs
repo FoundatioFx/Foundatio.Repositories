@@ -472,6 +472,49 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _employeeRepository.SaveAsync(employee, o => o.Cache(false)));
     }
 
+    [Fact]
+    public async Task AddSaveAndRemove_WithIfVersion_ThrowArgumentExceptionBeforeAnyWrite()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        string? version = employee.Version;
+        var newEmployee = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
+        employee.Name = "not saved";
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.AddAsync(newEmployee, o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.AddAsync([newEmployee], o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.SaveAsync(employee, o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.SaveAsync([employee], o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.RemoveAsync(employee, o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.RemoveAsync([employee], o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.RemoveAsync(employee.Id, o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.RemoveAsync(new Ids(employee.Id), o => o.IfVersion(version)));
+        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.RemoveAllAsync(o => o.IfVersion(version)));
+
+        var stored = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(stored);
+        Assert.NotEqual("not saved", stored.Name);
+        Assert.Equal(1, await _employeeRepository.CountAsync());
+    }
+
+    [Fact]
+    public async Task AddSaveAndRemove_WithIfVersion_DoNotCreateIndex()
+    {
+        // Arrange
+        var (repository, configuration) = await CreateRepositoryWithoutIndexAsync();
+        using var _ = configuration;
+        var employee = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
+
+        // Act
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.AddAsync(employee, o => o.IfVersion("1:1")));
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.SaveAsync(employee, o => o.IfVersion("1:1")));
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.RemoveAsync(employee, o => o.IfVersion("1:1")));
+
+        // Assert
+        Assert.False(await EmployeesIndexExistsAsync());
+    }
+
     private sealed class NoCacheEmployeeRepository : EmployeeRepository
     {
         public NoCacheEmployeeRepository(MyAppElasticConfiguration configuration) : base(configuration.Employees)

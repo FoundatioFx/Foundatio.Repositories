@@ -160,6 +160,7 @@ await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.I
 - `IfVersion` works for entities that don't implement `IVersioned` too: the check is enforced by Elasticsearch, not by the entity.
 - `IfVersion` can't be combined with `SkipVersionCheck()` (`ArgumentException`), and isn't supported for script patches with a default pipeline.
 - `IfVersion` is only supported by `PatchAsync(id)`. `PatchAsync(ids)` (with any number of ids, including one) and `PatchAllAsync` throw `ArgumentException`, because one expected version can't apply to several documents. Patch each document by id instead.
+- `AddAsync`, `SaveAsync`, `RemoveAsync` and `RemoveAllAsync` also throw `ArgumentException` when `IfVersion` is set, before anything is written: a save or remove already checks the `Version` of the document you pass in, so a second expected version would be silently ignored.
 
 ### Grouped conflict retries
 
@@ -354,7 +355,7 @@ Conflicts and retries are logged with structured fields and never include docume
 - **`RemoveAsync(T)` checks the version.** Removing an `IVersioned` document whose copy is stale throws `VersionConflictDocumentException`, and removing one without a version throws `DocumentException`. Use `SkipVersionCheck()` to delete regardless, or `RemoveAsync(id)`, which loads the document and deletes it without a check.
 - **`RemoveAsync` no longer reports already-deleted documents as removed.** A document that is already gone is still not an error and its cache entry is still evicted, but `DocumentsRemoved`, `DocumentsChanged` and the `EntityChanged` (`Removed`) message are raised only for the documents the call actually deleted.
 - **`VersionCheck(bool)` is fixed.** `VersionCheck(false)` now skips the check and `VersionCheck(true)` checks; they were inverted. Code that called `VersionCheck(true)` to skip the check must change to `SkipVersionCheck()`.
-- **`IfVersion`** is new. It's rejected by `PatchAsync(ids)` for any number of ids and by `PatchAllAsync`, and can't be combined with `SkipVersionCheck()`.
+- **`IfVersion`** is new. It's rejected by `PatchAsync(ids)` for any number of ids, by `PatchAllAsync`, and by `AddAsync`, `SaveAsync`, `RemoveAsync` and `RemoveAllAsync` (which check the version of the document you pass in), and can't be combined with `SkipVersionCheck()`.
 - **JSON patches on `/version` are rejected** with `ArgumentException`.
 - **`PatchAllAsync` with `ScriptPatch` uses the bulk Update API by default** instead of update-by-query when caching is disabled. Results are the same, but every matching document is patched even under concurrent writes. Opt back in with `o.UseUpdateByQuery()`; it now throws `VersionConflictDocumentException` when documents were skipped unless `o.ProceedOnQueryConflicts()` is set.
 - **`RemoveAllAsync` delete-by-query throws on leftover conflicts** after the retry budget, instead of only logging. Use `o.ProceedOnQueryConflicts()` to restore logging only.

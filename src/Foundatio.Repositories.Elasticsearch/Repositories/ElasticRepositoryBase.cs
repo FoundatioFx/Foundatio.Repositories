@@ -88,6 +88,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// Adds documents with <c>op_type=create</c>. A document whose id already exists fails with a
     /// <see cref="DuplicateDocumentException"/>. HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times.
     /// Documents that were added are notified and cached before the exception for the others is thrown.
+    /// <c>IfVersion</c> is not supported (a new document has no version to check) and throws an <see cref="ArgumentException"/>.
     /// </summary>
     public virtual async Task AddAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
@@ -99,6 +100,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             return;
 
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfExpectedVersion(options);
 
         await OnDocumentsAddingAsync(docs, options).AnyContext();
 
@@ -147,7 +149,9 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// documents that don't implement <see cref="IVersioned"/>, are indexed unconditionally.
     /// </summary>
     /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times; conflicts are never retried.
-    /// Documents that were saved are notified and cached before the exception for the others is thrown.</remarks>
+    /// Documents that were saved are notified and cached before the exception for the others is thrown. <c>IfVersion</c> is
+    /// not supported and throws an <see cref="ArgumentException"/>: a save checks the <see cref="IVersioned.Version"/> of the
+    /// document passed in.</remarks>
     public virtual async Task SaveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
@@ -162,6 +166,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             throw new ArgumentException("Id must be set when calling Save.");
 
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfExpectedVersion(options);
 
         var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
         await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
@@ -300,7 +305,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     private static void ThrowIfExpectedVersion(ICommandOptions options)
     {
         if (options.HasExpectedVersion())
-            throw new ArgumentException("IfVersion is only supported by PatchAsync(Id). Patch each document by id to check its version.", nameof(options));
+            throw new ArgumentException("IfVersion applies to PatchAsync(id) only. SaveAsync and RemoveAsync use the Version of the document passed in; to check an expected version when patching several documents, patch each one by id.", nameof(options));
     }
 
     public Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T>? options)
@@ -411,13 +416,14 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return RemoveAsync(ids, options?.Configure());
     }
 
-    /// <summary>Removes documents by id, without a version check (the caller supplied no versions).</summary>
+    /// <summary>Removes documents by id, without a version check (the caller supplied no versions). <c>IfVersion</c> is not supported and throws an <see cref="ArgumentException"/>.</summary>
     public async Task RemoveAsync(Ids ids, ICommandOptions? options = null)
     {
         if (ids == null)
             throw new ArgumentNullException(nameof(ids));
 
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfExpectedVersion(options);
         if (IsCacheEnabled)
             options = options.ReadCache();
 
@@ -458,7 +464,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// documents this call actually deleted.
     /// </summary>
     /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times. Deleted documents are notified
-    /// before the exception for the others is thrown.</remarks>
+    /// before the exception for the others is thrown. <c>IfVersion</c> is not supported and throws an
+    /// <see cref="ArgumentException"/>: a remove checks the <see cref="IVersioned.Version"/> of the document passed in.</remarks>
     public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
@@ -469,6 +476,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             return;
 
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfExpectedVersion(options);
         if (IsCacheEnabled && options.HasCacheKey())
             throw new ArgumentException("Cache key can't be set when calling RemoveAsync");
 
@@ -671,6 +679,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     public virtual async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
         options = ConfigureOptions(options?.As<T>());
+        ThrowIfExpectedVersion(options);
         bool hasRemoveListeners = DocumentsChanging.HasHandlers || DocumentsChanged.HasHandlers || DocumentsRemoving.HasHandlers || DocumentsRemoved.HasHandlers;
         if (hasRemoveListeners || (IsCacheEnabled && options.ShouldUseCache(true)))
         {
