@@ -97,6 +97,7 @@ The version is metadata. It is **not stored in `_source`**: the Elasticsearch so
 - A proxy property such as `public string? Version { get => MetaData.Version; set => MetaData.Version = value; }` still writes `metaData.version`, because the nested object is serialized normally.
 - If you replace the Elasticsearch source serializer, call `options.ExcludeDocumentVersionFromSource(documentTypes)` on its `JsonSerializerOptions`, or override `ElasticConfiguration.ConfigureSourceSerializerOptions` and call the base method. Never add `[JsonIgnore]` to `Version`: the cache serializer needs it.
 - Documents written by older releases keep a stale `version` field in `_source` until their next full write (`SaveAsync`, JSON/action patches). Script and partial patches merge into the stored document and leave the old field in place. It is ignored on reads. To remove it, run an update-by-query with `ctx._source.remove('version')`.
+- Source exclusion is decided per type, the first time the Elasticsearch serializer builds its type info for it, and then cached. A document type registered after that point (for example a repository for a new document type constructed after the first request for that type was serialized) is **not** excluded and keeps writing `version` to `_source`. Create every repository, or call `ExcludeDocumentVersionFromSource(documentTypes)` with all document types, before the client is first used.
 - A JSON patch operation whose path is `/version` is rejected with `ArgumentException`. The version isn't part of the document, so such a patch could never have an effect; use `IfVersion` to require a version instead.
 
 ### Debugging versions
@@ -204,7 +205,11 @@ stateDiagram-v2
     Pending --> Transient: 429, 503, request not sent
     Pending --> Conflict: 409
     Transient --> Pending: budget left (re-send unchanged)
+    Transient --> Cancelled: repository disposed during backoff
     Conflict --> Pending: budget left and re-read allowed (fresh version)
+    Conflict --> Missing: re-read finds the document gone
+    Conflict --> Fatal: re-read or re-applied patch fails
+    Conflict --> Noop: re-applied patch no longer changes the document
     Pending --> Cancelled: repository disposed
     Transient --> [*]: budget used
     Conflict --> [*]: budget used, or re-read not allowed
@@ -218,8 +223,8 @@ stateDiagram-v2
 
 - **Rounds and budget.** A round sends every pending item once. `Retry(n)` allows n more rounds (n + 1 total), separated by exponential backoff (50 ms doubling, capped at 2 s) with ±25% jitter. Items still `Transient` or `Conflict` after the last round keep that as their outcome.
 - **Who re-reads a conflict.** Client-side patches re-read conflicting documents with one multi-get and re-apply the patch (unless `IfVersion` is set). Pipeline script patches re-run update-by-query on the id. Delete-by-query refreshes and runs the query again. Saves, removes and Update API patches never re-read: a 409 is terminal (Update API patches have already used `retry_on_conflict`).
-- **Re-read results.** A document that's gone ends `Missing`; a multi-get item error, a patch that throws, or a failed multi-get ends `Fatal`. A transient multi-get failure re-sends the stale items, which conflict again and are re-read in the next round.
-- **No item is dropped.** When the repository is disposed, every pending item ends `Cancelled`; when sending fails with an exception, every pending item ends `Fatal` with it.
+- **Re-read results.** A document that's gone ends `Missing`; a multi-get item error, a patch that throws, or a failed multi-get ends `Fatal`; an action patch that no longer changes the re-read document ends `Noop`. A transient multi-get failure re-sends the stale items, which conflict again and are re-read in the next round.
+- **No item is dropped.** When the repository is disposed, every pending item ends `Cancelled` (including items waiting out a backoff after a `Transient` round); when sending fails with an exception, every pending item ends `Fatal` with it.
 
 ### Transient vs. reported failures
 
