@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -29,7 +30,7 @@ internal static class MultiGetItems
         var items = new List<MultiGetItem<T>>(response.Docs.Count);
         foreach (var doc in response.Docs)
         {
-            MultiGetItem<T> item = default;
+            var item = new MultiGetItem<T>(String.Empty, null, null, "unknown", "The multi-get response item held neither a document nor an error.");
             doc.Match(
                 result =>
                 {
