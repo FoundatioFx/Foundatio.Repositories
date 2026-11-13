@@ -419,6 +419,59 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         Assert.False(await EmployeesIndexExistsAsync());
     }
 
+    private const string IndexNotFoundResponse = """{"error":{"root_cause":[{"type":"index_not_found_exception","reason":"no such index [employees]","resource.type":"index_or_alias","resource.id":"employees","index_uuid":"_na_","index":"employees"}],"type":"index_not_found_exception","reason":"no such index [employees]","resource.type":"index_or_alias","resource.id":"employees","index_uuid":"_na_","index":"employees"},"status":404}""";
+
+    [Fact]
+    public async Task SaveAsync_WithMissingIndex_ThrowsClearErrorInsteadOfVersionConflict()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        var (repository, invoker, configuration) = CreateFaultInjectingRepository();
+        using var _ = configuration;
+        invoker.RespondNext(1, 404, IndexNotFoundResponse, HttpMethod.PUT, $"/_doc/{employee.Id}");
+
+        // Act
+        employee.Name = "not saved";
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.SaveAsync(employee, o => o.Cache(false)));
+
+        // Assert
+        Assert.IsNotType<VersionConflictDocumentException>(exception);
+        Assert.IsNotType<DocumentNotFoundException>(exception);
+        Assert.Contains("does not exist", exception.Message);
+        Assert.Contains(employee.Id, exception.Message);
+    }
+
+    [Fact]
+    public async Task SaveAsync_WithMissingIndexInBulk_ThrowsClearErrorInsteadOfVersionConflict()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(2);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var (repository, invoker, configuration) = CreateFaultInjectingRepository();
+        using var _ = configuration;
+        invoker.FailFirstItemOfNextBulk(404, "index_not_found_exception", "no such index [employees]");
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.SaveAsync(employees, o => o.Cache(false)));
+
+        // Assert
+        Assert.IsNotType<VersionConflictDocumentException>(exception);
+        Assert.Contains("does not exist", exception.Message);
+        Assert.Contains("1 failed, 1 succeeded", exception.Message);
+    }
+
+    [Fact]
+    public async Task SaveAsync_WithDocumentDeletedSinceItWasRead_ThrowsVersionConflict()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        await _client.DeleteAsync(new Elastic.Clients.Elasticsearch.DeleteRequest(_configuration.Employees.Name, employee.Id) { Refresh = Elastic.Clients.Elasticsearch.Refresh.True }, TestCancellationToken);
+
+        // Act & Assert
+        employee.Name = "not saved";
+        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _employeeRepository.SaveAsync(employee, o => o.Cache(false)));
+    }
+
     private sealed class NoCacheEmployeeRepository : EmployeeRepository
     {
         public NoCacheEmployeeRepository(MyAppElasticConfiguration configuration) : base(configuration.Employees)

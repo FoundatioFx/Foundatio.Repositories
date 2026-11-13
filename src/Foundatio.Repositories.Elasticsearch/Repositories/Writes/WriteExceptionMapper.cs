@@ -28,6 +28,7 @@ internal enum MissingDocumentPolicy
 /// <remarks>
 /// Precedence, highest first: <see cref="WriteOutcome.Cancelled"/> → <see cref="OperationCanceledException"/>;
 /// <see cref="WriteOutcome.VersioningNotSupported"/> → <see cref="DocumentVersioningNotSupportedException"/>;
+/// a save to an index that doesn't exist (<c>index_not_found_exception</c>) → <see cref="DocumentException"/> naming the index;
 /// <see cref="WriteOutcome.Conflict"/> → <see cref="DuplicateDocumentException"/> when every conflicting write was a
 /// create, otherwise <see cref="VersionConflictDocumentException"/>; <see cref="WriteOutcome.Missing"/> (with
 /// <see cref="MissingDocumentPolicy.NotFound"/>) → <see cref="DocumentNotFoundException"/>;
@@ -55,6 +56,10 @@ internal static class WriteExceptionMapper
         var unsupported = failed.FirstOrDefault(i => i.Result.Outcome is WriteOutcome.VersioningNotSupported);
         if (unsupported.Item is not null)
             return new DocumentVersioningNotSupportedException(ElasticWriteErrors.VersioningNotSupportedMessage(unsupported.Item.Key.Index), unsupported.Result.Exception);
+
+        var missingIndex = failed.Where(i => i.Result.Outcome is WriteOutcome.Missing && missing is MissingDocumentPolicy.Conflict && ElasticWriteErrors.IsIndexNotFound(i.Result.ErrorType)).ToList();
+        if (missingIndex.Count > 0)
+            return new DocumentException($"Error {operationLabel} documents: index {missingIndex[0].Item.Key.Index} does not exist {summary}. Ids: {FormatIds(missingIndex)}", missingIndex[0].Result.Exception);
 
         var conflicts = failed.Where(i => i.Result.Outcome is WriteOutcome.Conflict || (i.Result.Outcome is WriteOutcome.Missing && missing is MissingDocumentPolicy.Conflict)).ToList();
         if (conflicts.Count > 0)

@@ -240,9 +240,10 @@ After the runner finishes, the repository invalidates the cache, raises events a
 
 1. `OperationCanceledException` when any item was cancelled.
 2. `DocumentVersioningNotSupportedException` when the index has sequence numbers disabled.
-3. `DuplicateDocumentException` when every conflict was a create (`AddAsync`, or `SaveAsync` without a version); otherwise `VersionConflictDocumentException`. For saves, a document deleted since it was read also counts as a conflict.
-4. `DocumentNotFoundException` for patches by id whose document doesn't exist.
-5. `DocumentException` for everything else, with the first error reason.
+3. `DocumentException` ("index ... does not exist") when a version-checked save or add hit an index that doesn't exist, for example one deleted after the repository created it.
+4. `DuplicateDocumentException` when every conflict was a create (`AddAsync`, or `SaveAsync` without a version); otherwise `VersionConflictDocumentException`. For saves, a document deleted since it was read also counts as a conflict.
+5. `DocumentNotFoundException` for patches by id whose document doesn't exist.
+6. `DocumentException` for everything else, with the first error reason.
 
 Messages include the number of failed and succeeded documents and up to 10 ids. A document that is already gone is not an error for `RemoveAsync` (it is evicted from the cache, but `DocumentsRemoved`, `DocumentsChanged` and `EntityChanged` are raised only for documents the call actually deleted), and is skipped by `PatchAllAsync`.
 

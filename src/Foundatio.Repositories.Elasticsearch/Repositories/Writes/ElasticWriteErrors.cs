@@ -19,6 +19,8 @@ internal static partial class ElasticWriteErrors
         return errorType is "o_c_c_not_supported_exception" or "occ_not_supported_exception" or "update_not_supported_exception";
     }
 
+    public static bool IsIndexNotFound(string? errorType) => errorType is "index_not_found_exception";
+
     public static string VersioningNotSupportedMessage(string index)
     {
         return $"Index {index} has sequence numbers disabled (index.disable_sequence_numbers), so optimistic concurrency checks and the Update API are not available. Store versioned documents in an index with sequence numbers enabled, or use SkipVersionCheck with JsonPatch or ActionPatch.";
