@@ -610,16 +610,14 @@ foreach (var emp in employees.Documents)
 Patch operations handle cache invalidation differently depending on whether the full document is available:
 
 **Document-based invalidation** (supports custom `InvalidateCacheAsync` overrides):
-- `ActionPatch` — single-doc and bulk: the modified `T` is passed to `InvalidateCacheAsync(IEnumerable<T>)` and `OnDocumentsChangedAsync`, enabling custom cache key strategies based on document properties.
-- `JsonPatch` — bulk (`PatchAllAsync`): deserialized documents are tracked and used for document-based invalidation after successful indexing.
+- Client-side patches (`JsonPatch`, `ActionPatch` and `PartialPatch` with a default pipeline) in `PatchAsync(Ids)` and `PatchAllAsync`: the patched `T` is passed to `InvalidateCacheAsync(IEnumerable<T>)` and `OnDocumentsChangedAsync`, enabling custom cache key strategies based on document properties.
 
 **ID-based invalidation** (removes cache entries by document ID only):
-- `ScriptPatch` — all paths: executes server-side on Elasticsearch; the modified document is never returned to the client.
-- `PartialPatch` — all paths: same as `ScriptPatch`; the Update API does not return the full document.
-- `JsonPatch` — single-doc (`PatchAsync(Id)`): uses the low-level client with raw `JToken`, so a typed `T` is not available.
+- `ScriptPatch` and `PartialPatch` without a default pipeline — all paths: executes server-side on Elasticsearch; the modified document is never returned to the client.
+- `PatchAsync(id)` — all patch types: the cache entry is removed by document ID.
 
 ::: warning ID-Based Invalidation Limitation
-If your repository overrides `InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>>)` to compute custom cache keys from document properties (e.g., composite keys, secondary lookups), those overrides will **not** fire for `ScriptPatch`, `PartialPatch`, or single-doc `JsonPatch`. Only the standard ID-based cache key is removed. Consider using `ActionPatch` with `Func<T, bool>` if you need full document-based cache invalidation for conditional updates.
+If your repository overrides `InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>>)` to compute custom cache keys from document properties (e.g., composite keys, secondary lookups), those overrides will **not** fire for server-side patches or for `PatchAsync(id)`. Only the standard ID-based cache key is removed.
 :::
 
 ## Notifications
@@ -637,8 +635,8 @@ await repository.PatchAsync(id, new ScriptPatch("ctx._source.name = 'Changed';")
 
 No-op patches (e.g., `ScriptPatch` with `ctx.op = 'none'`, `ActionPatch` returning `false`, or empty operations) do **not** send notifications.
 
-::: warning DocumentsChanged fires with an empty document list
-For `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch`, the `DocumentsChanged` event fires but `args.Documents` is **empty** because the modified document is not available client-side. Only single-document `ActionPatch` (`PatchAsync(id, ActionPatch)`) provides the full document in `DocumentsChanged`. Bulk operations — including `PatchAllAsync` and `PatchAsync(Ids)` for `ActionPatch`/`JsonPatch` (which delegates to `PatchAllAsync`) — also fire `DocumentsChanged` with an **empty** documents list. If your `DocumentsChanged` handler iterates over `args.Documents`, it will see zero items for all patch types except single-document `ActionPatch`.
+::: warning DocumentsChanged fires with an empty document list for server-side patches
+`ScriptPatch` and `PartialPatch` without a default pipeline are applied by Elasticsearch, so the modified document is not available client-side: `DocumentsChanged` fires but `args.Documents` is **empty**, as it is for `PatchAllAsync` with `UseUpdateByQuery()`. Patches applied client-side (`JsonPatch`, `ActionPatch` and `PartialPatch` with a default pipeline) pass the patched documents in `args.Documents` for `PatchAsync(id)`, `PatchAsync(Ids)` and each `PatchAllAsync` batch.
 :::
 
 ### PatchAsync (Multi-ID)
@@ -654,7 +652,9 @@ await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source
 // EntityChanged { Type = "Employee", Id = "<id3>", ChangeType = Saved }
 ```
 
-- **`JsonPatch` / `ActionPatch<T>`**: The multi-ID overload delegates to `PatchAllAsync` internally with the IDs set in the query. This means query-based notification rules apply — one `EntityChanged` per ID in the query when at least one document is modified, regardless of whether a particular ID was a noop.
+- **`JsonPatch` / `ActionPatch<T>`**: Same as above. Patches are applied in memory and written in grouped rounds; noop and missing IDs are excluded from notifications, and documents that were patched are notified before the exception for the failed ones is thrown.
+
+A single distinct ID behaves like `PatchAsync(id, ...)`.
 
 ### PatchAllAsync (Query-Based)
 
