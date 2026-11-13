@@ -314,6 +314,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// <para>Script and partial patches use one bulk Update API request per round. JSON, action and pipeline partial patches
     /// read every document with one multi-get, write them with one bulk request, and re-read conflicting documents together
     /// in grouped rounds, up to <c>Retry(n)</c>. Script patches with a default pipeline run update-by-query per id.</para>
+    /// <para>An id that appears more than once is patched once (the first occurrence wins, including its routing), so a
+    /// patch is never applied twice to the same document and it is counted once in the result.</para>
     /// <para>Every document ends with an outcome. Successful documents are invalidated in the cache and notified before a
     /// <see cref="VersionConflictDocumentException"/>, <see cref="DocumentNotFoundException"/> or <see cref="DocumentException"/>
     /// is thrown for the rest. <c>IfVersion</c> is not supported here, even for one id.</para>
@@ -327,6 +329,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         ThrowIfExpectedVersion(options);
         if (ids is { Count: 0 } || IsEmptyPatch(operation))
             return 0;
+
+        ids = new Ids(ids.DistinctBy(id => (ElasticIndex.GetIndex(id), id.Value)));
 
         if (ids.Count is 1)
             return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;

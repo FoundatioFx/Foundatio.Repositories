@@ -1890,6 +1890,36 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task PatchAsync_MultipleIdsWithDuplicateIds_PatchesEachDocumentOnce()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(2);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        string[] ids = [employees[0].Id, employees[1].Id, employees[0].Id];
+        var applied = new List<string>();
+
+        // Act
+        long actionPatched = await _employeeRepository.PatchAsync(ids, new ActionPatch<Employee>(e =>
+        {
+            lock (applied)
+                applied.Add(e.Id);
+            e.YearsEmployed += 1;
+        }), o => o.ImmediateConsistency());
+        long scriptPatched = await _employeeRepository.PatchAsync(ids, new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(2, actionPatched);
+        Assert.Equal(2, scriptPatched);
+        Assert.Equal(employees.Select(e => e.Id).Order(), applied.Order());
+        foreach (var employee in employees)
+        {
+            var stored = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+            Assert.NotNull(stored);
+            Assert.Equal(employee.YearsEmployed + 2, stored.YearsEmployed);
+        }
+    }
+
+    [Fact]
     public async Task PatchAsync_MultipleIdsWithSomeNotFound_ReportsPartialFailure()
     {
         // Arrange
