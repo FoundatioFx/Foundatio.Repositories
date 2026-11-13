@@ -1,6 +1,6 @@
 # Patch Operations
 
-Foundatio.Repositories provides flexible patch operations for partial document updates without fetching the full document. This guide covers all patch types and their use cases.
+Foundatio.Repositories supports server-side updates and client-side patches. JSON, action and pipeline partial patches read the complete document before applying the change and saving it. This guide covers all patch types and their use cases.
 
 ## Overview
 
@@ -566,14 +566,22 @@ For `IVersioned` entities, patches never lose a concurrent change: a patch that 
 
 Successful documents are invalidated in the cache and notified as each batch completes. Documents still failing after the retry budget are reported at the end in a `VersionConflictDocumentException` (or `DocumentException`) with counts and ids. Make scripts idempotent when an operation may be retried or run in parallel.
 
+`PatchAllAsync` reads its batches from a point-in-time snapshot, or a scroll snapshot when `SnapshotPaging()` is supplied. A refresh between batches cannot move an already-patched document past the cursor and patch it again. Multi-ID client-side patches that locate documents by search also use snapshot paging, so large ID sets do not exceed the offset result window. Daily and monthly indexes can locate caller-assigned IDs through this multi-ID search path; the single-ID overload still requires an ID from which the index can be resolved.
+
+With a default pipeline, `PartialPatch` recursively merges JSON objects before reindexing. Fields omitted from a nested object remain intact; arrays and scalar values replace the corresponding value, matching the Update API's merge behavior.
+
 See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full table.
 
 ### Automatic Retry Behavior
 
+Client-side patches always read the complete source, including when the query or command options specify included or excluded fields. This preserves fields outside the patch when the modified document is written back. The caller's query and options are not changed.
+
+For `PatchAsync(Ids, ...)`, repeated `(ID, routing)` pairs are patched once. The same ID with different routing values can identify different documents, so both requests are retained. When the repository searches to locate documents, explicit routing still limits which matching documents are patched.
+
 - `o.Retry(n)` means n retries after the first attempt on every patch path (default 10): `retry_on_conflict = n` on the Update API, and up to n re-read-and-re-apply rounds for JSON, action and pipeline partial patches.
-- Transient errors (HTTP 429 and 503, and requests that were never sent) are retried within the same budget with exponential backoff and jitter. HTTP 502, 504 and timeouts are reported, not retried. `DocumentNotFoundException` is not retried.
+- Transient errors (HTTP 429, 503 responses containing an Elasticsearch error type, and requests that were never sent) are retried within the same budget with exponential backoff and jitter. HTTP 502/504, unstructured gateway 503 responses and timeouts are reported. `DocumentNotFoundException` is not retried.
 - With `IfVersion`, every attempt (including transient retries) is sent with the expected version and the document is never re-read.
-- A JSON patch operation on `/version` is rejected with `ArgumentException`: the version is metadata, not part of the document.
+- A JSON patch targeting the root `IVersioned.Version` property is rejected with `ArgumentException`, including a name assigned by `JsonPropertyName`. An ordinary business property named `Version`, such as `MigrationState.Version`, and nested version fields can be patched.
 - Conflicts and retries are logged at Warning level with the expected and current versions; an exhausted budget is logged at Error level.
 ## Performance Considerations
 

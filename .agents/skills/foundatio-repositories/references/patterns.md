@@ -224,12 +224,14 @@ await repository.PatchAsync(new Ids(id1, id2, id3),
 
 **Return values:** `PatchAsync(Id)` returns `Task<bool>`, `PatchAsync(Ids)` and `PatchAllAsync` return `Task<long>`.
 
-**Concurrency:** Patches re-apply themselves to the latest document on conflict (up to `o.Retry(n)`, default 10), so concurrent changes are never lost. Batch JSON/action patches retry conflicting documents in grouped rounds (one mget + one bulk). To patch only if the document is unchanged since you read it:
+**Concurrency:** For `IVersioned` entities, patches re-apply themselves to the latest document on conflict (up to `o.Retry(n)`, default 10). Client-side patches on non-versioned entities have no implicit version check. Batch JSON/action patches retry conflicting documents in grouped rounds (one mget + one bulk). To patch only if the document is unchanged since you read it:
 
 ```csharp
 await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.IfVersion(employee.Version));
 // throws VersionConflictDocumentException if the document changed
 ```
+
+`PatchAllAsync` reads batches from a point-in-time snapshot (or explicit scroll snapshot), so patches that modify sort fields do not revisit documents after refreshes. Multi-index client-side patches by ID use snapshot paging too. Pipeline `PartialPatch` recursively merges objects, retaining unspecified nested fields.
 
 `PatchAllAsync` with `ScriptPatch` uses the bulk Update API. `o.UseUpdateByQuery()` opts into update-by-query (faster, but skips concurrently changed documents and throws unless `o.ProceedOnQueryConflicts()`).
 
@@ -267,6 +269,8 @@ bool exists = await repository.ExistsAsync(id);
 | `o => o.IfVersion(version)`     | `PatchAsync(id)` only if still at `version`  |
 | `o => o.Retry(n)`               | n retries after the first attempt (default 10) |
 | `o => o.IncludeSoftDeletes()`   | Include soft-deleted docs in queries         |
+
+`SaveAsync` pairs originals with documents by concrete index, routing and ID. `Originals()` loads exact locations for routed and multi-index repositories; supplied originals suppress only the corresponding reads. Successful locations retain their own original values and notifications when other items fail.
 
 ## Index Mapping
 

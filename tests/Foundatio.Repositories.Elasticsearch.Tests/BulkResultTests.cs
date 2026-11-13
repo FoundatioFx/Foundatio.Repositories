@@ -16,11 +16,11 @@ public sealed class BulkResultTests
 {
     private static readonly ElasticsearchClient _client = new(new ElasticsearchClientSettings(new InMemoryRequestInvoker()));
 
-    private static async Task<BulkResult> GetBulkResultAsync(string responseJson, int statusCode = 200)
+    private static async Task<BulkResult> GetBulkResultAsync(string responseJson, int statusCode = 200, string contentType = "application/json")
     {
         if (statusCode is not 200)
         {
-            var invoker = new InMemoryRequestInvoker(Encoding.UTF8.GetBytes(responseJson), statusCode, null, "application/json", null);
+            var invoker = new InMemoryRequestInvoker(Encoding.UTF8.GetBytes(responseJson), statusCode, null, contentType, null);
             var client = new ElasticsearchClient(new ElasticsearchClientSettings(invoker));
             var failed = await client.BulkAsync(new BulkRequest { Operations = [new BulkDeleteOperation("1") { Index = "employees" }] });
             return BulkResult.From(failed);
@@ -79,6 +79,19 @@ public sealed class BulkResultTests
         Assert.Equal([WriteOutcome.Succeeded, WriteOutcome.Fatal, WriteOutcome.Fatal], results.Select(r => r.Outcome));
     }
 
+    [Fact]
+    public async Task From_WithMissingDelete_ClassifiesAsMissing()
+    {
+        // Arrange
+        const string json = """{"took":1,"errors":false,"items":[{"delete":{"_index":"employees","_id":"gone","status":404,"result":"not_found"}}]}""";
+
+        // Act
+        var result = await GetBulkResultAsync(json);
+
+        // Assert
+        Assert.Equal(WriteOutcome.Missing, Assert.Single(result.Items).Outcome);
+    }
+
     [Theory]
     [InlineData(503, true)]
     [InlineData(429, true)]
@@ -94,6 +107,17 @@ public sealed class BulkResultTests
         Assert.NotNull(result.RequestFailure);
         Assert.Equal(status, result.RequestFailure.Status);
         Assert.All(result.ToWriteResults(2), r => Assert.Equal(transient ? WriteOutcome.Transient : WriteOutcome.Fatal, r.Outcome));
+    }
+
+    [Fact]
+    public async Task From_WithUnstructuredServiceUnavailable_DoesNotAssumeTheWriteWasRejected()
+    {
+        // Arrange
+        var result = await GetBulkResultAsync("upstream connect error or disconnect/reset before headers", 503, "text/plain");
+
+        // Act & Assert
+        Assert.NotNull(result.RequestFailure);
+        Assert.Equal(WriteOutcome.Fatal, result.RequestFailure.Outcome);
     }
 
     [Theory]

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -26,8 +27,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 /// reached through <see cref="object"/> properties and collections such as <c>Dictionary&lt;string, object&gt;</c>,
 /// where the document type is only known at runtime.</para>
 /// <para>With a source-generated <c>JsonSerializerContext</c> the property metadata carries no reflection information, so
-/// the <c>Version</c> property is recognized by its serialized name (<c>version</c>, case-insensitive) instead.</para>
-/// <para>Removing the property also means a <c>version</c> value already stored in an older document's <c>_source</c> is
+/// the implementing property's configured serialized name is matched instead.</para>
+/// <para>Excluding the property also means a <c>version</c> value already stored in an older document's <c>_source</c> is
 /// ignored when it is read.</para>
 /// <para><see cref="ElasticConfiguration"/> applies this to its source serializer automatically. If you replace the
 /// source serializer, call <see cref="ExcludeDocumentVersionFromSource(JsonSerializerOptions, IEnumerable{Type})"/> on
@@ -73,18 +74,38 @@ public static class DocumentVersionSourceExclusion
     }
 
     /// <summary>
-    /// <c>true</c> when <paramref name="type"/> is, contains (array element or generic argument), or may hold at runtime
-    /// (<see cref="object"/>) a root type.
+    /// <c>true</c> when <paramref name="type"/> is, contains, or may hold a root type through polymorphism or collection
+    /// elements whose runtime types are not available from the declared property type.
     /// </summary>
     internal static bool ContainsRootDocumentType(Type type, Func<Type, bool> isRegistered)
     {
-        if (type == typeof(object) || IsRootDocumentType(type, isRegistered))
+        if (type == typeof(string))
+            return false;
+
+        if (IsRootDocumentType(type, isRegistered) || type.IsInterface || !type.IsSealed || typeof(IEnumerable).IsAssignableFrom(type))
             return true;
 
-        if (type.IsArray)
-            return ContainsRootDocumentType(type.GetElementType()!, isRegistered);
-
         return type.IsGenericType && type.GetGenericArguments().Any(a => ContainsRootDocumentType(a, isRegistered));
+    }
+
+    internal static PropertyInfo? GetDocumentVersionProperty(Type type)
+    {
+        if (!typeof(IVersioned).IsAssignableFrom(type))
+            return null;
+
+        var versionProperty = typeof(IVersioned).GetProperty(nameof(IVersioned.Version))!;
+        if (type.IsInterface)
+            return versionProperty;
+
+        var map = type.GetInterfaceMap(typeof(IVersioned));
+        var getter = map.TargetMethods[Array.IndexOf(map.InterfaceMethods, versionProperty.GetMethod!)];
+        return getter.DeclaringType!.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .FirstOrDefault(property => IsSameMethod(property.GetMethod, getter));
+    }
+
+    private static bool IsSameMethod(MethodInfo? first, MethodInfo? second)
+    {
+        return first is not null && second is not null && first.Module == second.Module && first.MetadataToken == second.MetadataToken;
     }
 
     private sealed class RootVersionExcludingResolver : IJsonTypeInfoResolver
@@ -106,12 +127,24 @@ public static class DocumentVersionSourceExclusion
                 return typeInfo;
 
             bool isRoot = IsRootDocumentType(type, _isRegistered);
+            var versionProperty = isRoot ? GetDocumentVersionProperty(type) : null;
             for (int index = typeInfo.Properties.Count - 1; index >= 0; index--)
             {
                 var property = typeInfo.Properties[index];
-                if (isRoot && IsDocumentVersionProperty(property))
+                if (versionProperty is not null && IsDocumentVersionProperty(property, versionProperty, options))
                 {
-                    typeInfo.Properties.RemoveAt(index);
+                    // Keep the name recognized so a legacy value isn't captured by extension data.
+                    property.Get = null;
+                    property.Set = null;
+                    property.IsRequired = false;
+                    continue;
+                }
+
+                if (property.IsExtensionData)
+                {
+                    if (property.CustomConverter is null && typeof(IDictionary<string, object>).IsAssignableFrom(property.PropertyType))
+                        property.CustomConverter = (JsonConverter)Activator.CreateInstance(typeof(NestedExtensionDataConverter<>).MakeGenericType(property.PropertyType), GetNestedOptions(options))!;
+
                     continue;
                 }
 
@@ -124,22 +157,29 @@ public static class DocumentVersionSourceExclusion
 
         /// <summary>
         /// Reflection-based resolvers expose the <see cref="PropertyInfo"/>. Source-generated resolvers don't, so the
-        /// serialized name is matched instead; the type is already known to implement <see cref="IVersioned"/>, whose
-        /// <c>Version</c> is the only string member of that name.
+        /// implementing property's configured serialized name is matched instead.
         /// </summary>
-        private static bool IsDocumentVersionProperty(JsonPropertyInfo property)
+        private static bool IsDocumentVersionProperty(JsonPropertyInfo property, PropertyInfo versionProperty, JsonSerializerOptions options)
         {
             if (property.AttributeProvider is PropertyInfo info)
-                return info.Name == nameof(IVersioned.Version) && info.PropertyType == typeof(string);
+                return IsSameMethod(info.GetMethod, versionProperty.GetMethod);
 
-            return property.PropertyType == typeof(string) && string.Equals(property.Name, nameof(IVersioned.Version), StringComparison.OrdinalIgnoreCase);
+            string name = versionProperty.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name
+                ?? options.PropertyNamingPolicy?.ConvertName(versionProperty.Name)
+                ?? versionProperty.Name;
+            return property.PropertyType == typeof(string) && String.Equals(property.Name, name, StringComparison.Ordinal);
         }
 
         /// <summary>Serializes a nested value with the original resolver, so root types inside it keep their version.</summary>
         private JsonConverter CreateNestedConverter(Type propertyType, JsonSerializerOptions options)
         {
-            var nestedOptions = _nestedOptions ?? Interlocked.CompareExchange(ref _nestedOptions, new JsonSerializerOptions(options) { TypeInfoResolver = _inner }, null) ?? _nestedOptions!;
+            var nestedOptions = GetNestedOptions(options);
             return (JsonConverter)Activator.CreateInstance(typeof(NestedValueConverter<>).MakeGenericType(propertyType), nestedOptions)!;
+        }
+
+        private JsonSerializerOptions GetNestedOptions(JsonSerializerOptions options)
+        {
+            return _nestedOptions ?? Interlocked.CompareExchange(ref _nestedOptions, new JsonSerializerOptions(options) { TypeInfoResolver = _inner }, null) ?? _nestedOptions!;
         }
     }
 
@@ -155,6 +195,25 @@ public static class DocumentVersionSourceExclusion
         public override void Write(Utf8JsonWriter writer, TValue value, JsonSerializerOptions options)
         {
             JsonSerializer.Serialize(writer, value, nestedOptions);
+        }
+    }
+
+    private sealed class NestedExtensionDataConverter<TDictionary>(JsonSerializerOptions nestedOptions) : JsonConverter<TDictionary>
+        where TDictionary : IDictionary<string, object>
+    {
+        public override TDictionary? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return JsonSerializer.Deserialize<TDictionary>(ref reader, nestedOptions);
+        }
+
+        public override void Write(Utf8JsonWriter writer, TDictionary value, JsonSerializerOptions options)
+        {
+            // Extension data is already inside the containing object, so only its properties are written.
+            foreach (var entry in value)
+            {
+                writer.WritePropertyName(entry.Key);
+                JsonSerializer.Serialize(writer, entry.Value, nestedOptions);
+            }
         }
     }
 }

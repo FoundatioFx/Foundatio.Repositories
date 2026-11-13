@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,6 +34,36 @@ public sealed class WriteTransportTests
         // Assert
         Assert.Equal(1, configuration.Invoker.WriteRequests);
         Assert.Equal(1, configuration.Invoker.AppliedWrites);
+        var failedNode = Assert.Single(configuration.Client.ElasticsearchClientSettings.NodePool.Nodes, n => !n.IsAlive);
+        Assert.Equal(configuration.Invoker.LastNode, failedNode.Uri.Host);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task PatchAsync_WithUnstructuredServiceUnavailableAfterScriptApplied_DoesNotRetry(bool bulk, bool json)
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(503, applyBeforeFailure: true);
+        configuration.Invoker.UnstructuredFailure = true;
+        configuration.Invoker.JsonFailure = json;
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            if (bulk)
+                _ = await repository.PatchAsync(new Ids(new[] { "one", "two" }), new ScriptPatch("ctx._source.count++"), o => o.Retry(1));
+            else
+                _ = await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Retry(1));
+        });
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.AppliedWrites);
+        Assert.IsType<DocumentException>(exception);
     }
 
     [Theory]
@@ -110,6 +143,219 @@ public sealed class WriteTransportTests
         Assert.Equal(0, configuration.Invoker.AppliedWrites);
     }
 
+    [Fact]
+    public async Task PatchAsync_WithCustomWriteClientOverride_UsesConfiguredTransport()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, customTransport: true, maxRetries: 0);
+        using var repository = new TestRepository(configuration, useCustomWriteClient: true);
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.NotNull(configuration.CustomTransport);
+        Assert.Equal(1, configuration.CustomTransport.Requests);
+        Assert.Equal(1, configuration.Invoker.AppliedWrites);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    public async Task PatchAsync_WithCustomTransportWithoutExplicitWriteClient_RejectsBeforeSending(int? maxRetries)
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, customTransport: true, maxRetries: maxRetries);
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("CreateWriteClient", inner.Message);
+        Assert.Equal(0, configuration.Invoker.WriteRequests);
+        Assert.NotNull(configuration.CustomTransport);
+        Assert.Equal(0, configuration.CustomTransport.Requests);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithInvalidResponseAfterSendingToSingleNode_DoesNotRetry()
+    {
+        // Arrange
+        var exception = new HttpRequestException(HttpRequestError.InvalidResponse, "Received an invalid status line: 'unexpected'");
+        using var configuration = new TestConfiguration(200, applyBeforeFailure: true, singleNode: true, failureException: exception);
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.AppliedWrites);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithExcludedAndDeadNodes_SelectsOneEligibleNode()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, includeExcludedNode: true);
+        using var repository = new TestRepository(configuration);
+        configuration.Client.ElasticsearchClientSettings.NodePool.Nodes.Single(n => n.Uri.Host is "node-one").MarkDead(DateTimeOffset.UtcNow.AddMinutes(1));
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal("node-two", configuration.Invoker.LastNode);
+    }
+
+    [Fact]
+    public void WriteTransport_WhenPoolIsReseeded_UpdatesTheSharedSourcePool()
+    {
+        // Arrange
+        using var sourcePool = new SniffingNodePool([new Uri("http://node-one:9200")]);
+        using var invoker = new RecordingInvoker(200, false);
+        var settings = new ElasticsearchClientSettings(sourcePool, invoker);
+        ITransport transport = new WriteTransport(new ElasticsearchClient(settings).Transport);
+
+        // Act
+        transport.Configuration.NodePool.Reseed([new Node(new Uri("http://replacement:9200"))]);
+
+        // Assert
+        Assert.Equal("replacement", Assert.Single(sourcePool.Nodes).Uri.Host);
+        Assert.True(sourcePool.SniffedOnStartup);
+        Assert.Equal("replacement", Assert.Single(transport.Configuration.NodePool.CreateView()).Uri.Host);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithSniffOnConnectionFailure_DoesNotResendAfterReseeding()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(502, applyBeforeFailure: true, sniffOnConnectionFailure: true);
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.AppliedWrites);
+        Assert.Equal(1, configuration.Invoker.SniffRequests);
+        Assert.Equal("replacement", Assert.Single(configuration.Client.ElasticsearchClientSettings.NodePool.Nodes).Uri.Host);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenReseedingRetainsFailedNode_PreservesSharedNodeHealth()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(502, sniffOnConnectionFailure: true);
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.RetainNodesOnSniff = true;
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.SniffRequests);
+        Assert.Single(configuration.Client.ElasticsearchClientSettings.NodePool.Nodes, node => !node.IsAlive);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithHealthySniffingPool_PreservesNodeRotation()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, sniffOnConnectionFailure: true);
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.Equal(2, configuration.Invoker.WriteNodes.Distinct().Count());
+        Assert.Equal(0, configuration.Invoker.SniffRequests);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPingingEnabled_DoesNotPingHealthyNodesAgain()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, singleNode: true, enablePings: true);
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.Equal(2, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.PingRequests);
+        Assert.True(Assert.Single(configuration.Client.ElasticsearchClientSettings.NodePool.Nodes).IsAlive);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithExcludedSeedNodes_DiscoversEligibleNodeBeforeSelectingWriteTarget()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, sniffOnStartup: true);
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+        // Assert
+        Assert.Equal(2, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.SniffRequests);
+        Assert.Equal(1, configuration.Invoker.PingRequests);
+        Assert.Equal("replacement", configuration.Invoker.LastNode);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenStartupDiscoveryFails_RetriesOnlyTheUnsentWrite()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, sniffOnStartup: true);
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.SniffFailuresRemaining = 1;
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Retry(1)));
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.AppliedWrites);
+        Assert.Equal(2, configuration.Invoker.SniffRequests);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithConfiguredAuthenticationAndHooks_PreservesSettingsAndResourceOwnership()
+    {
+        // Arrange
+        var configuration = new TestConfiguration(200);
+        using (configuration)
+        {
+            using (var repository = new TestRepository(configuration))
+            {
+                // Act
+                Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+                Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+
+                // Assert
+                Assert.Equal(2, configuration.BeforeRequestCalls);
+                Assert.Same(configuration.Authentication, configuration.Invoker.LastAuthentication);
+                Assert.Equal(TimeSpan.FromSeconds(37), configuration.Invoker.LastRequestTimeout);
+            }
+
+            Assert.Equal(0, configuration.Invoker.DisposeCount);
+        }
+
+        Assert.Equal(1, configuration.Invoker.DisposeCount);
+    }
+
     private static Task WriteAsync(TestRepository repository, string operation, int retry)
     {
         var document = new TestDocument { Id = "one" };
@@ -138,12 +384,17 @@ public sealed class WriteTransportTests
 
     private sealed class TestRepository : ElasticRepositoryBase<TestDocument>
     {
-        public TestRepository(TestConfiguration configuration, bool usePipeline = false) : base(new TestIndex(configuration))
+        private readonly ElasticsearchClient? _customWriteClient;
+
+        public TestRepository(TestConfiguration configuration, bool usePipeline = false, bool useCustomWriteClient = false) : base(new TestIndex(configuration))
         {
             DisableCache();
             NotificationsEnabled = false;
             DefaultPipeline = usePipeline ? "test-pipeline" : null;
+            _customWriteClient = useCustomWriteClient ? configuration.Client : null;
         }
+
+        protected override ElasticsearchClient CreateWriteClient() => _customWriteClient ?? base.CreateWriteClient();
     }
 
     private sealed class TestIndex(TestConfiguration configuration) : Index<TestDocument>(configuration, "transport-tests")
@@ -151,22 +402,83 @@ public sealed class WriteTransportTests
         public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
     }
 
-    private sealed class TestConfiguration(int failureStatus, bool applyBeforeFailure = false) : ElasticConfiguration
+    private sealed class TestConfiguration(int failureStatus, bool applyBeforeFailure = false, bool customTransport = false, int? maxRetries = null, bool singleNode = false, bool includeExcludedNode = false, Exception? failureException = null, bool sniffOnConnectionFailure = false, bool enablePings = false, bool sniffOnStartup = false) : ElasticConfiguration
     {
-        public RecordingInvoker Invoker { get; } = new(failureStatus, applyBeforeFailure);
+        public RecordingInvoker Invoker { get; } = new(failureStatus, applyBeforeFailure, failureException);
+        public AuthorizationHeader Authentication { get; } = new BasicAuthentication("test", "test");
+        public RecordingTransport? CustomTransport { get; private set; }
+        public int BeforeRequestCalls { get; private set; }
 
-        protected override NodePool CreateConnectionPool() => new StaticNodePool([new Uri("http://node-one:9200"), new Uri("http://node-two:9200")]);
+        protected override NodePool CreateConnectionPool()
+        {
+            if (singleNode)
+                return new SingleNodePool(new Uri("http://node-one:9200"));
+
+            if (sniffOnConnectionFailure)
+                return new SniffingNodePool([new Uri("http://node-one:9200"), new Uri("http://node-two:9200")]);
+
+            if (sniffOnStartup)
+                return new SniffingNodePool([new Node(new Uri("http://seed:9200"), ["master"])]);
+
+            return includeExcludedNode
+                ? new StaticNodePool([new Uri("http://excluded:9200"), new Uri("http://node-one:9200"), new Uri("http://node-two:9200")])
+                : new StaticNodePool([new Uri("http://node-one:9200"), new Uri("http://node-two:9200")]);
+        }
 
         protected override IRequestInvoker CreateRequestInvoker() => Invoker;
 
         protected override void ConfigureSettings(ElasticsearchClientSettings settings)
         {
             base.ConfigureSettings(settings);
-            settings.DisablePing().DeadTimeout(TimeSpan.Zero).MaxDeadTimeout(TimeSpan.Zero);
+            settings.DisablePing(!enablePings).DeadTimeout(TimeSpan.Zero).MaxDeadTimeout(TimeSpan.Zero)
+                .Authentication(Authentication).RequestTimeout(TimeSpan.FromSeconds(37));
+            settings.OnBeforeRequest((ElasticsearchClient client, Elastic.Clients.Elasticsearch.Requests.Request request, EndpointPath path, ref PostData? data, ref IRequestConfiguration? configuration) =>
+            {
+                BeforeRequestCalls++;
+            });
+            if (maxRetries is { } retries)
+                settings.MaximumRetries(retries);
+            if (includeExcludedNode)
+                settings.NodePredicate(node => node.Uri.Host is not "excluded");
+            if (sniffOnConnectionFailure)
+                settings.SniffOnStartup(false).SniffOnConnectionFault(true);
+            if (sniffOnStartup)
+                settings.SniffOnStartup(true).NodePredicate(node => node.Uri.Host is not "seed");
+        }
+
+        protected override ElasticsearchClient CreateElasticClient()
+        {
+            var client = base.CreateElasticClient();
+            if (!customTransport)
+                return client;
+
+            CustomTransport = new RecordingTransport(client.Transport);
+            return new ElasticsearchClient(CustomTransport);
         }
     }
 
-    private sealed class RecordingInvoker(int failureStatus, bool applyBeforeFailure) : IRequestInvoker
+    private sealed class RecordingTransport(ITransport<IElasticsearchClientSettings> inner) : ITransport<IElasticsearchClientSettings>
+    {
+        public int Requests { get; private set; }
+        public IElasticsearchClientSettings Configuration => inner.Configuration;
+        ITransportConfiguration ITransport.Configuration => Configuration;
+
+        public TResponse Request<TResponse>(in EndpointPath path, PostData? postData, Action<Activity>? configureActivity, IRequestConfiguration? localConfiguration)
+            where TResponse : TransportResponse, new()
+        {
+            Requests++;
+            return inner.Request<TResponse>(path, postData, configureActivity, localConfiguration);
+        }
+
+        public Task<TResponse> RequestAsync<TResponse>(in EndpointPath path, PostData? postData, Action<Activity>? configureActivity, IRequestConfiguration? localConfiguration, CancellationToken cancellationToken = default)
+            where TResponse : TransportResponse, new()
+        {
+            Requests++;
+            return inner.RequestAsync<TResponse>(path, postData, configureActivity, localConfiguration, cancellationToken);
+        }
+    }
+
+    private sealed class RecordingInvoker(int failureStatus, bool applyBeforeFailure, Exception? failureException = null) : IRequestInvoker
     {
         private readonly InMemoryRequestInvoker _responseFactoryOwner = new();
         private static readonly Dictionary<string, IEnumerable<string>> _headers = new(StringComparer.OrdinalIgnoreCase) { ["X-Elastic-Product"] = ["Elasticsearch"] };
@@ -174,16 +486,47 @@ public sealed class WriteTransportTests
         public ResponseFactory ResponseFactory => _responseFactoryOwner.ResponseFactory;
         public int WriteRequests { get; private set; }
         public int ReadRequests { get; private set; }
+        public int SniffRequests { get; private set; }
+        public int SniffFailuresRemaining { get; set; }
+        public bool RetainNodesOnSniff { get; set; }
+        public bool UnstructuredFailure { get; set; }
+        public bool JsonFailure { get; set; }
+        public int PingRequests { get; private set; }
         public int AppliedWrites { get; private set; }
         public bool FailNextRead { get; set; }
+        public AuthorizationHeader? LastAuthentication { get; private set; }
+        public TimeSpan LastRequestTimeout { get; private set; }
+        public int DisposeCount { get; private set; }
+        public string? LastNode { get; private set; }
+        public List<string?> WriteNodes { get; } = [];
 
         public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
             where TResponse : TransportResponse, new()
         {
+            LastAuthentication = boundConfiguration.AuthenticationHeader;
+            LastRequestTimeout = boundConfiguration.RequestTimeout;
+            LastNode = endpoint.Node?.Uri.Host;
             string path = endpoint.PathAndQuery;
             int status = 200;
             string body;
-            if (endpoint.Method is HttpMethod.GET)
+            if (endpoint.Method is HttpMethod.HEAD)
+            {
+                PingRequests++;
+                body = "{}";
+            }
+            else if (path.Contains("_nodes", StringComparison.Ordinal))
+            {
+                SniffRequests++;
+                if (SniffFailuresRemaining > 0)
+                {
+                    SniffFailuresRemaining--;
+                    status = 502;
+                }
+                body = RetainNodesOnSniff
+                    ? """{"nodes":{"one":{"name":"node-one","roles":["data","ingest","master"],"http":{"publish_address":"node-one:9200"}},"two":{"name":"node-two","roles":["data","ingest","master"],"http":{"publish_address":"node-two:9200"}}}}"""
+                    : """{"nodes":{"node":{"name":"replacement","roles":["data","ingest","master"],"http":{"publish_address":"replacement:9200"}}}}""";
+            }
+            else if (endpoint.Method is HttpMethod.GET)
             {
                 ReadRequests++;
                 status = FailNextRead ? 502 : 200;
@@ -193,10 +536,14 @@ public sealed class WriteTransportTests
             else
             {
                 WriteRequests++;
+                WriteNodes.Add(endpoint.Node?.Uri.Host);
                 if (WriteRequests is 1)
                     status = failureStatus;
                 if (status is 200 || applyBeforeFailure)
                     AppliedWrites++;
+
+                if (WriteRequests is 1 && failureException is not null)
+                    return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, failureException, null, _headers, Stream.Null, null, -1, null, null);
 
                 body = path.Contains("_bulk", StringComparison.Ordinal)
                     ? """{"took":1,"errors":false,"items":[{"update":{"_index":"transport-tests","_id":"one","status":200,"result":"updated"}},{"update":{"_index":"transport-tests","_id":"two","status":200,"result":"updated"}}]}"""
@@ -207,12 +554,18 @@ public sealed class WriteTransportTests
                             : """{"_index":"transport-tests","_id":"one","_version":2,"result":"updated","_seq_no":1,"_primary_term":1,"_shards":{"total":1,"successful":1,"failed":0}}""";
             }
 
+            bool unstructured = status is not 200 && UnstructuredFailure;
             if (status is not 200)
-                body = $$"""{"error":{"type":"injected_fault","reason":"injected {{status}}"},"status":{{status}}}""";
+            {
+                string errorType = status is 503 ? "unavailable_shards_exception" : "injected_fault";
+                body = unstructured
+                    ? JsonFailure ? """{"message":"upstream connection terminated"}""" : "upstream connect error or disconnect/reset before headers. reset reason: connection termination"
+                    : $$"""{"error":{"type":"{{errorType}}","reason":"injected {{status}}"},"status":{{status}}}""";
+            }
 
             byte[] bytes = Encoding.UTF8.GetBytes(body);
             using var stream = new MemoryStream(bytes);
-            return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, status, _headers, stream, "application/json", bytes.Length, null, null);
+            return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, status, unstructured ? null : _headers, stream, unstructured && !JsonFailure ? "text/plain" : "application/json", bytes.Length, null, null);
         }
 
         public Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
@@ -222,6 +575,10 @@ public sealed class WriteTransportTests
             return Task.FromResult(Request<TResponse>(endpoint, boundConfiguration, postData));
         }
 
-        public void Dispose() => ((IDisposable)_responseFactoryOwner).Dispose();
+        public void Dispose()
+        {
+            DisposeCount++;
+            ((IDisposable)_responseFactoryOwner).Dispose();
+        }
     }
 }

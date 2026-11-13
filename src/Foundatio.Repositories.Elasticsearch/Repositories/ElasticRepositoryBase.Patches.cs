@@ -105,7 +105,7 @@ public abstract partial class ElasticRepositoryBase<T>
             var (response, items) = await MultiGetAsync(conflicts.Select(c => (c.Key, c.Routing)).ToList(), options, ct).AnyContext();
             if (items is null)
             {
-                var failure = WriteOutcomeClassifier.ClassifyRequestFailure(response.ApiCallDetails?.HttpStatusCode, response.OriginalException());
+                var failure = WriteOutcomeClassifier.ClassifyReadFailure(response.ApiCallDetails?.HttpStatusCode, response.OriginalException());
                 if (failure is WriteOutcome.Transient)
                     return conflicts.Select(c => ((IndexItem?)c, (WriteItemResult?)null)).ToList();
 
@@ -133,20 +133,31 @@ public abstract partial class ElasticRepositoryBase<T>
     /// (as before), and a single id is always read in real time from its index.
     /// Documents that don't exist are returned as <see cref="WriteOutcome.Missing"/> failures.
     /// </summary>
-    private async Task<(List<(string Id, FindHit<T> Hit)> Hits, List<WriteItemOutcome<IndexItem>> Failures)> ReadForPatchAsync(IReadOnlyCollection<Id> ids, ICommandOptions options)
+    private async Task<(List<(string Id, FindHit<T> Hit)> Hits, List<WriteItemOutcome<IndexItem>> Failures)> ReadForPatchAsync(IReadOnlyCollection<Id> ids, ICommandOptions options, bool allowSearch = false)
     {
-        if (ids.Count > 1 && (ElasticIndex.HasMultipleIndexes || (HasParent && ids.Any(i => i.Routing is null))))
+        if (allowSearch && (ElasticIndex.HasMultipleIndexes || (HasParent && ids.Any(i => i.Routing is null))))
         {
-            var findOptions = options.Clone().PageLimit(1000).Cache(false);
+            var findOptions = CreatePatchPagingOptions(options, fullSource: true).PageLimit(1000);
+            var requestedIds = ids.ToHashSet();
+            var unroutedIds = ids.Where(i => i.Routing is null).Select(i => i.Value).ToHashSet(StringComparer.Ordinal);
             var searched = new List<(string Id, FindHit<T> Hit)>();
             var results = await FindAsync(NewQuery().Id(ids.Select(i => i.Value)), findOptions).AnyContext();
-            do
+            try
             {
-                searched.AddRange(WithIds(results.Hits.Where(h => h.Document is not null)));
-            } while (await results.NextPageAsync().AnyContext());
+                do
+                {
+                    searched.AddRange(WithIds(results.Hits.Where(h => h.Document is not null))
+                        .Where(h => unroutedIds.Contains(h.Id) || requestedIds.Contains(new Id(h.Id, h.Hit.Routing))));
+                } while (await results.NextPageAsync().AnyContext());
+            }
+            finally
+            {
+                await CloseAbandonedPointInTimeAsync(results, findOptions).AnyContext();
+            }
 
             var foundIds = searched.Select(h => h.Id).ToHashSet();
-            var missing = ids.Where(i => !foundIds.Contains(i.Value))
+            var foundRoutedIds = searched.Select(h => new Id(h.Id, h.Hit.Routing)).ToHashSet();
+            var missing = ids.Where(i => i.Routing is null ? !foundIds.Contains(i.Value) : !foundRoutedIds.Contains(i))
                 .Select(i => new WriteItemOutcome<IndexItem>(new IndexItem(new DocumentKey(ElasticIndex.Name, i.Value), new T(), i.Routing, ElasticDocumentVersion.Empty, false), new WriteItemResult(WriteOutcome.Missing, 404)))
                 .ToList();
             return (searched, missing);
@@ -159,7 +170,7 @@ public abstract partial class ElasticRepositoryBase<T>
             var (response, items) = await MultiGetAsync(pending.Select(p => (p.Key, p.Routing)).ToList(), options, ct).AnyContext();
             if (items is null)
             {
-                var failure = new WriteItemResult(WriteOutcomeClassifier.ClassifyRequestFailure(response.ApiCallDetails?.HttpStatusCode, response.OriginalException()), response.ApiCallDetails?.HttpStatusCode, Reason: response.GetErrorMessage("Error reading documents to patch"), Exception: response.OriginalException());
+                var failure = new WriteItemResult(WriteOutcomeClassifier.ClassifyReadFailure(response.ApiCallDetails?.HttpStatusCode, response.OriginalException()), response.ApiCallDetails?.HttpStatusCode, Reason: response.GetErrorMessage("Error reading documents to patch"), Exception: response.OriginalException());
                 return Enumerable.Repeat(failure, pending.Count).ToList();
             }
 
@@ -221,7 +232,7 @@ public abstract partial class ElasticRepositoryBase<T>
             if (pending.Count is 1)
                 return [await UpdateSingleAsync(pending[0], operation, refresh, budget, options, ct).AnyContext()];
 
-            var response = await _client.BulkAsync(b =>
+            var response = await WriteClient.BulkAsync(b =>
             {
                 b.Refresh(refresh);
                 foreach (var item in pending)
@@ -245,18 +256,24 @@ public abstract partial class ElasticRepositoryBase<T>
     private async Task<WriteRunResult<UpdateItem>> PatchByIdQueryAsync(IReadOnlyList<UpdateItem> items, ScriptPatch script, Refresh refresh, int budget, string operationName, ICommandOptions options)
     {
         var patchedIndexes = new ConcurrentDictionary<string, byte>();
+        var partiallyPatchedIds = new List<string>();
+        WriteRunResult<UpdateItem> run;
         try
         {
-            return await WriteRunner.RunAsync<UpdateItem>(operationName, items, budget, async (pending, ct) =>
+            run = await WriteRunner.RunAsync<UpdateItem>(operationName, items, budget, async (pending, ct) =>
             {
                 var results = new List<WriteItemResult>(pending.Count);
                 foreach (var item in pending)
                 {
                     try
                     {
-                        var result = await UpdateByIdQueryAsync(item, script, options, ct).AnyContext();
-                        if (result.Outcome is WriteOutcome.Succeeded)
+                        var (result, applied) = await UpdateByIdQueryAsync(item, script, options, ct).AnyContext();
+                        if (applied)
+                        {
                             patchedIndexes[item.Key.Index] = 0;
+                            if (result.Outcome is not WriteOutcome.Succeeded)
+                                partiallyPatchedIds.Add(item.Key.Id);
+                        }
 
                         results.Add(result);
                     }
@@ -281,6 +298,20 @@ public abstract partial class ElasticRepositoryBase<T>
             if (refresh != Refresh.False && !patchedIndexes.IsEmpty)
                 await RefreshPatchedIndexesAsync(patchedIndexes.Keys.ToArray()).AnyContext();
         }
+
+        if (partiallyPatchedIds.Count > 0)
+        {
+            try
+            {
+                await OnPatchedAsync(partiallyPatchedIds, null, options).AnyContext();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error invalidating the cache or sending notifications after a partially completed update by query");
+            }
+        }
+
+        return run;
     }
 
     private async Task RefreshPatchedIndexesAsync(string[] indexes)
@@ -316,13 +347,13 @@ public abstract partial class ElasticRepositoryBase<T>
         {
             var request = new UpdateRequest<T, T>(item.Key.Index, item.Key.Id) { Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params } };
             ConfigureUpdateRequest(request, item, refresh, budget);
-            response = await _client.UpdateAsync(request, cancellationToken).AnyContext();
+            response = await WriteClient.UpdateAsync(request, cancellationToken).AnyContext();
         }
         else
         {
             var request = new UpdateRequest<T, object>(item.Key.Index, item.Key.Id) { Doc = ((PartialPatch)operation).Document };
             ConfigureUpdateRequest(request, item, refresh, budget);
-            response = await _client.UpdateAsync(request, cancellationToken).AnyContext();
+            response = await WriteClient.UpdateAsync(request, cancellationToken).AnyContext();
         }
 
         _logger.LogRequest(response, options.GetQueryLogLevel());
@@ -349,30 +380,38 @@ public abstract partial class ElasticRepositoryBase<T>
     /// Runs a script patch through update-by-query on one id so the default pipeline is applied. A version conflict means
     /// the document changed during the request and nothing was written, so it is safe to run it again.
     /// </summary>
-    private async Task<WriteItemResult> UpdateByIdQueryAsync(UpdateItem item, ScriptPatch scriptOperation, ICommandOptions options, CancellationToken cancellationToken)
+    private async Task<(WriteItemResult Result, bool Applied)> UpdateByIdQueryAsync(UpdateItem item, ScriptPatch scriptOperation, ICommandOptions options, CancellationToken cancellationToken)
     {
         var request = new UpdateByQueryRequest(item.Key.Index)
         {
             Query = new IdsQuery { Values = new Elastic.Clients.Elasticsearch.Ids([new Elastic.Clients.Elasticsearch.Id(item.Key.Id)]) },
             Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
             Pipeline = DefaultPipeline,
+            Conflicts = Conflicts.Proceed,
             Refresh = false,
             WaitForCompletion = true
         };
         if (item.Routing is not null)
             request.Routing = new Routing(item.Routing);
 
-        var response = await _client.UpdateByQueryAsync(request, cancellationToken).AnyContext();
+        var response = await WriteClient.UpdateByQueryAsync(request, cancellationToken).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
+        bool applied = (response.Updated ?? 0) > 0 || (response.Deleted ?? 0) > 0;
+        if (GetQueryFailureReason(response.TimedOut, response.Failures) is { } failure)
+            return (new WriteItemResult(WriteOutcome.Fatal, response.ApiCallDetails?.HttpStatusCode, Reason: failure, Exception: response.OriginalException()), applied);
+
         if (!response.IsValidResponse)
-            return ToWriteResult(response, ElasticDocumentVersion.Empty);
+        {
+            var result = ToWriteResult(response, ElasticDocumentVersion.Empty);
+            return (applied ? result with { Outcome = WriteOutcome.Fatal } : result, applied);
+        }
 
         if ((response.VersionConflicts ?? 0) > 0)
-            return new WriteItemResult(WriteOutcome.Conflict, 409, Reason: "The document changed during the update-by-query request.");
+            return (new WriteItemResult(applied ? WriteOutcome.Fatal : WriteOutcome.Conflict, 409, Reason: "The document changed during the update-by-query request."), applied);
 
         if ((response.Total ?? 0) is 0)
-            return new WriteItemResult(WriteOutcome.Missing, 404);
+            return (new WriteItemResult(WriteOutcome.Missing, 404), false);
 
-        return new WriteItemResult((response.Updated ?? 0) > 0 || (response.Deleted ?? 0) > 0 ? WriteOutcome.Succeeded : WriteOutcome.Noop);
+        return (new WriteItemResult(applied ? WriteOutcome.Succeeded : WriteOutcome.Noop), applied);
     }
 }

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
+using Elastic.Transport;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -30,6 +31,27 @@ public abstract partial class ElasticRepositoryBase<T>
 
     private readonly Lazy<WriteRoundRunner> _writeRunner;
     private WriteRoundRunner WriteRunner => _writeRunner.Value;
+    private readonly Lazy<ElasticsearchClient> _lazyWriteClient;
+    private ElasticsearchClient WriteClient => _lazyWriteClient.Value;
+
+    /// <summary>
+    /// Creates the client used for document writes. Transport retries must be disabled so <c>Retry(n)</c> and the
+    /// write outcome classifier control every retry, including when the connection pool contains multiple nodes.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation shares the standard client's connection resources and serialization settings without
+    /// changing its read retry behavior. For a custom transport, override this method to supply a client whose transport
+    /// never resends a write automatically; the transport's retry setting alone does not establish that guarantee.
+    /// An override that creates separate connection resources is responsible for disposing those resources.
+    /// </remarks>
+    protected virtual ElasticsearchClient CreateWriteClient()
+    {
+        var client = _client;
+        if (client.Transport is DistributedTransport<IElasticsearchClientSettings>)
+            return new ElasticsearchClient(new WriteTransport(client.Transport));
+
+        throw new InvalidOperationException("A custom Elasticsearch transport must guarantee one attempt per document write. Override CreateWriteClient to provide that client; setting MaximumRetries(0) alone is not sufficient.");
+    }
 
     /// <summary>
     /// Document writes retry with <see cref="WriteRoundRunner"/> (<c>Retry(n)</c> and the transient classification), not the
@@ -39,7 +61,7 @@ public abstract partial class ElasticRepositoryBase<T>
     private WriteRoundRunner CreateWriteRunner()
     {
         if (_resiliencePolicy is not ResiliencePolicy)
-            _logger.LogWarning("Repository {Repository} has a custom resilience policy ({Policy}); document writes don't use it and retry with Retry(n) on HTTP 429/503 and unsent requests only", GetType().Name, _resiliencePolicy.GetType().Name);
+            _logger.LogWarning("Repository {Repository} has a custom resilience policy ({Policy}); document writes don't use it and retry with Retry(n) on HTTP 429, Elasticsearch 503 rejections and unsent requests only", GetType().Name, _resiliencePolicy.GetType().Name);
 
         return new WriteRoundRunner(_logger, ElasticIndex.Configuration.TimeProvider);
     }
@@ -100,14 +122,14 @@ public abstract partial class ElasticRepositoryBase<T>
                     request.IfPrimaryTerm = item.Version.PrimaryTerm;
                 }
 
-                var response = await _client.IndexAsync(request, ct).AnyContext();
+                var response = await WriteClient.IndexAsync(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 results = [ToWriteResult(response, response.IsValidResponse ? response.GetElasticVersion() : ElasticDocumentVersion.Empty)];
             }
             else
             {
                 var request = new BulkRequest { Refresh = Refresh, Operations = pending.Select(CreateBulkIndexOperation).ToList() };
-                var response = await _client.BulkAsync(request, ct).AnyContext();
+                var response = await WriteClient.BulkAsync(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 results = BulkResult.From(response).ToWriteResults(pending.Count);
             }
@@ -171,7 +193,7 @@ public abstract partial class ElasticRepositoryBase<T>
                     request.IfPrimaryTerm = item.Version.PrimaryTerm;
                 }
 
-                var response = await _client.DeleteAsync(request, ct).AnyContext();
+                var response = await WriteClient.DeleteAsync(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 return [ToWriteResult(response, ElasticDocumentVersion.Empty)];
             }
@@ -191,7 +213,7 @@ public abstract partial class ElasticRepositoryBase<T>
                     return (IBulkOperation)operation;
                 }).ToList()
             };
-            var bulkResponse = await _client.BulkAsync(bulk, ct).AnyContext();
+            var bulkResponse = await WriteClient.BulkAsync(bulk, ct).AnyContext();
             _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
             return BulkResult.From(bulkResponse).ToWriteResults(pending.Count);
         }, null, DisposedCancellationToken).AnyContext();
@@ -203,14 +225,14 @@ public abstract partial class ElasticRepositoryBase<T>
     private static WriteItemResult ToWriteResult(ElasticsearchResponse response, ElasticDocumentVersion version)
     {
         if (response.IsValidResponse)
-            return new WriteItemResult(WriteOutcome.Succeeded, response.ApiCallDetails?.HttpStatusCode, Version: version);
+            return new WriteItemResult(response.ApiCallDetails?.HttpStatusCode is 404 ? WriteOutcome.Missing : WriteOutcome.Succeeded, response.ApiCallDetails?.HttpStatusCode, Version: version);
 
         int? status = response.ApiCallDetails?.HttpStatusCode;
         var error = response.ElasticsearchServerError?.Error;
         var exception = response.OriginalException();
         string reason = response.GetErrorMessage("Error writing document");
-        if (error is null && status is not 404)
-            return new WriteItemResult(WriteOutcomeClassifier.ClassifyRequestFailure(status, exception), status, null, reason, exception);
+        if ((error is null && status is not 404) || (status is 503 && String.IsNullOrEmpty(error?.Type)))
+            return new WriteItemResult(WriteOutcomeClassifier.ClassifyRequestFailure(status, exception), status, error?.Type, error?.Reason ?? reason, exception);
 
         return new WriteItemResult(WriteOutcomeClassifier.Classify(status, error?.Type, error?.Reason), status, error?.Type, error?.Reason ?? reason, exception);
     }

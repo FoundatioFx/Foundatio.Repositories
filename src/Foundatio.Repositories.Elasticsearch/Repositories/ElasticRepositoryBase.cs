@@ -37,6 +37,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     protected ElasticRepositoryBase(IIndex index) : base(index)
     {
         _writeRunner = new Lazy<WriteRoundRunner>(CreateWriteRunner, LazyThreadSafetyMode.ExecutionAndPublication);
+        _lazyWriteClient = new Lazy<ElasticsearchClient>(CreateWriteClient, LazyThreadSafetyMode.ExecutionAndPublication);
         _messagePublisher = index.Configuration.MessageBus;
         NotificationsEnabled = _messagePublisher != null;
 
@@ -88,7 +89,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
     /// <summary>
     /// Adds documents with <c>op_type=create</c>. A document whose id already exists fails with a
-    /// <see cref="DuplicateDocumentException"/>. HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times.
+    /// <see cref="DuplicateDocumentException"/>. HTTP 429, structured Elasticsearch 503 errors and unsent requests are retried up to <c>Retry(n)</c> times.
     /// Documents that were added are notified and cached before the exception for the others is thrown.
     /// <c>IfVersion</c> is not supported (a new document has no version to check) and throws an <see cref="ArgumentException"/>.
     /// </summary>
@@ -150,7 +151,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// and fails with a <see cref="DuplicateDocumentException"/> if the id already exists. <c>SkipVersionCheck()</c>, and
     /// documents that don't implement <see cref="IVersioned"/>, are indexed unconditionally.
     /// </summary>
-    /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times; conflicts are never retried.
+    /// <remarks>HTTP 429, structured Elasticsearch 503 errors and unsent requests are retried up to <c>Retry(n)</c> times; conflicts are never retried.
     /// Documents that were saved are notified and cached before the exception for the others is thrown. <c>IfVersion</c> is
     /// not supported and throws an <see cref="ArgumentException"/>: a save checks the <see cref="IVersioned.Version"/> of the
     /// document passed in.</remarks>
@@ -163,14 +164,13 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (docs.Count == 0)
             return;
 
-        string[] ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
-        if (ids.Length < docs.Count)
+        if (docs.Any(d => String.IsNullOrEmpty(d.Id)))
             throw new ArgumentException("Id must be set when calling Save.");
 
         options = ConfigureOptions(options?.As<T>());
         ThrowIfExpectedVersion(options);
 
-        var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
+        var originalDocuments = await GetOriginalDocumentsAsync(docs, options).AnyContext();
         await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
 
         if (options.ShouldValidate())
@@ -181,8 +181,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         var successDocs = run.Succeeded.Select(i => i.Document).ToList();
         if (successDocs.Count > 0)
         {
-            var successIds = successDocs.Select(d => d.Id).ToHashSet();
-            var successOriginals = originalDocuments.Where(o => successIds.Contains(o.Id)).ToList();
+            var successKeys = successDocs.Select(GetDocumentLocationKey).ToHashSet();
+            var successOriginals = originalDocuments.Where(o => successKeys.Contains(GetDocumentLocationKey(o))).ToList();
             await OnDocumentsSavedAsync(successDocs, successOriginals, options).AnyContext();
             if (IsCacheEnabled && options.ShouldUseCache())
                 await AddDocumentsToCacheAsync(successDocs, options, false).AnyContext();
@@ -210,8 +210,9 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// it (also for entities that don't implement <see cref="IVersioned"/>), the document is never re-read, and a mismatch
     /// throws a <see cref="VersionConflictDocumentException"/>. It can't be combined with <c>SkipVersionCheck()</c>, or used
     /// for a script patch with a default pipeline.</para>
-    /// <para>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times. A missing document throws a
-    /// <see cref="DocumentNotFoundException"/>. A JSON patch that targets <c>/version</c> throws an <see cref="ArgumentException"/>.</para>
+    /// <para>HTTP 429, structured Elasticsearch 503 errors and unsent requests are retried up to <c>Retry(n)</c> times. A missing document throws a
+    /// <see cref="DocumentNotFoundException"/>. A JSON patch that targets the root <see cref="IVersioned.Version"/>
+    /// property throws an <see cref="ArgumentException"/>; an ordinary business property named <c>Version</c> can be patched.</para>
     /// </remarks>
     public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions? options = null)
     {
@@ -322,8 +323,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// <para>Script and partial patches use one bulk Update API request per round. JSON, action and pipeline partial patches
     /// read every document with one multi-get, write them with one bulk request, and re-read conflicting documents together
     /// in grouped rounds, up to <c>Retry(n)</c>. Script patches with a default pipeline run update-by-query per id.</para>
-    /// <para>An id that appears more than once is patched once (the first occurrence wins, including its routing), so a
-    /// patch is never applied twice to the same document and it is counted once in the result.</para>
+    /// <para>Repeated id and routing inputs are deduplicated. Documents in different indexes remain separate matches;
+    /// the same id with different routing values is retained because those values can identify different documents.</para>
     /// <para>Every document ends with an outcome. Successful documents are invalidated in the cache and notified before a
     /// <see cref="VersionConflictDocumentException"/>, <see cref="DocumentNotFoundException"/> or <see cref="DocumentException"/>
     /// is thrown for the rest. <c>IfVersion</c> is not supported here, even for one id.</para>
@@ -338,10 +339,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (ids is { Count: 0 } || IsEmptyPatch(operation))
             return 0;
 
-        ids = new Ids(ids.DistinctBy(id => (ElasticIndex.GetIndex(id), id.Value)));
-
         if (ids.Count is 1)
             return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;
+
+        ids = new Ids(ids.Distinct());
 
         ClientPatchApplier<T>.ValidateOperation(operation);
         operation = PreparePatch(operation);
@@ -353,7 +354,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         string operationName = operation.GetType().Name;
         if (strategy is PatchStrategy.ClientSide)
         {
-            var (hits, readFailures) = await ReadForPatchAsync(ids, options).AnyContext();
+            var (hits, readFailures) = await ReadForPatchAsync(ids, options, allowSearch: true).AnyContext();
             var run = WriteRunResult<IndexItem>.Merge(readFailures, await PatchClientSideAsync(hits, operation, null, options, refresh, operationName).AnyContext());
             var patched = run.Succeeded;
             await OnPatchedAsync(patched.Select(i => i.Key.Id).ToList(), patched.Select(i => i.Document).ToList(), options).AnyContext();
@@ -387,7 +388,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await InvalidateCacheAsync(modifiedIds).AnyContext();
         }
 
-        await SendNotificationsAsync(ChangeType.Saved, modifiedIds, options).AnyContext();
+        if (modifiedDocuments is { Count: > 0 })
+            await SendNotificationsAsync(ChangeType.Saved, modifiedDocuments, options).AnyContext();
+        else
+            await SendNotificationsAsync(ChangeType.Saved, modifiedIds, options).AnyContext();
 
         try
         {
@@ -465,7 +469,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// <see cref="IRepository{T}.DocumentsChanged"/> and the <c>EntityChanged</c> notification are raised only for the
     /// documents this call actually deleted.
     /// </summary>
-    /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times. Deleted documents are notified
+    /// <remarks>HTTP 429, structured Elasticsearch 503 errors and unsent requests are retried up to <c>Retry(n)</c> times. Deleted documents are notified
     /// before the exception for the others is thrown. <c>IfVersion</c> is not supported and throws an
     /// <see cref="ArgumentException"/>: a remove checks the <see cref="IVersioned.Version"/> of the document passed in.</remarks>
     public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
@@ -545,6 +549,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(operation);
+        options = ConfigureOptions(options?.As<T>());
+        ThrowIfExpectedVersion(options);
         if (IsEmptyPatch(operation))
             return 0;
 
@@ -553,9 +559,6 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
-
-        options = ConfigureOptions(options?.As<T>());
-        ThrowIfExpectedVersion(options);
 
         var strategy = PatchStrategyResolver.Resolve<T>(operation, !String.IsNullOrEmpty(DefaultPipeline), options.ShouldUseUpdateByQuery() && !IsCacheEnabled);
         string operationName = $"PatchAll {operation.GetType().Name}";
@@ -589,7 +592,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await OnPatchedAsync(patched.Select(i => i.Key.Id).ToList(), patched.Select(i => i.Document).ToList(), options).AnyContext();
                 clientFailures = WriteRunResult<IndexItem>.Accumulate(clientFailures, run);
                 return run.Count(WriteOutcome.Cancelled) is 0;
-            }, options.Clone()).AnyContext();
+            }, CreatePatchPagingOptions(options, fullSource: true)).AnyContext();
         }
         else
         {
@@ -609,7 +612,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await OnPatchedAsync(modifiedIds, null, options).AnyContext();
                 serverFailures = WriteRunResult<UpdateItem>.Accumulate(serverFailures, run);
                 return run.Count(WriteOutcome.Cancelled) is 0;
-            }, options.Clone()).AnyContext();
+            }, CreatePatchPagingOptions(options)).AnyContext();
         }
 
         if (strategy is PatchStrategy.UpdateByQueryBulk && affectedRecords > 0)
@@ -633,6 +636,17 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         DisposedCancellationToken.ThrowIfCancellationRequested();
         return affectedRecords;
+    }
+
+    private static ICommandOptions CreatePatchPagingOptions(ICommandOptions options, bool fullSource = false)
+    {
+        var pagingOptions = options.Clone().Cache(false);
+        if (fullSource)
+            pagingOptions.BuildOption(FullDocumentSourceKey, true);
+        if (!pagingOptions.ShouldUseSnapshotPaging())
+            pagingOptions.SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+
+        return pagingOptions;
     }
 
     private async Task NotifyPatchedByQueryAsync(IRepositoryQuery query, ICommandOptions options)
@@ -759,24 +773,48 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         long recordsProcessed = 0;
         var results = await FindAsAsync<TResult>(query, options).AnyContext();
-        do
+        try
         {
-            if (results.Hits.Count == 0)
-                break;
-
-            if (!await processFunc(results).AnyContext())
+            do
             {
-                _logger.LogTrace("Aborted batch processing");
-                break;
-            }
+                if (results.Hits.Count is 0)
+                    break;
 
-            recordsProcessed += results.Documents.Count;
-        } while (await results.NextPageAsync().AnyContext());
+                if (!await processFunc(results).AnyContext())
+                {
+                    _logger.LogTrace("Aborted batch processing");
+                    break;
+                }
+
+                recordsProcessed += results.Documents.Count;
+            } while (await results.NextPageAsync().AnyContext());
+        }
+        finally
+        {
+            await CloseAbandonedPointInTimeAsync(results, options).AnyContext();
+        }
 
         await RefreshForConsistency(query, options).AnyContext();
 
         _logger.LogTrace("{Processed} records processed", recordsProcessed);
         return recordsProcessed;
+    }
+
+    private async Task CloseAbandonedPointInTimeAsync<TResult>(FindResults<TResult> results, ICommandOptions options) where TResult : class
+    {
+        if (!results.HasMore || !options.IsRepoOwnedPointInTime())
+            return;
+
+        options.PointInTimeId(null);
+        try
+        {
+            if (!await ClosePointInTimeAsync(results).AnyContext())
+                _logger.LogWarning("Failed to close repository-owned point in time after paging stopped; it will expire after its keep-alive window");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error closing repository-owned point in time after paging stopped");
+        }
     }
 
     /// <summary>
@@ -1061,6 +1099,14 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return document.Id;
     }
 
+    private (string Index, string? Routing, string Id) GetDocumentLocationKey(T? document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        string id = GetDocumentJoinKey(document);
+        return (ElasticIndex.GetIndex(document), GetParentIdFunc?.Invoke(document), id);
+    }
+
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
         if (HasDateTracking)
@@ -1113,7 +1159,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, GetDocumentJoinKey, GetDocumentJoinKey,
+            documents, GetDocumentLocationKey, GetDocumentLocationKey,
             (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m =>
             {
                 T current = m.Modified ?? m.Original ?? throw new DocumentException($"Full outer join produced no document for id {m.Id}.");
@@ -1131,7 +1177,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     private async Task OnDocumentsSavedAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions options)
     {
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, GetDocumentJoinKey, GetDocumentJoinKey,
+            documents, GetDocumentLocationKey, GetDocumentLocationKey,
             (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m =>
             {
                 T current = m.Modified ?? m.Original ?? throw new DocumentException($"Full outer join produced no document for id {m.Id}.");
@@ -1212,16 +1258,40 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         await DocumentsChanged.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
     }
 
-    private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options)
+    private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count is 0)
+        if (!options.GetOriginalsEnabled(OriginalsEnabled) || documents.Count is 0)
             return EmptyList;
 
         var originals = options.GetOriginals<T>().ToList();
-        foreach (var original in originals)
-            ids.RemoveAll(id => id.Value == original.Id);
+        var originalKeys = originals.Select(GetDocumentLocationKey).ToHashSet();
+        var remainingDocuments = documents.Where(d => !originalKeys.Contains(GetDocumentLocationKey(d))).DistinctBy(GetDocumentLocationKey).ToList();
+        if (remainingDocuments.Count is 0)
+            return originals.AsReadOnly();
 
-        originals.AddRange(await GetByIdsAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
+        if (!HasParent && !ElasticIndex.HasMultipleIndexes)
+        {
+            var ids = new Ids(remainingDocuments.Select(d => d.Id));
+            originals.AddRange(await GetByIdsAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
+            return originals.AsReadOnly();
+        }
+
+        var locations = remainingDocuments.Select(d => (Key: new DocumentKey(ElasticIndex.GetIndex(d), d.Id), Routing: GetParentIdFunc?.Invoke(d))).ToList();
+        var readOptions = ConfigureOptions(options.Clone().ReadCache().As<T>());
+        await OnBeforeGetAsync(new Ids(locations.Select(d => new Id(d.Key.Id, d.Routing)).Distinct()), readOptions, typeof(T)).AnyContext();
+        var (response, items) = await MultiGetAsync(locations, readOptions, DisposedCancellationToken).AnyContext();
+        DisposedCancellationToken.ThrowIfCancellationRequested();
+        if (items is null)
+            throw new DocumentException(response.GetErrorMessage("Error getting original documents"), response.OriginalException());
+
+        var errors = items.Where(i => i.IsError).ToList();
+        if (errors.Count > 0)
+        {
+            var first = errors[0];
+            throw new DocumentException($"Error getting {errors.Count} original documents. First error for {first.Index}/{first.Id}: {first.ErrorType}: {first.ErrorReason}");
+        }
+
+        originals.AddRange(items.Select(i => i.Hit?.Document).OfType<T>());
 
         return originals.AsReadOnly();
     }
@@ -1286,24 +1356,11 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         var delay = NotificationDeliveryDelay;
         if (ids.Count is 0)
-        {
-            return PublishMessageAsync(new EntityChanged
-            {
-                ChangeType = changeType,
-                Type = EntityTypeName
-            }, delay);
-        }
+            return PublishChangeTypeMessageAsync(changeType, (string?)null, delay: delay);
 
         var tasks = new List<Task>(ids.Count);
         foreach (string id in ids)
-        {
-            tasks.Add(PublishMessageAsync(new EntityChanged
-            {
-                ChangeType = changeType,
-                Id = id,
-                Type = EntityTypeName
-            }, delay));
-        }
+            tasks.Add(PublishChangeTypeMessageAsync(changeType, id, delay: delay));
 
         return Task.WhenAll(tasks);
     }

@@ -74,6 +74,23 @@ public sealed class TaskPollingTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void IsTimedOut_WithJsonAndDictionaryResponses_ReadsTimeoutFlag(bool timedOut)
+    {
+        // Arrange
+        using var document = JsonDocument.Parse(timedOut ? """{"timed_out":true}""" : """{"timed_out":false}""");
+        var response = new Dictionary<string, object> { ["timed_out"] = timedOut };
+        var jsonResponse = new Dictionary<string, object> { ["timed_out"] = document.RootElement.GetProperty("timed_out").Clone() };
+
+        // Act & Assert
+        Assert.Equal(timedOut, TaskResponseFailures.IsTimedOut(document.RootElement));
+        Assert.Equal(timedOut, TaskResponseFailures.IsTimedOut(response));
+        Assert.Equal(timedOut, TaskResponseFailures.IsTimedOut(jsonResponse));
+        Assert.False(TaskResponseFailures.IsTimedOut(null));
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("""{"updated":3}""")]
     public void Read_WithoutFailures_ReturnsEmpty(string? json)

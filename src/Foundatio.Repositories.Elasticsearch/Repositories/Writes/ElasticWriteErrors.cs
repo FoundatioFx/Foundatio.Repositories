@@ -9,8 +9,8 @@ namespace Foundatio.Repositories.Elasticsearch;
 internal static partial class ElasticWriteErrors
 {
     /// <summary>
-    /// <c>true</c> for HTTP 429 and 503, where Elasticsearch rejected the request before applying it. HTTP 502 and 504
-    /// come from a proxy or gateway that may already have forwarded the write, so they are not retried.
+    /// Statuses that can be transient for reads and Elasticsearch rejections. A request-level 503 also requires a parsed
+    /// Elasticsearch error: gateways can return it after forwarding a write, leaving its outcome unknown.
     /// </summary>
     public static bool IsTransientStatus(int? status) => status is 429 or 503;
 

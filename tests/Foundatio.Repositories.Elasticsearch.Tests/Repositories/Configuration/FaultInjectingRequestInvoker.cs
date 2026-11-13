@@ -23,6 +23,7 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
     private (int Status, string Type, string Reason)? _nextBulkItemFailure;
     private (string Type, string Reason)? _nextMultiGetItemFailure;
     private int _injected;
+    private int _disposed;
 
     private readonly ConcurrentBag<BeforeRequest> _beforeRequests = [];
 
@@ -207,5 +208,9 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
         return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, fault.StatusCode, null, stream, "application/json", body.Length, null, null);
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) is 0)
+            inner.Dispose();
+    }
 }

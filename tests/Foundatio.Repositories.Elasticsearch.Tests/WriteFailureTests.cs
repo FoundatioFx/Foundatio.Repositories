@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
@@ -12,6 +13,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Xunit;
 using HttpMethod = Elastic.Transport.HttpMethod;
 
@@ -842,6 +844,8 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
             var response = await _client.Indices.RefreshAsync(_configuration.Employees.Name, cancellationToken: TestCancellationToken);
             Assert.True(response.IsValidResponse);
         });
+        invoker.BeforeNthRequest(5, HttpMethod.POST, "_search", () =>
+            Task.FromException(new InvalidOperationException("Patch paging did not terminate after processing the matching documents.")));
         IPatchOperation patch = patchType switch
         {
             "script" => new ScriptPatch("ctx._source.age += 10;"),
@@ -952,6 +956,110 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.Equal(1, invoker.CountRequests(HttpMethod.DELETE, "_pit"));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SaveAsync_WithSameIdInDifferentLocations_CorrelatesSuccessfulOriginals(bool differentIndexes, bool conflict)
+    {
+        IIndex index = differentIndexes ? new MonthlyEmployeeIndex(_configuration, 1) : new RoutedEmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        try
+        {
+            using var repository = new SaveNotificationEmployeeRepository(index, useRouting: !differentIndexes);
+            Employee[] employees;
+            if (differentIndexes)
+            {
+                string id = ObjectId.GenerateNewId().ToString();
+                var now = DateTime.UtcNow;
+                employees =
+                [
+                    EmployeeGenerator.Generate(id: id, companyId: "first", createdUtc: now),
+                    EmployeeGenerator.Generate(id: id, companyId: "second", createdUtc: now.AddMonths(-1))
+                ];
+                await repository.AddAsync(employees, o => o.ImmediateConsistency().Notifications(false));
+            }
+            else
+            {
+                employees = await CreateRoutedEmployeesAsync((RoutedEmployeeIndex)index);
+            }
+
+            employees[1].IsDeleted = true;
+            var initialRequest = new Elastic.Clients.Elasticsearch.IndexRequest<Employee>(employees[1], index.GetIndex(employees[1]), employees[1].Id)
+            {
+                Refresh = Elastic.Clients.Elasticsearch.Refresh.True
+            };
+            if (!differentIndexes)
+                initialRequest.Routing = employees[1].CompanyId;
+            var initial = await _client.IndexAsync(initialRequest, TestCancellationToken);
+            Assert.True(initial.IsValidResponse, initial.DebugInformation);
+
+            var originals = new List<Employee>();
+            foreach (var employee in employees)
+            {
+                var getRequest = new Elastic.Clients.Elasticsearch.GetRequest(index.GetIndex(employee), employee.Id);
+                if (!differentIndexes)
+                    getRequest.Routing = employee.CompanyId;
+                var stored = await _client.GetAsync<Employee>(getRequest, TestCancellationToken);
+                Assert.True(stored.Found);
+                Assert.NotNull(stored.Source);
+                stored.Source.Version = stored.GetElasticVersion();
+                originals.Add(stored.Source);
+            }
+
+            var updates = originals.Select(e => e.DeepClone()).ToArray();
+            updates[0].Name = "changed-first";
+            updates[0].IsDeleted = true;
+            updates[1].Name = "changed-second";
+            updates[1].IsDeleted = false;
+            if (conflict)
+            {
+                var concurrentRequest = new Elastic.Clients.Elasticsearch.UpdateRequest<Employee, object>(index.GetIndex(updates[1]), updates[1].Id)
+                {
+                    Doc = new { name = "concurrent" },
+                    Refresh = Elastic.Clients.Elasticsearch.Refresh.True
+                };
+                if (!differentIndexes)
+                    concurrentRequest.Routing = updates[1].CompanyId;
+                var concurrent = await _client.UpdateAsync(concurrentRequest, TestCancellationToken);
+                Assert.True(concurrent.IsValidResponse, concurrent.DebugInformation);
+            }
+
+            var saving = new List<ModifiedDocument<Employee>>();
+            var saved = new List<ModifiedDocument<Employee>>();
+            var changed = new List<ModifiedDocument<Employee>>();
+            repository.DocumentsSaving.AddSyncHandler((_, args) => saving.AddRange(args.Documents));
+            repository.DocumentsSaved.AddSyncHandler((_, args) => saved.AddRange(args.Documents));
+            repository.DocumentsChanged.AddSyncHandler((_, args) => changed.AddRange(args.Documents));
+
+            if (conflict)
+                await Assert.ThrowsAsync<VersionConflictDocumentException>(() => repository.SaveAsync(updates, o => o.Originals().AddOriginals(originals[0]).AddOriginals(originals[1]).ImmediateConsistency().Retry(0)));
+            else
+                await repository.SaveAsync(updates, o => o.Originals().AddOriginals(originals[0]).AddOriginals(originals[1]).ImmediateConsistency().Retry(0));
+
+            Assert.Equal(2, saving.Count);
+            for (int i = 0; i < updates.Length; i++)
+                Assert.Same(originals[i], Assert.Single(saving, item => ReferenceEquals(item.Value, updates[i])).Original);
+
+            int successful = conflict ? 1 : 2;
+            Assert.Equal(successful, saved.Count);
+            Assert.Equal(successful, changed.Count);
+            Assert.Equal(successful, repository.PublishedChanges.Count);
+            for (int i = 0; i < successful; i++)
+            {
+                Assert.Same(originals[i], Assert.Single(saved, item => ReferenceEquals(item.Value, updates[i])).Original);
+                Assert.Same(originals[i], Assert.Single(changed, item => ReferenceEquals(item.Value, updates[i])).Original);
+                var notification = Assert.Single(repository.PublishedChanges, item => ReferenceEquals(item.Document, updates[i]));
+                Assert.Equal(i is 0 ? ChangeType.Removed : ChangeType.Saved, notification.ChangeType);
+            }
+        }
+        finally
+        {
+            await index.DeleteAsync();
+        }
     }
 
     [Fact]
@@ -1135,6 +1243,27 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
             HasParent = true;
             GetParentIdFunc = employee => employee.CompanyId;
             DisableCache();
+        }
+    }
+
+    private sealed class SaveNotificationEmployeeRepository : EmployeeRepository
+    {
+        public SaveNotificationEmployeeRepository(IIndex index, bool useRouting) : base(index)
+        {
+            HasParent = useRouting;
+            if (useRouting)
+                GetParentIdFunc = employee => employee.CompanyId;
+            DisableCache();
+        }
+
+        public List<(ChangeType ChangeType, Employee Document)> PublishedChanges { get; } = [];
+
+        protected override Task PublishChangeTypeMessageAsync(ChangeType changeType, Employee? document, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
+        {
+            if (document is not null)
+                PublishedChanges.Add((changeType, document));
+
+            return Task.CompletedTask;
         }
     }
 

@@ -45,7 +45,7 @@ public abstract partial class ElasticRepositoryBase<T>
         var run = await WriteRunner.RunAsync<QueryItem>("RemoveAll", [new QueryItem(new DocumentKey(indexNames, "*"))], options.GetRetryCount(), async (_, ct) =>
         {
             pass++;
-            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(indices)
+            var response = await WriteClient.DeleteByQueryAsync(new DeleteByQueryRequest(indices)
             {
                 Refresh = pass > 1 || options.GetRefreshMode(DefaultConsistency) != Refresh.False,
                 Conflicts = Conflicts.Proceed,
@@ -54,11 +54,14 @@ public abstract partial class ElasticRepositoryBase<T>
             }, ct).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
+            deleted += response.Deleted ?? 0;
+            conflicts = response.VersionConflicts ?? 0;
+            if (GetQueryFailureReason(response.TimedOut, response.Failures) is { } failure)
+                return [new WriteItemResult(WriteOutcome.Fatal, response.ApiCallDetails?.HttpStatusCode, Reason: failure, Exception: response.OriginalException())];
+
             if (!response.IsValidResponse)
                 return [ToWriteResult(response, ElasticDocumentVersion.Empty) with { Reason = response.GetErrorMessage("Error removing documents") }];
 
-            deleted += response.Deleted ?? 0;
-            conflicts = response.VersionConflicts ?? 0;
             return [conflicts > 0
                 ? new WriteItemResult(WriteOutcome.Conflict, 409, Reason: $"{conflicts} documents changed after the delete-by-query snapshot")
                 : new WriteItemResult(WriteOutcome.Succeeded)];
@@ -77,11 +80,12 @@ public abstract partial class ElasticRepositoryBase<T>
 
     /// <summary>
     /// Starts a script patch as one asynchronous update-by-query task (<see cref="PatchStrategy.UpdateByQueryBulk"/>) and
-    /// returns its task id. Nothing was started when this throws a <see cref="DocumentException"/>.
+    /// returns its task id. A failed response can leave the task's outcome unknown.
     /// </summary>
     private async Task<string> StartPatchAllByQueryAsync(IRepositoryQuery query, ScriptPatch scriptOperation, ICommandOptions options)
     {
-        var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
+        string indexNames = String.Join(",", ElasticIndex.GetIndexesByQuery(query));
+        var request = new UpdateByQueryRequest(Indices.Index(indexNames))
         {
             Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext(),
             Conflicts = Conflicts.Proceed,
@@ -93,15 +97,35 @@ public abstract partial class ElasticRepositoryBase<T>
             WaitForCompletion = false
         };
 
-        var response = await _client.UpdateByQueryAsync(request, DisposedCancellationToken).AnyContext();
-        _logger.LogRequest(response, options.GetQueryLogLevel());
-        if (!response.IsValidResponse)
-            throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException());
+        string? taskId = null;
+        bool outcomeUnknown = false;
+        var run = await WriteRunner.RunAsync<QueryItem>("PatchAll submission", [new QueryItem(new DocumentKey(indexNames, "*"))], options.GetRetryCount(), async (_, ct) =>
+        {
+            var response = await WriteClient.UpdateByQueryAsync(request, ct).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
+            if (!response.IsValidResponse)
+            {
+                var result = ToWriteResult(response, ElasticDocumentVersion.Empty);
+                int? status = response.ApiCallDetails?.HttpStatusCode;
+                outcomeUnknown = status is null or 408 or >= 500 && result.Outcome is WriteOutcome.Fatal;
+                return [result with { Outcome = result.Outcome is WriteOutcome.Missing ? WriteOutcome.Fatal : result.Outcome, Reason = response.GetErrorMessage("Error occurred while patching by query") }];
+            }
 
-        if (response.Task is null)
-            throw new DocumentException("Update by query did not return a task identifier.", response.OriginalException());
+            taskId = response.Task?.ToString();
+            if (String.IsNullOrEmpty(taskId))
+            {
+                outcomeUnknown = true;
+                return [new WriteItemResult(WriteOutcome.Fatal, Reason: "Update by query did not return a task identifier.")];
+            }
 
-        return response.Task.ToString();
+            return [new WriteItemResult(WriteOutcome.Succeeded)];
+        }, null, DisposedCancellationToken).AnyContext();
+
+        if (outcomeUnknown)
+            await NotifyPatchedByQuerySafelyAsync(query, options).AnyContext();
+
+        WriteExceptionMapper.ThrowIfFailed(run, "starting query patch", MissingDocumentPolicy.NotFound);
+        return taskId ?? throw new DocumentException("Update by query did not return a task identifier.");
     }
 
     /// <summary>
@@ -139,6 +163,9 @@ public abstract partial class ElasticRepositoryBase<T>
                     if (taskStatus.Error is not null)
                         throw new DocumentException($"Script operation task ({taskId}) failed: {taskStatus.Error.Type} - {taskStatus.Error.Reason}", taskStatus.OriginalException());
 
+                    if (TaskResponseFailures.IsTimedOut(taskStatus.Response))
+                        throw new DocumentException($"Script operation task ({taskId}) timed out after patching {status.Created + status.Updated + status.Deleted} documents.", taskStatus.OriginalException());
+
                     var failures = TaskResponseFailures.Read(taskStatus.Response);
                     if (failures.Count > 0)
                         throw new DocumentException($"Script operation task ({taskId}) completed with {failures.Count} failures after patching {status.Created + status.Updated + status.Deleted} documents: {TaskResponseFailures.Summarize(failures)}", taskStatus.OriginalException());
@@ -155,6 +182,18 @@ public abstract partial class ElasticRepositoryBase<T>
     }
 
     private readonly record struct QueryTaskStatus(long Total, long Created, long Updated, long Deleted, long VersionConflicts);
+
+    private static string? GetQueryFailureReason(bool? timedOut, IReadOnlyCollection<BulkIndexByScrollFailure>? failures)
+    {
+        if (timedOut is true)
+            return "The query timed out before all matching documents were processed.";
+
+        if (failures is not { Count: > 0 })
+            return null;
+
+        var descriptions = failures.Select(f => $"{f.Index}/{f.Id}: {f.Cause.Type} - {f.Cause.Reason}").ToList();
+        return $"The query completed with {failures.Count} failures: {TaskResponseFailures.Summarize(descriptions)}";
+    }
 
     /// <summary>
     /// Reads task status counters. The status is <c>object?</c> and may be a <see cref="JsonElement"/> or a dictionary

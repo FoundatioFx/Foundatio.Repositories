@@ -42,15 +42,16 @@ internal sealed class BulkResult
         {
             int? status = response.ApiCallDetails?.HttpStatusCode;
             var exception = response.OriginalException();
-            var outcome = WriteOutcomeClassifier.ClassifyRequestFailure(status, exception);
-            return new BulkResult([], new WriteItemResult(outcome, status, response.ElasticsearchServerError?.Error?.Type, response.GetErrorMessage("Error processing bulk operation"), exception));
+            string? errorType = response.ElasticsearchServerError?.Error?.Type;
+            var outcome = WriteOutcomeClassifier.ClassifyRequestFailure(status, exception, errorType);
+            return new BulkResult([], new WriteItemResult(outcome, status, errorType, response.GetErrorMessage("Error processing bulk operation"), exception));
         }
 
         var items = response.Items.Select(item =>
         {
             if (item.IsValid)
             {
-                var outcome = String.Equals(item.Result, "noop", StringComparison.Ordinal) ? WriteOutcome.Noop : WriteOutcome.Succeeded;
+                var outcome = item.Status is 404 ? WriteOutcome.Missing : String.Equals(item.Result, "noop", StringComparison.Ordinal) ? WriteOutcome.Noop : WriteOutcome.Succeeded;
                 return new BulkItemResult(outcome, item.Status, item.Index, item.Id, null, null, item.GetElasticVersion());
             }
 

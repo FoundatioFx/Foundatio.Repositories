@@ -13,6 +13,18 @@ internal static class TaskResponseFailures
 {
     private const int MaxReported = 5;
 
+    public static bool IsTimedOut(object? response)
+    {
+        object? timedOut = response switch
+        {
+            JsonElement { ValueKind: JsonValueKind.Object } element when element.TryGetProperty("timed_out", out var value) => value,
+            IDictionary<string, object> dict when dict.TryGetValue("timed_out", out var value) => value,
+            _ => null
+        };
+
+        return timedOut is true or JsonElement { ValueKind: JsonValueKind.True };
+    }
+
     /// <summary>
     /// Returns one description per failure in the task response. The response is <c>object?</c> and may be a
     /// <see cref="JsonElement"/> or a dictionary depending on the serializer configuration.

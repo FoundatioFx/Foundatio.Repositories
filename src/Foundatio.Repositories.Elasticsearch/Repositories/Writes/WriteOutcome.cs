@@ -5,8 +5,8 @@ using Elastic.Transport;
 namespace Foundatio.Repositories.Elasticsearch;
 
 /// <summary>
-/// Identifies a document in a write: its concrete index and id. Ids are only unique per index, so every per-item
-/// outcome is keyed by both.
+/// The concrete index and id of a document in a write. Routing is carried by the write item; outcomes are correlated
+/// by request position so documents with the same id under different indexes or routing remain distinct.
 /// </summary>
 internal readonly record struct DocumentKey(string Index, string Id)
 {
@@ -35,13 +35,13 @@ internal enum WriteOutcome
     /// <summary>The document does not exist (HTTP 404, or a 409 whose reason says no document was found).</summary>
     Missing,
 
-    /// <summary>HTTP 429 or 503, or a connection failure where the request was never sent. Safe to retry.</summary>
+    /// <summary>HTTP 429, an Elasticsearch 503 rejection, or a connection failure where the request was never sent.</summary>
     Transient,
 
     /// <summary>The index has sequence numbers disabled, so the version check or Update API is not available.</summary>
     VersioningNotSupported,
 
-    /// <summary>Any other failure, including 502, 504, timeouts and failures with an unknown status after the request was sent.</summary>
+    /// <summary>Any other failure, including gateway 502/503/504, timeouts and unknown outcomes after the request was sent.</summary>
     Fatal,
 
     /// <summary>The operation was cancelled before this document reached another terminal outcome.</summary>
@@ -73,18 +73,22 @@ internal static class WriteOutcomeClassifier
     }
 
     /// <summary>
-    /// Classifies a request that failed as a whole (no per-item results). Only HTTP 429/503 and connection failures where
-    /// the request was definitely not sent are <see cref="WriteOutcome.Transient"/>. HTTP 502, 504, timeouts and failures
-    /// with no status after the request was sent are <see cref="WriteOutcome.Fatal"/>: the write may have been applied, so
-    /// re-sending it could apply it twice.
+    /// Classifies a request that failed as a whole (no per-item results). HTTP 429, HTTP 503 with a parsed Elasticsearch
+    /// error, and connection failures where the request was definitely not sent are <see cref="WriteOutcome.Transient"/>.
+    /// A gateway can return 503 after an upstream reset even when the write was applied, so 503 without an Elasticsearch
+    /// error type is <see cref="WriteOutcome.Fatal"/>, as are 502, 504, timeouts and other unknown write outcomes.
     /// </summary>
-    public static WriteOutcome ClassifyRequestFailure(int? status, Exception? exception)
+    public static WriteOutcome ClassifyRequestFailure(int? status, Exception? exception, string? errorType = null)
     {
         if (status is not null)
-            return ElasticWriteErrors.IsTransientStatus(status) ? WriteOutcome.Transient : WriteOutcome.Fatal;
+            return status is 429 || (status is 503 && !String.IsNullOrEmpty(errorType)) ? WriteOutcome.Transient : WriteOutcome.Fatal;
 
         return IsNotSent(exception) ? WriteOutcome.Transient : WriteOutcome.Fatal;
     }
+
+    /// <summary>Reads can safely retry HTTP 503 even when a gateway supplied the response.</summary>
+    public static WriteOutcome ClassifyReadFailure(int? status, Exception? exception) =>
+        ElasticWriteErrors.IsTransientStatus(status) ? WriteOutcome.Transient : ClassifyRequestFailure(status, exception);
 
     /// <summary>
     /// <c>true</c> when the exception chain shows the request never reached Elasticsearch: the connection could not be

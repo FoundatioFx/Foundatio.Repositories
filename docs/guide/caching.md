@@ -171,7 +171,7 @@ When a bulk write operation partially fails (some documents succeed, others fail
 | Succeeded | Added to cache (freshest data available) |
 | Failed (any error) | Cache entry **unchanged** (failed writes don't mutate Elasticsearch) |
 
-Failed writes (409 conflicts, 429/503 rate limits, or other errors) do not mutate the document in Elasticsearch, so the existing cache entry (if any) remains valid. Cache consistency for concurrent writes is handled by the message bus `EntityChanged` notifications — the writer that successfully mutated the document is responsible for updating or invalidating the cache.
+A definitive rejection, such as a version conflict or rate limit, does not confirm a change by this call. Successful writes update or invalidate the cache and send `EntityChanged` notifications. Gateway failures and timeouts can leave the write outcome unknown; a failure does not prove the stored document or a cached copy is unchanged. Re-read with `o.Cache(false)` before deciding whether to retry an ambiguous write.
 
 ```csharp
 try

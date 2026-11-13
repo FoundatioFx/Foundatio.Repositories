@@ -51,6 +51,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
     protected readonly IResiliencePolicy _resiliencePolicy;
 
+    internal const string FullDocumentSourceKey = "@FullDocumentSource";
     private ScopedCacheClient _scopedCacheClient = null!;
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
     private int _disposed;
@@ -429,70 +430,82 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             }
         }
 
-        if (options.HasAsyncQueryId())
+        string? pointInTimeId = null;
+        try
         {
-            var queryId = options.GetAsyncQueryId();
-            ArgumentException.ThrowIfNullOrEmpty(queryId);
-
-            var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
+            if (options.HasAsyncQueryId())
             {
-                if (options.HasAsyncQueryWaitTime())
-                    s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
-            }).AnyContext();
+                var queryId = options.GetAsyncQueryId();
+                ArgumentException.ThrowIfNullOrEmpty(queryId);
 
-            if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
-                await RemoveQueryAsync(queryId).AnyContext();
+                var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
+                {
+                    if (options.HasAsyncQueryWaitTime())
+                        s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                }).AnyContext();
 
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
-                throw new AsyncQueryNotFoundException(queryId);
+                if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                    await RemoveQueryAsync(queryId).AnyContext();
 
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-        }
-        else if (options.HasSnapshotScrollId())
-        {
-            var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()!) { Scroll = options.GetSnapshotLifetime() };
-            var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-        }
-        else
-        {
-            var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
-            switch (pagingStrategy)
-            {
-                case PagingStrategy.Snapshot:
-                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
-                    break;
-                case PagingStrategy.SearchAfterPointInTime:
-                    await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
-                    break;
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+                    throw new AsyncQueryNotFoundException(queryId);
+
+                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
-
-            if (query.ShouldOnlyHaveIds())
-                searchDescriptor.Source(false);
-
-            if (options.ShouldUseAsyncQuery())
+            else if (options.HasSnapshotScrollId())
             {
-                SearchRequest searchRequest = searchDescriptor;
-                var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<TResult>();
-
-                if (options.HasAsyncQueryWaitTime())
-                    asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
-
-                var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
+                var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()!) { Scroll = options.GetSnapshotLifetime() };
+                var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
             else
             {
-                var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-            }
-        }
+                var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                switch (pagingStrategy)
+                {
+                    case PagingStrategy.Snapshot:
+                        searchDescriptor.Scroll(options.GetSnapshotLifetime());
+                        break;
+                    case PagingStrategy.SearchAfterPointInTime:
+                        pointInTimeId = await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
+                        break;
+                }
 
-        await OnAfterQueryAsync(query, options, result).AnyContext();
+                if (options.SafeGetOption<bool>(FullDocumentSourceKey))
+                    searchDescriptor.Source(true);
+                else if (query.ShouldOnlyHaveIds())
+                    searchDescriptor.Source(false);
+
+                if (options.ShouldUseAsyncQuery())
+                {
+                    SearchRequest searchRequest = searchDescriptor;
+                    var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<TResult>();
+
+                    if (options.HasAsyncQueryWaitTime())
+                        asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
+
+                    var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                }
+                else
+                {
+                    var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                }
+            }
+
+            pointInTimeId = result.GetPointInTimeId() ?? pointInTimeId;
+            await OnAfterQueryAsync(query, options, result).AnyContext();
+        }
+        catch
+        {
+            await CloseFailedPointInTimeAsync(pointInTimeId, options).AnyContext();
+            throw;
+        }
 
         if (pagingStrategy is PagingStrategy.Snapshot && !result.HasMore)
         {
@@ -507,6 +520,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && !result.HasMore && options.IsRepoOwnedPointInTime())
         {
+            options.PointInTimeId(null);
             bool closed = await ClosePointInTimeAsync(result).AnyContext();
             if (!closed)
                 _logger.LogWarning("Failed to close repository-owned point in time after paging completed; it will expire after its keep-alive window");
@@ -554,7 +568,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
         if (options.ShouldUseSearchAfterPagingPointInTime())
-            options.PointInTimeId(previousResults.GetPointInTimeId());
+        {
+            bool repoOwned = options.IsRepoOwnedPointInTime();
+            options.PointInTimeId(previousResults.GetPointInTimeId()).RepoOwnedPointInTime(repoOwned);
+        }
 
         options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
         return await FindAsAsync<TResult>(query, options).AnyContext();
@@ -830,7 +847,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return ConfigureSearchDescriptorAsync(new SearchRequestDescriptor<T>(), query, options);
     }
 
-    private async Task ConfigurePointInTimeAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
+    private async Task<string> ConfigurePointInTimeAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
     {
         string? pointInTimeId = options.GetPointInTimeId();
         if (String.IsNullOrEmpty(pointInTimeId))
@@ -842,6 +859,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         search.Pit(new PointInTimeReference(pointInTimeId) { KeepAlive = options.GetSnapshotLifetime().ToElasticDuration() });
+        return pointInTimeId;
+    }
+
+    private async Task CloseFailedPointInTimeAsync(string? pointInTimeId, ICommandOptions options)
+    {
+        if (!options.IsRepoOwnedPointInTime() || String.IsNullOrEmpty(pointInTimeId))
+            return;
+
+        options.PointInTimeId(null);
+        try
+        {
+            if (!await ClosePointInTimeAsync(pointInTimeId).AnyContext())
+                _logger.LogWarning("Failed to close repository-owned point in time after a query failed; it will expire after its keep-alive window");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error closing repository-owned point in time after a query failed");
+        }
     }
 
     private async Task<string> OpenPointInTimeAsync(IRepositoryQuery query, ICommandOptions options)

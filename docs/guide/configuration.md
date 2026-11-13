@@ -314,7 +314,7 @@ await repository.FindAsync(query, o => o.Timeout(TimeSpan.FromSeconds(30)));
 await repository.PatchAsync(id, patch, o => o.Retry(5));
 ```
 
-`Retry(n)` means n retries on every write path: patch conflict retries, delete-by-query passes, and transient (429/503 and unsent requests) retries for `AddAsync`, `SaveAsync` and `RemoveAsync`. Version conflicts on `SaveAsync` are never retried, and HTTP 502, 504 and timeouts are reported rather than retried. Writes don't use the repository's `IResiliencePolicy`. See [Versioning: Retry options](/guide/versioning#retry-options).
+`Retry(n)` means n retries on every write path: patch conflict retries, delete-by-query passes, asynchronous query submission, and transient retries for `AddAsync`, `SaveAsync` and `RemoveAsync`. Transient write failures are HTTP 429, 503 responses containing an Elasticsearch error type, and requests that were never sent. Version conflicts on `SaveAsync`, HTTP 502/504, unstructured gateway 503 responses and timeouts are reported. Writes don't use the repository's `IResiliencePolicy`. See [Versioning: Retry options](/guide/versioning#retry-options).
 
 ### Query Logging Options
 

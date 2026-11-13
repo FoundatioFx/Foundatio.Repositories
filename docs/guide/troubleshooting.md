@@ -568,8 +568,8 @@ catch (VersionConflictDocumentException ex)
 
 All writes (`AddAsync`, `SaveAsync`, `RemoveAsync`, patches, single and bulk) retry transient failures up to `o.Retry(n)` times (default 10) with exponential backoff (50 ms doubling, capped at 2 s) and jitter:
 
-- **HTTP 429** (Too Many Requests) and **503** (Service Unavailable), and connection failures where the request was never sent (refused connection, DNS or TLS failure) — retried. Bulk requests retry only the failed items.
-- **HTTP 502, 504, timeouts** and failures without a status after the request was sent — **not** retried, because the write may already have been applied. They're reported as `DocumentException`; re-read before retrying.
+- **HTTP 429**, **503 with an Elasticsearch error type**, and connection failures where the request was never sent (refused connection, DNS or TLS failure) are retried. Bulk requests retry only the failed items.
+- **HTTP 502, 504, unstructured gateway 503 responses, timeouts** and failures without a status after the request was sent are **not** retried, because the write may already have been applied. They're reported as `DocumentException`; re-read without the cache before retrying.
 - **HTTP 409** (Version Conflict) on `AddAsync`/`SaveAsync`/`RemoveAsync` — **not** retried; the caller must handle conflict resolution. Patches re-apply themselves to the latest document instead.
 - `DuplicateDocumentException` — **not** retried
 

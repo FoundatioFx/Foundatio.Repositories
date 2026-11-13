@@ -94,11 +94,12 @@ The version is metadata. It is **not stored in `_source`**: the Elasticsearch so
 
 - The version is removed only from **root document types**: the document type of every index and repository in an `ElasticConfiguration`, and types derived from them. Each configuration keeps its own set of types, so two configurations never affect each other.
 - Only the document itself loses the field. A root document type that appears **nested** inside another document (or in a list) keeps its `version` there, and a nested object that implements `IVersioned` (for example a metadata object with its own business version) keeps its `version` field. Don't reuse `IVersioned` for business counters on the root document.
+- `[JsonExtensionData]` keeps its flattened JSON shape and preserves nested document versions. Legacy root version values are consumed without being captured as extension data. A separate business `Version` property is preserved when concurrency metadata is implemented explicitly through `IVersioned.Version`.
 - A proxy property such as `public string? Version { get => MetaData.Version; set => MetaData.Version = value; }` still writes `metaData.version`, because the nested object is serialized normally.
 - If you replace the Elasticsearch source serializer, call `options.ExcludeDocumentVersionFromSource(documentTypes)` on its `JsonSerializerOptions`, or override `ElasticConfiguration.ConfigureSourceSerializerOptions` and call the base method. Never add `[JsonIgnore]` to `Version`: the cache serializer needs it.
 - Documents written by older releases keep a stale `version` field in `_source` until their next full write (`SaveAsync`, JSON/action patches). Script and partial patches merge into the stored document and leave the old field in place. It is ignored on reads. To remove it, run an update-by-query with `ctx._source.remove('version')`.
 - Source exclusion is decided per type, the first time the Elasticsearch serializer builds its type info for it, and then cached. A document type registered after that point (for example a repository for a new document type constructed after the first request for that type was serialized) is **not** excluded and keeps writing `version` to `_source`. Create every repository, or call `ExcludeDocumentVersionFromSource(documentTypes)` with all document types, before the client is first used.
-- A JSON patch operation whose path is `/version` is rejected with `ArgumentException`. The version isn't part of the document, so such a patch could never have an effect; use `IfVersion` to require a version instead.
+- A JSON patch targeting the root `IVersioned.Version` property is rejected with `ArgumentException`; use `IfVersion` to require a version instead. The guard follows `JsonPropertyName` when the metadata property is renamed. Ordinary business properties named `Version` and nested version fields remain patchable.
 
 ### Debugging versions
 
@@ -140,9 +141,11 @@ The version checks below only exist for `IVersioned` entities, except `IfVersion
 | `PatchAsync(ids)` / `PatchAllAsync` JsonPatch / ActionPatch / pipeline PartialPatch | bulk index with `if_seq_no` from the read, grouped retry rounds | No; `SkipVersionCheck()` writes without a check | Grouped rounds: one mget + one bulk per round |
 | `PatchAsync(ids)` / `PatchAllAsync` ScriptPatch / PartialPatch | bulk Update API with `retry_on_conflict` | No | Server-side conflict retries + transient rounds |
 | `PatchAsync(ids)` / `PatchAllAsync` ScriptPatch with a default pipeline | update-by-query **per document id** (the Update API can't run pipelines) | No | Re-run on conflict. One request per document; none refreshes. The indexes that were written are refreshed once after the last document (also when a document failed), unless the consistency is eventual |
-| `PatchAllAsync` ScriptPatch with `UseUpdateByQuery()` (cache disabled) | one update-by-query task, `conflicts=proceed` | Snapshot only | None. Throws on conflicts unless `ProceedOnQueryConflicts()` |
+| `PatchAllAsync` ScriptPatch with `UseUpdateByQuery()` (cache disabled) | one update-by-query task, `conflicts=proceed` | Snapshot only | Transient submission failures only; a started task is never resubmitted. Throws on conflicts unless `ProceedOnQueryConflicts()` |
 | `RemoveAllAsync` (no listeners, no cache) | delete-by-query, `conflicts=proceed` | Snapshot only | Up to n more passes with backoff. Throws on leftovers unless `ProceedOnQueryConflicts()` |
 | `RemoveAllAsync` (listeners or cache) | batched `RemoveAsync` without a check | No | 429/503 and unsent requests |
+
+In this table, retryable 503 responses contain an Elasticsearch error type or come from an Elasticsearch bulk item. An unstructured gateway 503 has an ambiguous outcome and is reported without replaying the write.
 
 For `IVersioned` entities, patches never lose a concurrent change: a patch that loses a race is re-applied to the latest document. That makes patches last-write-wins **per field you change**, not for your whole copy of the document. Use `IfVersion` when the patch must only apply to the version you read. Script and partial patches through the Update API behave this way for every entity; JSON, action and pipeline partial patches on entities that don't implement `IVersioned` have **no conflict protection** and overwrite concurrent changes.
 
@@ -202,7 +205,7 @@ stateDiagram-v2
     Pending --> Missing: 404, or 409 "no document was found"
     Pending --> VersioningNotSupported: sequence numbers disabled
     Pending --> Fatal: any other failure
-    Pending --> Transient: 429, 503, request not sent
+    Pending --> Transient: 429, Elasticsearch 503 error, request not sent
     Pending --> Conflict: 409
     Transient --> Pending: budget left (re-send unchanged)
     Transient --> Cancelled: repository disposed during backoff
@@ -228,13 +231,13 @@ stateDiagram-v2
 
 ### Transient vs. reported failures
 
-Only failures where Elasticsearch definitely did **not** apply the write are retried:
+Automatic retries are limited to rejection responses and transport evidence that the write was not sent:
 
 | Failure | Outcome |
 | --- | --- |
-| HTTP 429 (Too Many Requests), HTTP 503 (Service Unavailable) | Retried |
+| HTTP 429 (Too Many Requests), HTTP 503 with a parsed Elasticsearch error type, or an Elasticsearch bulk item reporting 503 | Retried |
 | Connection refused, DNS failure, TLS handshake failure, no node attempted (the request was never sent) | Retried |
-| HTTP 502, HTTP 504 (a proxy or gateway may already have forwarded the write) | Reported |
+| HTTP 502, HTTP 504, or HTTP 503 without an Elasticsearch error type (a proxy or gateway may already have forwarded the write) | Reported |
 | Timeouts, connection reset, or any failure without a status after the request was sent | Reported |
 | HTTP 409 | Conflict (see above), never retried by the transport |
 
@@ -266,6 +269,10 @@ Messages include the number of failed and succeeded documents and up to 10 ids. 
 | Delete-by-query | Up to n more passes while conflicts remain |
 
 Writes use these retries instead of the repository's `IResiliencePolicy`, because a policy can't tell a write that was never sent from one that may already be applied. Configuring a custom policy is still honored for reads and other operations; the repository logs a warning that it isn't used for document writes.
+
+The standard Elasticsearch client uses a separate write transport that allows one document request per repository attempt. It shares the configured connection resources, authentication, serializers and request callbacks, while the original client retains its read retries. This matters with multiple nodes: transport failover must not replay an ambiguous write before the repository can classify its outcome.
+
+Repositories using a custom Elasticsearch transport must override `CreateWriteClient()` and return a client whose transport guarantees one attempt per write. The default implementation rejects an unrecognized transport rather than silently accepting an unsafe retry policy. Setting `MaximumRetries(0)` alone does not establish that guarantee; test the actual number of requests for gateway failures, timeouts and node changes. An override that creates separate connection resources must manage their disposal.
 
 ## Handling Version Conflicts
 
@@ -361,12 +368,13 @@ Conflicts and retries are logged with structured fields and never include docume
 - **`RemoveAsync` no longer reports already-deleted documents as removed.** A document that is already gone is still not an error and its cache entry is still evicted, but `DocumentsRemoved`, `DocumentsChanged` and the `EntityChanged` (`Removed`) message are raised only for the documents the call actually deleted.
 - **`VersionCheck(bool)` is fixed.** `VersionCheck(false)` now skips the check and `VersionCheck(true)` checks; they were inverted. Code that called `VersionCheck(true)` to skip the check must change to `SkipVersionCheck()`.
 - **`IfVersion`** is new. It's rejected by `PatchAsync(ids)` for any number of ids, by `PatchAllAsync`, and by `AddAsync`, `SaveAsync`, `RemoveAsync` and `RemoveAllAsync` (which check the version of the document you pass in), and can't be combined with `SkipVersionCheck()`.
-- **JSON patches on `/version` are rejected** with `ArgumentException`.
+- **JSON patches on the root `IVersioned.Version` property are rejected** with `ArgumentException`, including its `JsonPropertyName` alias. Ordinary business properties named `Version` and nested version fields remain patchable.
 - **`PatchAllAsync` with `ScriptPatch` uses the bulk Update API by default** instead of update-by-query when caching is disabled. Results are the same, but every matching document is patched even under concurrent writes. Opt back in with `o.UseUpdateByQuery()`; it now throws `VersionConflictDocumentException` when documents were skipped unless `o.ProceedOnQueryConflicts()` is set.
 - **`RemoveAllAsync` delete-by-query throws on leftover conflicts** after the retry budget, instead of only logging. Use `o.ProceedOnQueryConflicts()` to restore logging only.
 - **`Version` is no longer stored in `_source`.** The `"primaryTerm:sequenceNumber"` format is unchanged. Raw Elasticsearch clients must request `seq_no_primary_term=true` instead of reading `version` from `_source`. Queries, sorts or aggregations on `version` will stop matching new documents. `DocumentVersionSourceExclusion.RegisterDocumentType` and the parameterless `ExcludeDocumentVersionFromSource()` were replaced by `ExcludeDocumentVersionFromSource(documentTypes)`; `ElasticConfiguration` registers its document types itself.
-- **`Retry(n)` means n retries everywhere.** Patch paths that used the resilience policy made n attempts before; they now make n + 1. Single-document `AddAsync`/`SaveAsync`/`RemoveAsync` now retry 429/503 and unsent requests. HTTP 502, 504 and timeouts are no longer retried anywhere.
+- **`Retry(n)` means n retries everywhere.** Patch paths that used the resilience policy made n attempts before; they now make n + 1. This includes transient failures when submitting an asynchronous update-by-query task. `AddAsync`/`SaveAsync`/`RemoveAsync` retry 429, structured Elasticsearch 503 errors and unsent requests. Document writes are not retried after 502, 504, unstructured gateway 503 responses or timeouts.
 - **Writes don't use the repository's `IResiliencePolicy`.** Retries are governed by `Retry(n)` and the transient classification above.
+- **Custom Elasticsearch transports need an explicit write client.** Override `CreateWriteClient()` with a transport that guarantees one attempt per write. Standard Elasticsearch transports are adapted automatically; read retries and shared connection settings are preserved.
 - **Failures and cancellation are no longer silent.** Batch operations process every batch and throw at the end; disposing the repository during a write throws `OperationCanceledException` after completed documents are notified, instead of returning a partial count; an update-by-query task that disappears throws instead of reporting zero; a multi-get item error throws instead of being treated as a missing document.
 
 ## Best Practices

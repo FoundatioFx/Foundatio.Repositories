@@ -1,9 +1,12 @@
 using System;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Elastic.Transport;
 using Elastic.Transport.Extensions;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
@@ -22,6 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// </remarks>
 internal sealed class ClientPatchApplier<T> where T : class, new()
 {
+    private static readonly string? _documentVersionPath = GetDocumentVersionPath();
     private readonly Elastic.Transport.Serializer _serializer;
     private readonly Action<JsonNode> _applyJsonDates;
     private readonly Action<T> _setDocumentDates;
@@ -39,15 +43,24 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
     /// <summary>Throws when <paramref name="operation"/> is a JSON patch that targets the version.</summary>
     public static void ValidateOperation(IPatchOperation operation)
     {
-        if (operation is not JsonPatch { Patch.Operations: { } operations })
+        if (_documentVersionPath is null || operation is not JsonPatch { Patch.Operations: { } operations })
             return;
 
         foreach (var op in operations)
         {
             string path = op.Path?.TrimStart('/') ?? String.Empty;
-            if (String.Equals(path, "version", StringComparison.OrdinalIgnoreCase))
+            if (String.Equals(path, _documentVersionPath, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("A JSON patch can't change the document version. The version is Elasticsearch metadata (_seq_no/_primary_term), not part of the document; use IfVersion to require a version.", nameof(operation));
         }
+    }
+
+    private static string? GetDocumentVersionPath()
+    {
+        var property = DocumentVersionSourceExclusion.GetDocumentVersionProperty(typeof(T));
+        if (property is null || (property.GetMethod?.IsPublic is not true && property.GetCustomAttribute<JsonIncludeAttribute>() is null))
+            return null;
+
+        return property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name;
     }
 
     /// <summary>
@@ -98,12 +111,20 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
         var sourceNode = JsonNode.Parse(_serializer.SerializeToString(source))
             ?? throw new DocumentException("Failed to parse source document JSON for partial merge.");
         if (sourceNode is JsonObject sourceObject && JsonNode.Parse(_serializer.SerializeToString(operation.Document)) is JsonObject partialObject)
-        {
-            foreach (var property in partialObject)
-                sourceObject[property.Key] = property.Value?.DeepClone();
-        }
+            MergePartialObject(sourceObject, partialObject);
 
         return Deserialize(sourceNode, "Partial merge produced a null document.");
+    }
+
+    private static void MergePartialObject(JsonObject source, JsonObject partial)
+    {
+        foreach (var property in partial)
+        {
+            if (source[property.Key] is JsonObject sourceObject && property.Value is JsonObject partialObject)
+                MergePartialObject(sourceObject, partialObject);
+            else
+                source[property.Key] = property.Value?.DeepClone();
+        }
     }
 
     private T Deserialize(JsonNode node, string nullMessage)
