@@ -224,6 +224,69 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task ScriptPatchAsync_WithPipelineAndImmediateConsistency_RefreshesOnceAfterAllDocuments()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+
+        // Act
+        long patched = await repository.PatchAsync(employees.Select(e => e.Id).ToArray(), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(3, patched);
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_update_by_query"));
+        Assert.Equal(0, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "refresh=true"));
+        Assert.Equal(1, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_refresh"));
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact]
+    public async Task ScriptPatchAsync_WithPipelineWhenOneDocumentFails_RefreshesPatchedDocumentsOnceAndThrows()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+        invoker.FailNext(1, 400, Elastic.Transport.HttpMethod.POST, "_update_by_query");
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync(employees.Select(e => e.Id).ToArray(), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency().Retry(0)));
+
+        // Assert
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_update_by_query"));
+        Assert.Equal(1, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_refresh"));
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.Equal(2, results.Count(e => e.Name is "patched"));
+    }
+
+    [Fact]
+    public async Task ScriptPatchAllAsync_WithPipeline_DoesNotRefreshPerDocument()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+
+        // Act
+        long patched = await repository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(3, patched);
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_update_by_query"));
+        Assert.Equal(0, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "refresh=true"));
+        Assert.True(invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_refresh") <= 2, "PatchAllAsync refreshes only around the batch read, never per document.");
+    }
+
+    [Fact]
     public Task ScriptPatchAsync_WithPipeline_MissingDocument_ThrowsDocumentNotFound()
     {
         // Arrange

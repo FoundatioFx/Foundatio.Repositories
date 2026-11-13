@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -13,6 +14,7 @@ using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -208,31 +210,7 @@ public abstract partial class ElasticRepositoryBase<T>
         int budget = options.GetRetryCount();
         if (strategy is PatchStrategy.UpdateByQueryPerId)
         {
-            var script = (ScriptPatch)operation;
-            return WriteRunner.RunAsync<UpdateItem>(operationName, items, budget, async (pending, ct) =>
-            {
-                var results = new List<WriteItemResult>(pending.Count);
-                foreach (var item in pending)
-                {
-                    try
-                    {
-                        results.Add(await UpdateByIdQueryAsync(item, script, refresh, options, ct).AnyContext());
-                    }
-                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                    {
-                        results.AddRange(Enumerable.Repeat(WriteItemResult.Cancelled, pending.Count - results.Count));
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        var failure = new WriteItemResult(WriteOutcome.Fatal, Reason: ex.Message, Exception: ex);
-                        results.AddRange(Enumerable.Repeat(failure, pending.Count - results.Count));
-                        break;
-                    }
-                }
-
-                return results;
-            }, static (conflicts, _) => Task.FromResult<IReadOnlyList<(UpdateItem?, WriteItemResult?)>>(conflicts.Select(c => ((UpdateItem?)c, (WriteItemResult?)null)).ToList()), DisposedCancellationToken);
+            return PatchByIdQueryAsync(items, (ScriptPatch)operation, refresh, budget, operationName, options);
         }
 
         return WriteRunner.RunAsync<UpdateItem>(operationName, items, budget, async (pending, ct) =>
@@ -254,6 +232,66 @@ public abstract partial class ElasticRepositoryBase<T>
             _logger.LogRequest(response, options.GetQueryLogLevel());
             return BulkResult.From(response).ToWriteResults(pending.Count);
         }, null, DisposedCancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the update-by-query per id requests without refreshing, then refreshes the indexes that were written once, so a
+    /// batch costs one refresh instead of one per document. The refresh also runs when the run ends in an exception after
+    /// some documents were patched.
+    /// </summary>
+    private async Task<WriteRunResult<UpdateItem>> PatchByIdQueryAsync(IReadOnlyList<UpdateItem> items, ScriptPatch script, Refresh refresh, int budget, string operationName, ICommandOptions options)
+    {
+        var patchedIndexes = new ConcurrentDictionary<string, byte>();
+        try
+        {
+            return await WriteRunner.RunAsync<UpdateItem>(operationName, items, budget, async (pending, ct) =>
+            {
+                var results = new List<WriteItemResult>(pending.Count);
+                foreach (var item in pending)
+                {
+                    try
+                    {
+                        var result = await UpdateByIdQueryAsync(item, script, options, ct).AnyContext();
+                        if (result.Outcome is WriteOutcome.Succeeded)
+                            patchedIndexes[item.Key.Index] = 0;
+
+                        results.Add(result);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        results.AddRange(Enumerable.Repeat(WriteItemResult.Cancelled, pending.Count - results.Count));
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        var failure = new WriteItemResult(WriteOutcome.Fatal, Reason: ex.Message, Exception: ex);
+                        results.AddRange(Enumerable.Repeat(failure, pending.Count - results.Count));
+                        break;
+                    }
+                }
+
+                return results;
+            }, static (conflicts, _) => Task.FromResult<IReadOnlyList<(UpdateItem?, WriteItemResult?)>>(conflicts.Select(c => ((UpdateItem?)c, (WriteItemResult?)null)).ToList()), DisposedCancellationToken).AnyContext();
+        }
+        finally
+        {
+            if (refresh != Refresh.False && !patchedIndexes.IsEmpty)
+                await RefreshPatchedIndexesAsync(patchedIndexes.Keys.ToArray()).AnyContext();
+        }
+    }
+
+    private async Task RefreshPatchedIndexesAsync(string[] indexes)
+    {
+        try
+        {
+            var response = await _client.Indices.RefreshAsync(indexes).AnyContext();
+            if (!response.IsValidResponse)
+                _logger.LogErrorRequest(response, "Failed to refresh indices after patching");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing indices after patching: {Message}", ex.Message);
+        }
     }
 
     private static Elastic.Clients.Elasticsearch.Core.Bulk.BulkUpdateOperationDescriptor<TDocument, TPartial> ConfigureBulkUpdate<TDocument, TPartial>(Elastic.Clients.Elasticsearch.Core.Bulk.BulkUpdateOperationDescriptor<TDocument, TPartial> descriptor, UpdateItem item, int budget)
@@ -308,14 +346,14 @@ public abstract partial class ElasticRepositoryBase<T>
     /// Runs a script patch through update-by-query on one id so the default pipeline is applied. A version conflict means
     /// the document changed during the request and nothing was written, so it is safe to run it again.
     /// </summary>
-    private async Task<WriteItemResult> UpdateByIdQueryAsync(UpdateItem item, ScriptPatch scriptOperation, Refresh refresh, ICommandOptions options, CancellationToken cancellationToken)
+    private async Task<WriteItemResult> UpdateByIdQueryAsync(UpdateItem item, ScriptPatch scriptOperation, ICommandOptions options, CancellationToken cancellationToken)
     {
         var request = new UpdateByQueryRequest(item.Key.Index)
         {
             Query = new IdsQuery { Values = new Elastic.Clients.Elasticsearch.Ids([new Elastic.Clients.Elasticsearch.Id(item.Key.Id)]) },
             Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
             Pipeline = DefaultPipeline,
-            Refresh = refresh != Refresh.False,
+            Refresh = false,
             WaitForCompletion = true
         };
         if (item.Routing is not null)

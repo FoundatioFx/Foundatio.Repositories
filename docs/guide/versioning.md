@@ -138,7 +138,7 @@ The version checks below only exist for `IVersioned` entities, except `IfVersion
 | `PatchAsync(id)` ScriptPatch with a default pipeline | update-by-query on the id | No (`IfVersion` not supported) | Re-run on conflict |
 | `PatchAsync(ids)` / `PatchAllAsync` JsonPatch / ActionPatch / pipeline PartialPatch | bulk index with `if_seq_no` from the read, grouped retry rounds | No; `SkipVersionCheck()` writes without a check | Grouped rounds: one mget + one bulk per round |
 | `PatchAsync(ids)` / `PatchAllAsync` ScriptPatch / PartialPatch | bulk Update API with `retry_on_conflict` | No | Server-side conflict retries + transient rounds |
-| `PatchAsync(ids)` / `PatchAllAsync` ScriptPatch with a default pipeline | update-by-query **per document id** (the Update API can't run pipelines) | No | Re-run on conflict. One request per document; the batch is refreshed once at the end, not per document |
+| `PatchAsync(ids)` / `PatchAllAsync` ScriptPatch with a default pipeline | update-by-query **per document id** (the Update API can't run pipelines) | No | Re-run on conflict. One request per document; none refreshes. The indexes that were written are refreshed once after the last document (also when a document failed), unless the consistency is eventual |
 | `PatchAllAsync` ScriptPatch with `UseUpdateByQuery()` (cache disabled) | one update-by-query task, `conflicts=proceed` | Snapshot only | None. Throws on conflicts unless `ProceedOnQueryConflicts()` |
 | `RemoveAllAsync` (no listeners, no cache) | delete-by-query, `conflicts=proceed` | Snapshot only | Up to n more passes with backoff. Throws on leftovers unless `ProceedOnQueryConflicts()` |
 | `RemoveAllAsync` (listeners or cache) | batched `RemoveAsync` without a check | No | 429/503 and unsent requests |

@@ -528,7 +528,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// instead of <c>ctx._source.count++</c>) when the operation can be retried or run concurrently.</para>
     /// <para><b>Script and partial patches</b> use the bulk Update API per batch, re-run by Elasticsearch on the latest
     /// document up to <c>Retry(n)</c> times (<c>retry_on_conflict</c>, default 10). With a default pipeline, script patches
-    /// run update-by-query on each document id (re-run on a conflict, refreshed once at the end). Update-by-query over the
+    /// run update-by-query on each document id (re-run on a conflict, never refreshing per document; the indexes are refreshed
+    /// once when the operation ends unless the consistency is eventual). Update-by-query over the
     /// whole query is used only with <c>UseUpdateByQuery()</c> and the cache disabled; it skips documents changed after its
     /// snapshot and throws a <see cref="VersionConflictDocumentException"/> with the count unless
     /// <c>ProceedOnQueryConflicts()</c> is set.</para>
