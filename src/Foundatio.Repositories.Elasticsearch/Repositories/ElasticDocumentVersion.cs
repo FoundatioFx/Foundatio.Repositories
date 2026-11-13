@@ -85,11 +85,16 @@ public readonly struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersio
         if (String.IsNullOrEmpty(version))
             return Empty;
 
-        string[] parts = version.Split(':');
-        if (parts.Length is not 2)
+        var span = version.AsSpan();
+        int separator = span.IndexOf(':');
+        if (separator < 0)
             return Empty;
 
-        if (!Int64.TryParse(parts[0], out long primaryTerm) || !Int64.TryParse(parts[1], out long sequenceNumber))
+        var sequencePart = span[(separator + 1)..];
+        if (sequencePart.Contains(':'))
+            return Empty;
+
+        if (!Int64.TryParse(span[..separator], out long primaryTerm) || !Int64.TryParse(sequencePart, out long sequenceNumber))
             return Empty;
 
         var parsed = new ElasticDocumentVersion(primaryTerm, sequenceNumber);
