@@ -22,34 +22,6 @@ public abstract partial class ElasticRepositoryBase<T>
     /// the caller's <c>IfVersion</c>, or empty.</summary>
     private sealed record UpdateItem(DocumentKey Key, string? Routing, ElasticDocumentVersion Version) : IWriteItem;
 
-    /// <summary>A document patched client-side. <see cref="Document"/> is the patched document once it was written, and
-    /// <c>null</c> for a document that was not written (not found, read failure, or a patch that changed nothing).</summary>
-    private sealed record PatchItem(DocumentKey Key, string? Routing, ElasticDocumentVersion Version, T? Document = null) : IWriteItem;
-
-    /// <summary>A document read for a patch: its key (concrete index and id) and the hit it was read as.</summary>
-    private readonly record struct PatchSource(DocumentKey Key, FindHit<T> Hit);
-
-    /// <summary>Keeps the first occurrence of each document (concrete index and id), so a patch is never applied twice to one document.</summary>
-    private List<Id> DistinctIds(IEnumerable<Id> ids)
-    {
-        return ids.DistinctBy(id => (ElasticIndex.GetIndex(id), id.Value)).ToList();
-    }
-
-    /// <summary>Projects hits to patch sources, skipping hits without an id.</summary>
-    private List<PatchSource> ToPatchSources(IEnumerable<FindHit<T>> hits)
-    {
-        var sources = new List<PatchSource>();
-        foreach (var hit in hits)
-        {
-            if (hit.Id is { } id)
-                sources.Add(new PatchSource(new DocumentKey(hit.GetIndex() ?? ElasticIndex.GetIndex(id), id), hit));
-        }
-
-        return sources;
-    }
-
-    private static List<T> PatchedDocuments(WriteRunResult<PatchItem> run) => run.Succeeded.Select(i => i.Document).OfType<T>().ToList();
-
     private ClientPatchApplier<T>? _clientPatchApplier;
     private ClientPatchApplier<T> ClientPatches => _clientPatchApplier ??= new ClientPatchApplier<T>(
         _client.ElasticsearchClientSettings.SourceSerializer,
@@ -72,35 +44,36 @@ public abstract partial class ElasticRepositoryBase<T>
     /// is set: then the write is always checked against that version, a mismatch ends as
     /// <see cref="WriteOutcome.Conflict"/>, and the document is never re-read.
     /// </remarks>
-    private async Task<WriteRunResult<PatchItem>> PatchClientSideAsync(IReadOnlyCollection<PatchSource> sources, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, ICommandOptions options, Refresh refresh, string operationName)
+    private async Task<WriteRunResult<IndexItem>> PatchClientSideAsync(IReadOnlyCollection<FindHit<T>> hits, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, ICommandOptions options, Refresh refresh, string operationName)
     {
         bool checkVersion = expectedVersion is not null || (HasVersion && !options.ShouldSkipVersionCheck());
-        var decided = new List<WriteItemOutcome<PatchItem>>();
+        var decided = new List<WriteItemOutcome<IndexItem>>();
         var items = new List<IndexItem>();
-        foreach (var source in sources)
+        foreach (var hit in hits)
         {
-            var (item, terminal) = PrepareClientPatch(source.Key, source.Hit, operation, expectedVersion, checkVersion);
-            if (item is not null)
-                items.Add(item);
+            var (item, terminal) = PrepareClientPatch(hit, operation, expectedVersion, checkVersion);
+            if (terminal is not null)
+                decided.Add(new WriteItemOutcome<IndexItem>(item, terminal));
             else
-                decided.Add(new WriteItemOutcome<PatchItem>(new PatchItem(source.Key, source.Hit.Routing, source.Hit.GetElasticVersion()), terminal!));
+                items.Add(item);
         }
 
         var prepareRetry = expectedVersion is null ? RepatchConflicts(operation, checkVersion, options) : null;
         var run = await WriteRunner.RunAsync(operationName, items, options.GetRetryCount(), SendIndexRound(options, refresh, allowSingleRequest: false), prepareRetry, DisposedCancellationToken).AnyContext();
-        var written = run.Items.Select(o => new WriteItemOutcome<PatchItem>(new PatchItem(o.Item.Key, o.Item.Routing, o.Item.Version, o.Item.Document), o.Result));
-        return new WriteRunResult<PatchItem>([.. decided, .. written], run.Rounds);
+        return WriteRunResult<IndexItem>.Merge(decided, run);
     }
 
-    /// <summary>Returns the item to write, or the terminal result when the document is not written.</summary>
-    private (IndexItem? Item, WriteItemResult? Terminal) PrepareClientPatch(DocumentKey key, FindHit<T> hit, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, bool checkVersion)
+    private (IndexItem Item, WriteItemResult? Terminal) PrepareClientPatch(FindHit<T> hit, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, bool checkVersion)
     {
+        var key = new DocumentKey(hit.GetIndex() ?? ElasticIndex.GetIndex(hit.Id!), hit.Id!);
         var version = hit.GetElasticVersion();
+        IndexItem Unwritten() => new(key, hit.Document ?? new T(), hit.Routing, version, false, hit);
+
         if (expectedVersion is { } expected && version != expected)
-            return (null, new WriteItemResult(WriteOutcome.Conflict, 409, Reason: $"expected version {expected} but the document has version {version.ToVersionString() ?? "none"}"));
+            return (Unwritten(), new WriteItemResult(WriteOutcome.Conflict, 409, Reason: $"expected version {expected} but the document has version {version.ToVersionString() ?? "none"}"));
 
         if (checkVersion && version.IsEmpty)
-            return (null, new WriteItemResult(WriteOutcome.VersioningNotSupported, Reason: "The document was read without a version."));
+            return (Unwritten(), new WriteItemResult(WriteOutcome.VersioningNotSupported, Reason: "The document was read without a version."));
 
         T? patched;
         try
@@ -109,13 +82,13 @@ public abstract partial class ElasticRepositoryBase<T>
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return (null, new WriteItemResult(WriteOutcome.Fatal, Reason: ex.Message, Exception: ex));
+            return (Unwritten(), new WriteItemResult(WriteOutcome.Fatal, Reason: ex.Message, Exception: ex));
         }
 
         if (patched is null)
-            return (null, new WriteItemResult(WriteOutcome.Noop));
+            return (Unwritten(), new WriteItemResult(WriteOutcome.Noop));
 
-        return (new IndexItem(key, patched, hit.Routing, checkVersion ? expectedVersion ?? version : ElasticDocumentVersion.Empty, false), null);
+        return (new IndexItem(key, patched, hit.Routing, checkVersion ? expectedVersion ?? version : ElasticDocumentVersion.Empty, false, hit), null);
     }
 
     /// <summary>
