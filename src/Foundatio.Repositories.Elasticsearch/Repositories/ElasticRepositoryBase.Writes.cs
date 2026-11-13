@@ -137,7 +137,7 @@ public abstract partial class ElasticRepositoryBase<T>
     }
 
     /// <summary>
-    /// Deletes documents in rounds. A document that is already gone counts as removed. Versioned documents are deleted with
+    /// Deletes documents in rounds. A document that is already gone is not an error, and is not reported as deleted. Versioned documents are deleted with
     /// <c>if_seq_no</c>/<c>if_primary_term</c> unless the check is skipped; a document with no version can't be checked
     /// (a delete can't fall back to create), so it throws before anything is deleted.
     /// </summary>

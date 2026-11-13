@@ -452,9 +452,12 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// Removes documents. <see cref="IVersioned"/> documents are deleted with <c>if_seq_no</c>/<c>if_primary_term</c> unless
     /// <c>SkipVersionCheck()</c> is set, and fail with a <see cref="VersionConflictDocumentException"/> if they changed. A
     /// versioned document with no version can't be checked (a delete has no create fallback), so it throws a
-    /// <see cref="DocumentException"/> before anything is deleted. A document that is already gone counts as removed.
+    /// <see cref="DocumentException"/> before anything is deleted. A document that is already gone is not an error: it is
+    /// evicted from the cache but, because this call didn't delete it, <see cref="IRepository{T}.DocumentsRemoved"/>,
+    /// <see cref="IRepository{T}.DocumentsChanged"/> and the <c>EntityChanged</c> notification are raised only for the
+    /// documents this call actually deleted.
     /// </summary>
-    /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times. Removed documents are notified
+    /// <remarks>HTTP 429/503 and unsent requests are retried up to <c>Retry(n)</c> times. Deleted documents are notified
     /// before the exception for the others is thrown.</remarks>
     public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
@@ -474,9 +477,13 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         await EnsureIndexesAsync(docs).AnyContext();
 
         var run = await DeleteDocumentsAsync(items, options).AnyContext();
-        var removed = run.With(WriteOutcome.Succeeded, WriteOutcome.Missing).Select(i => i.Item.Document).ToList();
+        var removed = run.Succeeded.Select(i => i.Document).ToList();
         if (removed.Count > 0)
             await OnDocumentsRemovedAsync(removed, options).AnyContext();
+
+        var alreadyGone = run.With(WriteOutcome.Missing).Select(i => i.Item.Document).ToList();
+        if (alreadyGone.Count > 0 && IsCacheEnabled)
+            await InvalidateCacheAsync(alreadyGone).AnyContext();
 
         WriteExceptionMapper.ThrowIfFailed(run, "removing", MissingDocumentPolicy.Success);
     }

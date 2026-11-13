@@ -178,7 +178,7 @@ var employee = await repository.GetByIdAsync(id);
 await repository.RemoveAsync(employee);
 ```
 
-For `IVersioned` documents, `RemoveAsync(T)` and `RemoveAsync(IEnumerable<T>)` send the document's version, like `SaveAsync`. If the document changed since you read it, `VersionConflictDocumentException` is thrown and nothing is deleted. A document with no version can't be checked (a delete has no create fallback), so it throws `DocumentException` before anything is deleted. Use `o.SkipVersionCheck()` to delete regardless. `RemoveAsync(id)` and `RemoveAsync(ids)` load the documents themselves and delete without a check. A document that was already deleted is treated as removed, for single and bulk removes alike.
+For `IVersioned` documents, `RemoveAsync(T)` and `RemoveAsync(IEnumerable<T>)` send the document's version, like `SaveAsync`. If the document changed since you read it, `VersionConflictDocumentException` is thrown and nothing is deleted. A document with no version can't be checked (a delete has no create fallback), so it throws `DocumentException` before anything is deleted. Use `o.SkipVersionCheck()` to delete regardless. `RemoveAsync(id)` and `RemoveAsync(ids)` load the documents themselves and delete without a check. A document that was already deleted is not an error, for single and bulk removes alike, but it is not reported as removed either: its cache entry is evicted, and `DocumentsRemoved`, `DocumentsChanged` and the `EntityChanged` notification are raised only for the documents the call actually deleted.
 
 ### Remove Multiple Documents
 

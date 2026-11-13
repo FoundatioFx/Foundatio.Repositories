@@ -288,9 +288,59 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         foreach (var employee in employees)
             await _client.DeleteAsync(new Elastic.Clients.Elasticsearch.DeleteRequest(_configuration.Employees.Name, employee.Id) { Refresh = Elastic.Clients.Elasticsearch.Refresh.True }, TestCancellationToken);
 
+        var removed = new List<string>();
+        var changed = new List<string>();
+        _employeeRepository.DocumentsRemoved.AddSyncHandler((o, args) => removed.AddRange(args.Documents.Select(d => d.Id)));
+        _employeeRepository.DocumentsChanged.AddSyncHandler((o, args) => changed.AddRange(args.Documents.Select(d => d.Value.Id)));
+        _messageBus.ResetMessagesSent();
+
         // Act & Assert
         await _employeeRepository.RemoveAsync(employees[0], o => o.ImmediateConsistency());
         await _employeeRepository.RemoveAsync(employees.Skip(1).ToList(), o => o.ImmediateConsistency());
+
+        Assert.Empty(removed);
+        Assert.Empty(changed);
+        Assert.Equal(0, _messageBus.MessagesSent);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WithSomeAlreadyDeletedDocuments_RaisesRemovedOnlyForDocumentsItDeleted()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        await _client.DeleteAsync(new Elastic.Clients.Elasticsearch.DeleteRequest(_configuration.Employees.Name, employees[1].Id) { Refresh = Elastic.Clients.Elasticsearch.Refresh.True }, TestCancellationToken);
+
+        var removed = new List<string>();
+        var changed = new List<string>();
+        _employeeRepository.DocumentsRemoved.AddSyncHandler((o, args) => removed.AddRange(args.Documents.Select(d => d.Id)));
+        _employeeRepository.DocumentsChanged.AddSyncHandler((o, args) => changed.AddRange(args.Documents.Select(d => d.Value.Id)));
+        _messageBus.ResetMessagesSent();
+
+        // Act
+        await _employeeRepository.RemoveAsync(employees, o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(new[] { employees[0].Id, employees[2].Id }.Order(), removed.Order());
+        Assert.Equal(new[] { employees[0].Id, employees[2].Id }.Order(), changed.Order());
+        Assert.Equal(2, _messageBus.MessagesSent);
+        Assert.Equal(0, await _employeeRepository.CountAsync());
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WithAlreadyDeletedDocument_InvalidatesCache()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        Assert.NotNull(await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache()));
+        await _client.DeleteAsync(new Elastic.Clients.Elasticsearch.DeleteRequest(_configuration.Employees.Name, employee.Id) { Refresh = Elastic.Clients.Elasticsearch.Refresh.True }, TestCancellationToken);
+        Assert.NotNull(await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache()));
+
+        // Act
+        await _employeeRepository.RemoveAsync(employee, o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Null(await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache()));
     }
 
     private async Task<(EmployeeRepository Repository, MyAppElasticConfiguration Configuration)> CreateRepositoryWithoutIndexAsync()

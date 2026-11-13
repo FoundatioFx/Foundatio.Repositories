@@ -244,7 +244,7 @@ After the runner finishes, the repository invalidates the cache, raises events a
 4. `DocumentNotFoundException` for patches by id whose document doesn't exist.
 5. `DocumentException` for everything else, with the first error reason.
 
-Messages include the number of failed and succeeded documents and up to 10 ids. A document that is already gone counts as removed for `RemoveAsync`, and is skipped by `PatchAllAsync`.
+Messages include the number of failed and succeeded documents and up to 10 ids. A document that is already gone is not an error for `RemoveAsync` (it is evicted from the cache, but `DocumentsRemoved`, `DocumentsChanged` and `EntityChanged` are raised only for documents the call actually deleted), and is skipped by `PatchAllAsync`.
 
 ## Retry Options
 
@@ -351,6 +351,7 @@ Conflicts and retries are logged with structured fields and never include docume
 - **`ElasticDocumentVersion` is a `readonly struct` with a `static readonly Empty`.** The implicit `string` conversion now returns `null` for an empty version, the same as `ToVersionString()`; it used to return `"0:0"`. Two empty versions are equal.
 - **`SaveAsync` without a version creates.** Saving an `IVersioned` document whose `Version` is empty uses `op_type=create` and throws `DuplicateDocumentException` if the id exists. Before, it overwrote the document. Use `SkipVersionCheck()` to overwrite.
 - **`RemoveAsync(T)` checks the version.** Removing an `IVersioned` document whose copy is stale throws `VersionConflictDocumentException`, and removing one without a version throws `DocumentException`. Use `SkipVersionCheck()` to delete regardless, or `RemoveAsync(id)`, which loads the document and deletes it without a check.
+- **`RemoveAsync` no longer reports already-deleted documents as removed.** A document that is already gone is still not an error and its cache entry is still evicted, but `DocumentsRemoved`, `DocumentsChanged` and the `EntityChanged` (`Removed`) message are raised only for the documents the call actually deleted.
 - **`VersionCheck(bool)` is fixed.** `VersionCheck(false)` now skips the check and `VersionCheck(true)` checks; they were inverted. Code that called `VersionCheck(true)` to skip the check must change to `SkipVersionCheck()`.
 - **`IfVersion`** is new. It's rejected by `PatchAsync(ids)` for any number of ids and by `PatchAllAsync`, and can't be combined with `SkipVersionCheck()`.
 - **JSON patches on `/version` are rejected** with `ArgumentException`.

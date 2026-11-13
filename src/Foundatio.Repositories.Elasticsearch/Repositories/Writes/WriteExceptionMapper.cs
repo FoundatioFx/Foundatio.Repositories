@@ -11,7 +11,7 @@ internal enum MissingDocumentPolicy
     /// <summary>Skipped and not reported (query-driven batch patches: the document was deleted while the batch ran).</summary>
     Skip,
 
-    /// <summary>Counts as done (removes: the document is already gone).</summary>
+    /// <summary>Not an error and not reported as a change (removes: the document is already gone; only its cache entry is evicted).</summary>
     Success,
 
     /// <summary>Reported as <see cref="DocumentNotFoundException"/> (patches by id).</summary>
