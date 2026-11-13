@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -30,6 +31,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 /// the implementing property's configured serialized name is matched instead.</para>
 /// <para>Excluding the property also means a <c>version</c> value already stored in an older document's <c>_source</c> is
 /// ignored when it is read.</para>
+/// <para>Ordinary properties that require a nested-document converter do not support
+/// <see cref="JsonObjectCreationHandling.Populate"/>; configure <see cref="JsonObjectCreationHandling.Replace"/> on
+/// those properties. A configured <see cref="JsonSerializerOptions.ReferenceHandler"/> is unsupported when a nested
+/// value or extension-data converter is required, because reference identity cannot cross independent serializer scopes.
+/// These combinations throw <see cref="NotSupportedException"/>. Flat roots and numeric collections retain their native
+/// serializer behavior.</para>
 /// <para><see cref="ElasticConfiguration"/> applies this to its source serializer automatically. If you replace the
 /// source serializer, call <see cref="ExcludeDocumentVersionFromSource(JsonSerializerOptions, IEnumerable{Type})"/> on
 /// its options. Never apply it to the cache serializer: cached documents must keep their version so they can still be
@@ -77,15 +84,35 @@ public static class DocumentVersionSourceExclusion
     /// <c>true</c> when <paramref name="type"/> is, contains, or may hold a root type through polymorphism or collection
     /// elements whose runtime types are not available from the declared property type.
     /// </summary>
-    internal static bool ContainsRootDocumentType(Type type, Func<Type, bool> isRegistered)
+    private static bool ContainsRootDocumentType(Type type, Func<Type, bool> isRegistered, JsonSerializerOptions options, HashSet<Type> visiting)
     {
         if (type == typeof(string))
             return false;
 
-        if (IsRootDocumentType(type, isRegistered) || type.IsInterface || !type.IsSealed || typeof(IEnumerable).IsAssignableFrom(type))
+        if (IsRootDocumentType(type, isRegistered))
             return true;
 
-        return type.IsGenericType && type.GetGenericArguments().Any(a => ContainsRootDocumentType(a, isRegistered));
+        if (type.IsValueType && !type.IsGenericType)
+            return false;
+
+        if (!visiting.Add(type))
+            return type.IsInterface || !type.IsSealed;
+
+        try
+        {
+            var typeInfo = options.GetTypeInfo(type);
+            if (typeInfo.ElementType is { } elementType)
+                return ContainsRootDocumentType(elementType, isRegistered, options, visiting);
+
+            if (type.IsInterface || !type.IsSealed || typeof(IEnumerable).IsAssignableFrom(type))
+                return true;
+
+            return type.IsGenericType && type.GetGenericArguments().Any(a => ContainsRootDocumentType(a, isRegistered, options, visiting));
+        }
+        finally
+        {
+            visiting.Remove(type);
+        }
     }
 
     internal static PropertyInfo? GetDocumentVersionProperty(Type type)
@@ -106,6 +133,41 @@ public static class DocumentVersionSourceExclusion
     private static bool IsSameMethod(MethodInfo? first, MethodInfo? second)
     {
         return first is not null && second is not null && first.Module == second.Module && first.MetadataToken == second.MetadataToken;
+    }
+
+    private static bool IsNumberType(Type type)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        if (type == typeof(Half) || type == typeof(Int128) || type == typeof(UInt128))
+            return true;
+
+        return !type.IsEnum && Type.GetTypeCode(type) is TypeCode.Byte or TypeCode.SByte
+            or TypeCode.Int16 or TypeCode.UInt16 or TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or TypeCode.UInt64
+            or TypeCode.Single or TypeCode.Double or TypeCode.Decimal;
+    }
+
+    private static bool SupportsNumberHandling(JsonTypeInfo typeInfo, bool includeNumericScalar = false)
+    {
+        if (typeInfo.Type == typeof(object) || (includeNumericScalar && IsNumberType(typeInfo.Type)))
+            return ReferenceEquals(typeInfo.Converter, JsonSerializerOptions.Default.GetConverter(typeInfo.Type));
+
+        return typeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+            && typeInfo.ElementType is { } elementType && (elementType == typeof(object) || IsNumberType(elementType));
+    }
+
+    private static JsonTypeInfo CreateScopedNumberTypeInfo(Type type, JsonSerializerOptions nestedOptions, JsonNumberHandling handling)
+    {
+        var scopedOptions = new JsonSerializerOptions(nestedOptions);
+        var typeInfo = scopedOptions.TypeInfoResolver!.GetTypeInfo(type, scopedOptions)
+            ?? throw new NotSupportedException($"No JSON metadata was provided for '{type}'.");
+        typeInfo.NumberHandling = handling;
+        return typeInfo;
+    }
+
+    private static void ValidateReferenceHandling(JsonPropertyInfo property, JsonTypeInfo declaringType, JsonSerializerOptions options)
+    {
+        if (options.ReferenceHandler is not null)
+            throw new NotSupportedException($"A configured ReferenceHandler is not supported for property '{property.Name}' on '{declaringType.Type}' while preserving nested document versions, because reference identity cannot cross independent serializer scopes.");
     }
 
     private sealed class RootVersionExcludingResolver : IJsonTypeInfoResolver
@@ -140,16 +202,19 @@ public static class DocumentVersionSourceExclusion
                     continue;
                 }
 
+                if (property.Get is null && property.Set is null)
+                    continue;
+
                 if (property.IsExtensionData)
                 {
                     if (property.CustomConverter is null && typeof(IDictionary<string, object>).IsAssignableFrom(property.PropertyType))
-                        property.CustomConverter = (JsonConverter)Activator.CreateInstance(typeof(NestedExtensionDataConverter<>).MakeGenericType(property.PropertyType), GetNestedOptions(options))!;
+                        property.CustomConverter = CreateExtensionDataConverter(property, typeInfo, options);
 
                     continue;
                 }
 
-                if (property.CustomConverter is null && ContainsRootDocumentType(property.PropertyType, _isRegistered))
-                    property.CustomConverter = CreateNestedConverter(property.PropertyType, options);
+                if (property.CustomConverter is null && ContainsRootDocumentType(property.PropertyType, _isRegistered, GetNestedOptions(options), []))
+                    property.CustomConverter = CreateNestedConverter(property, typeInfo, options);
             }
 
             return typeInfo;
@@ -171,36 +236,95 @@ public static class DocumentVersionSourceExclusion
         }
 
         /// <summary>Serializes a nested value with the original resolver, so root types inside it keep their version.</summary>
-        private JsonConverter CreateNestedConverter(Type propertyType, JsonSerializerOptions options)
+        private JsonConverter CreateNestedConverter(JsonPropertyInfo property, JsonTypeInfo declaringType, JsonSerializerOptions options)
         {
+            ValidateReferenceHandling(property, declaringType, options);
+            var creationHandling = property.ObjectCreationHandling ?? declaringType.PreferredPropertyObjectCreationHandling ?? options.PreferredObjectCreationHandling;
+            if (creationHandling is JsonObjectCreationHandling.Populate)
+                throw new NotSupportedException($"JsonObjectCreationHandling.Populate is not supported for property '{property.Name}' on '{declaringType.Type}' while preserving nested document versions. Configure JsonObjectCreationHandling.Replace for this property.");
+
             var nestedOptions = GetNestedOptions(options);
-            return (JsonConverter)Activator.CreateInstance(typeof(NestedValueConverter<>).MakeGenericType(propertyType), nestedOptions)!;
+            JsonTypeInfo? scopedTypeInfo = null;
+            var numberHandling = property.NumberHandling ?? declaringType.NumberHandling;
+            if (numberHandling is { } handling && SupportsNumberHandling(nestedOptions.GetTypeInfo(property.PropertyType)))
+            {
+                scopedTypeInfo = CreateScopedNumberTypeInfo(property.PropertyType, nestedOptions, handling);
+                // The native contract owns these flags; the delegating converter must not invalidate them.
+                property.NumberHandling = null;
+            }
+
+            return (JsonConverter)Activator.CreateInstance(typeof(NestedValueConverter<>).MakeGenericType(property.PropertyType), nestedOptions, scopedTypeInfo)!;
+        }
+
+        private JsonConverter CreateExtensionDataConverter(JsonPropertyInfo property, JsonTypeInfo declaringType, JsonSerializerOptions options)
+        {
+            ValidateReferenceHandling(property, declaringType, options);
+            var nestedOptions = GetNestedOptions(options);
+            var dictionaryTypeInfo = nestedOptions.GetTypeInfo(property.PropertyType);
+            var numberHandling = property.NumberHandling ?? declaringType.NumberHandling ?? dictionaryTypeInfo.NumberHandling;
+            JsonTypeInfo? valueTypeInfo = null;
+            if (numberHandling is { } handling && SupportsNumberHandling(dictionaryTypeInfo))
+            {
+                if (SupportsNumberHandling(nestedOptions.GetTypeInfo(typeof(object))))
+                    valueTypeInfo = CreateScopedNumberTypeInfo(typeof(object), nestedOptions, handling);
+                property.NumberHandling = null;
+            }
+
+            return (JsonConverter)Activator.CreateInstance(typeof(NestedExtensionDataConverter<>).MakeGenericType(property.PropertyType), nestedOptions, valueTypeInfo)!;
         }
 
         private JsonSerializerOptions GetNestedOptions(JsonSerializerOptions options)
         {
-            return _nestedOptions ?? Interlocked.CompareExchange(ref _nestedOptions, new JsonSerializerOptions(options) { TypeInfoResolver = _inner }, null) ?? _nestedOptions!;
+            if (_nestedOptions is { } existing)
+                return existing;
+
+            var nestedOptions = new JsonSerializerOptions(options) { TypeInfoResolver = _inner };
+            nestedOptions.MakeReadOnly();
+            return Interlocked.CompareExchange(ref _nestedOptions, nestedOptions, null) ?? nestedOptions;
         }
     }
 
-    private sealed class NestedValueConverter<TValue>(JsonSerializerOptions nestedOptions) : JsonConverter<TValue>
+    private sealed class NestedValueConverter<TValue>(JsonSerializerOptions nestedOptions, JsonTypeInfo? scopedTypeInfo) : JsonConverter<TValue>
     {
+        private readonly JsonTypeInfo<TValue>? _scopedTypeInfo = (JsonTypeInfo<TValue>?)scopedTypeInfo;
+        private readonly ConcurrentDictionary<Type, JsonTypeInfo>? _runtimeNumberTypes = scopedTypeInfo?.Type == typeof(object) ? new() : null;
         public override bool HandleNull => true;
 
         public override TValue? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            return JsonSerializer.Deserialize<TValue>(ref reader, nestedOptions);
+            return _scopedTypeInfo is null
+                ? JsonSerializer.Deserialize<TValue>(ref reader, nestedOptions)
+                : JsonSerializer.Deserialize(ref reader, _scopedTypeInfo);
         }
 
         public override void Write(Utf8JsonWriter writer, TValue value, JsonSerializerOptions options)
         {
-            JsonSerializer.Serialize(writer, value, nestedOptions);
+            if (_runtimeNumberTypes is not null && value is { } runtimeValue)
+            {
+                var runtimeType = runtimeValue.GetType();
+                if ((IsNumberType(runtimeType) || runtimeValue is IEnumerable) && SupportsNumberHandling(nestedOptions.GetTypeInfo(runtimeType), includeNumericScalar: true))
+                {
+                    var typeInfo = _runtimeNumberTypes.GetOrAdd(runtimeType, static (type, state) => CreateScopedNumberTypeInfo(type, state.Options, state.Handling),
+                        (Options: nestedOptions, Handling: _scopedTypeInfo!.NumberHandling!.Value));
+                    JsonSerializer.Serialize(writer, runtimeValue, typeInfo);
+                    return;
+                }
+
+                JsonSerializer.Serialize(writer, value, nestedOptions);
+                return;
+            }
+
+            if (_scopedTypeInfo is null)
+                JsonSerializer.Serialize(writer, value, nestedOptions);
+            else
+                JsonSerializer.Serialize(writer, value, _scopedTypeInfo);
         }
     }
 
-    private sealed class NestedExtensionDataConverter<TDictionary>(JsonSerializerOptions nestedOptions) : JsonConverter<TDictionary>
+    private sealed class NestedExtensionDataConverter<TDictionary>(JsonSerializerOptions nestedOptions, JsonTypeInfo? scopedValueTypeInfo) : JsonConverter<TDictionary>
         where TDictionary : IDictionary<string, object>
     {
+        private readonly NestedValueConverter<object> _valueConverter = new(nestedOptions, scopedValueTypeInfo);
         public override TDictionary? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             return JsonSerializer.Deserialize<TDictionary>(ref reader, nestedOptions);
@@ -212,7 +336,7 @@ public static class DocumentVersionSourceExclusion
             foreach (var entry in value)
             {
                 writer.WritePropertyName(entry.Key);
-                JsonSerializer.Serialize(writer, entry.Value, nestedOptions);
+                _valueConverter.Write(writer, entry.Value, nestedOptions);
             }
         }
     }
