@@ -24,6 +24,16 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
     private (string Type, string Reason)? _nextMultiGetItemFailure;
     private int _injected;
 
+    private readonly ConcurrentBag<BeforeRequest> _beforeRequests = [];
+
+    private sealed class BeforeRequest(Func<Endpoint, bool> match, int occurrence, Func<Task> action)
+    {
+        public Func<Endpoint, bool> Match { get; } = match;
+        public int Occurrence { get; } = occurrence;
+        public Func<Task> Action { get; } = action;
+        public int Seen;
+    }
+
     private sealed record Fault(Func<Endpoint, bool> Match, int? StatusCode, string? Body, Exception? Exception, Func<Task>? AfterFault);
 
     public ResponseFactory ResponseFactory => inner.ResponseFactory;
@@ -78,6 +88,15 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
     /// </summary>
     public void BeforeNextBulk(Func<Task> action) => _beforeNextBulk = action;
 
+    /// <summary>
+    /// Runs <paramref name="action"/> once, right before the <paramref name="occurrence"/>th (1-based) matching request from
+    /// now on is sent. Use it to dispose the repository or change documents in the middle of a sequence of requests.
+    /// </summary>
+    public void BeforeNthRequest(int occurrence, HttpMethod method, string pathContains, Func<Task> action)
+    {
+        _beforeRequests.Add(new BeforeRequest(Matches(method, pathContains), occurrence, action));
+    }
+
     /// <summary>Counts the requests sent (including injected faults) whose method and path match.</summary>
     public int CountRequests(HttpMethod method, string pathContains)
     {
@@ -95,6 +114,12 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
         _requests.Enqueue((endpoint.Method, endpoint.PathAndQuery));
         if (endpoint.PathAndQuery.Contains("_bulk", StringComparison.Ordinal) && Interlocked.Exchange(ref _beforeNextBulk, null) is { } beforeBulk)
             await beforeBulk().ConfigureAwait(false);
+
+        foreach (var before in _beforeRequests.ToArray())
+        {
+            if (before.Match(endpoint) && Interlocked.Increment(ref before.Seen) == before.Occurrence)
+                await before.Action().ConfigureAwait(false);
+        }
 
         if (TryTakeFault(endpoint, out var fault))
         {

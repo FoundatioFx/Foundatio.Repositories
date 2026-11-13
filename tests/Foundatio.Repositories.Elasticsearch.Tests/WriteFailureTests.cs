@@ -434,6 +434,41 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task PatchAsyncIds_ScriptPatchWithPipelineWhenRepositoryDisposedBetweenDocuments_NotifiesPatchedDocumentsAndThrowsCancelled()
+    {
+        // Arrange
+        const string pipelineId = "write-failure-tests-dispose-pipeline";
+        var pipeline = await _client.Ingest.PutPipelineAsync(pipelineId, p => p.Processors(pr => pr.Lowercase(l => l.Field("name"))), TestCancellationToken);
+        Assert.True(pipeline.IsValidResponse);
+        try
+        {
+            var invoker = new FaultInjectingRequestInvoker(new HttpRequestInvoker());
+            using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+            var repository = new EmployeeWithPipelineRepository(configuration.Employees, pipelineId);
+            var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+            await repository.AddAsync(employees, o => o.ImmediateConsistency());
+            invoker.BeforeNthRequest(2, HttpMethod.POST, "_update_by_query", () =>
+            {
+                repository.Dispose();
+                return Task.CompletedTask;
+            });
+            var updatedIds = new List<string>();
+            _messageBus.ResetMessagesSent();
+
+            // Act
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.PatchAsync(employees.Select(e => e.Id).ToArray(), new ScriptPatch("ctx._source.companyName = 'Patched';"), o => o.ImmediateConsistency().UpdateCallback(updatedIds.AddRange)));
+
+            // Assert
+            Assert.Equal([employees[0].Id], updatedIds);
+            Assert.Equal(1, _messageBus.MessagesSent);
+        }
+        finally
+        {
+            await _client.Ingest.DeletePipelineAsync(pipelineId, cancellationToken: TestCancellationToken);
+        }
+    }
+
+    [Fact]
     public async Task PatchAllAsync_ScriptPatchWithPipelineWhenOneDocumentFails_PatchesTheRestAndThrows()
     {
         // Arrange

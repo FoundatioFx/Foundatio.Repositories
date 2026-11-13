@@ -213,7 +213,24 @@ public abstract partial class ElasticRepositoryBase<T>
             {
                 var results = new List<WriteItemResult>(pending.Count);
                 foreach (var item in pending)
-                    results.Add(await UpdateByIdQueryAsync(item, script, refresh, options, ct).AnyContext());
+                {
+                    try
+                    {
+                        results.Add(await UpdateByIdQueryAsync(item, script, refresh, options, ct).AnyContext());
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        results.AddRange(Enumerable.Repeat(WriteItemResult.Cancelled, pending.Count - results.Count));
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        var failure = new WriteItemResult(WriteOutcome.Fatal, Reason: ex.Message, Exception: ex);
+                        results.AddRange(Enumerable.Repeat(failure, pending.Count - results.Count));
+                        break;
+                    }
+                }
+
                 return results;
             }, static (conflicts, _) => Task.FromResult<IReadOnlyList<(UpdateItem?, WriteItemResult?)>>(conflicts.Select(c => ((UpdateItem?)c, (WriteItemResult?)null)).ToList()), DisposedCancellationToken);
         }
