@@ -5,6 +5,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
@@ -35,6 +36,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
     protected ElasticRepositoryBase(IIndex index) : base(index)
     {
+        _writeRunner = new Lazy<WriteRoundRunner>(CreateWriteRunner, LazyThreadSafetyMode.ExecutionAndPublication);
         _messagePublisher = index.Configuration.MessageBus;
         NotificationsEnabled = _messagePublisher != null;
 

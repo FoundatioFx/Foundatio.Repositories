@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -27,8 +28,8 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <summary>A document to delete, with <c>if_seq_no</c>/<c>if_primary_term</c> when <see cref="Version"/> is set.</summary>
     private sealed record DeleteItem(DocumentKey Key, T Document, string? Routing, ElasticDocumentVersion Version) : IWriteItem;
 
-    private WriteRoundRunner? _writeRunner;
-    private WriteRoundRunner WriteRunner => _writeRunner ??= CreateWriteRunner();
+    private readonly Lazy<WriteRoundRunner> _writeRunner;
+    private WriteRoundRunner WriteRunner => _writeRunner.Value;
 
     /// <summary>
     /// Document writes retry with <see cref="WriteRoundRunner"/> (<c>Retry(n)</c> and the transient classification), not the
