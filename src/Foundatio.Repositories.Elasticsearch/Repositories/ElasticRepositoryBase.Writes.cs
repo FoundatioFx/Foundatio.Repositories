@@ -23,7 +23,7 @@ public abstract partial class ElasticRepositoryBase<T>
 {
     /// <summary>A document to index: created (<c>op_type=create</c>), indexed with <c>if_seq_no</c>/<c>if_primary_term</c>
     /// from <see cref="Version"/>, or indexed unconditionally when <see cref="Version"/> is empty.</summary>
-    private sealed record IndexItem(DocumentKey Key, T Document, string? Routing, ElasticDocumentVersion Version, bool IsCreate, FindHit<T>? Hit = null) : IWriteItem;
+    private sealed record IndexItem(DocumentKey Key, T Document, string? Routing, ElasticDocumentVersion Version, bool IsCreate) : IWriteItem;
 
     /// <summary>A document to delete, with <c>if_seq_no</c>/<c>if_primary_term</c> when <see cref="Version"/> is set.</summary>
     private sealed record DeleteItem(DocumentKey Key, T Document, string? Routing, ElasticDocumentVersion Version) : IWriteItem;

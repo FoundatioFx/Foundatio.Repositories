@@ -69,7 +69,7 @@ public abstract partial class ElasticRepositoryBase<T>
     {
         var key = new DocumentKey(hit.GetIndex() ?? ElasticIndex.GetIndex(id), id);
         var version = hit.GetElasticVersion();
-        IndexItem Unwritten() => new(key, hit.Document ?? new T(), hit.Routing, version, false, hit);
+        IndexItem Unwritten() => new(key, hit.Document ?? new T(), hit.Routing, version, false);
 
         if (expectedVersion is { } expected && version != expected)
             return (Unwritten(), new WriteItemResult(WriteOutcome.Conflict, 409, Reason: $"expected version {expected} but the document has version {version.ToVersionString() ?? "none"}"));
@@ -90,7 +90,7 @@ public abstract partial class ElasticRepositoryBase<T>
         if (patched is null)
             return (Unwritten(), new WriteItemResult(WriteOutcome.Noop));
 
-        return (new IndexItem(key, patched, hit.Routing, checkVersion ? expectedVersion ?? version : ElasticDocumentVersion.Empty, false, hit), null);
+        return (new IndexItem(key, patched, hit.Routing, checkVersion ? expectedVersion ?? version : ElasticDocumentVersion.Empty, false), null);
     }
 
     /// <summary>
