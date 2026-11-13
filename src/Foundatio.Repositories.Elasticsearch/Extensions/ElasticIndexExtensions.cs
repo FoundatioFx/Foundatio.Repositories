@@ -72,7 +72,7 @@ public static class ElasticIndexExtensions
 
         if (!response.IsValidResponse)
         {
-            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404 && !options.ShouldUseSearchAfterPagingPointInTime())
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());

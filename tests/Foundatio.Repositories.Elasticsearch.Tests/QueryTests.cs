@@ -594,7 +594,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(1, _cache.Writes);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(3, _cache.Misses);
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache());
         Assert.NotNull(employee);
@@ -603,40 +603,40 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, _cache.Writes);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(3, _cache.Misses);
 
         await _employeeRepository.SaveAsync(employee, o => o.Cache());
         Assert.Equal(2, _cache.Count);
         Assert.Equal(1, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(3, _cache.Misses);
 
         Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache()));
         Assert.Equal(2, _cache.Count);
         Assert.Equal(2, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(3, _cache.Misses);
 
         var idsResult = await _employeeRepository.GetByIdsAsync(new[] { employee.Id }, o => o.Cache());
         Assert.Equal(employee, idsResult.Single());
         Assert.Equal(2, _cache.Count);
         Assert.Equal(3, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(3, _cache.Misses);
 
         findResult = await _employeeRepository.GetByEmailAddressAsync(employee.EmailAddress);
         Assert.Equal(employee, findResult.Document);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(4, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(4, _cache.Misses);
 
         await _employeeRepository.InvalidateCacheAsync(employee);
         Assert.Equal(0, _cache.Count);
         Assert.Equal(4, _cache.Hits);
-        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(4, _cache.Misses);
 
         findResult = await _employeeRepository.GetByEmailAddressAsync(employee.EmailAddress);
         Assert.Null(findResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(4, _cache.Hits);
-        Assert.Equal(4, _cache.Misses);
+        Assert.Equal(6, _cache.Misses);
     }
 
     [Fact]
