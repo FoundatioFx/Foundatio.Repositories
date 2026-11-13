@@ -231,7 +231,7 @@ await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.I
 // throws VersionConflictDocumentException if the document changed
 ```
 
-`PatchAllAsync` reads batches from a point-in-time snapshot (or explicit scroll snapshot), so patches that modify sort fields do not revisit documents after refreshes. Multi-index client-side patches by ID use snapshot paging too. Pipeline `PartialPatch` recursively merges objects, retaining unspecified nested fields.
+`PatchAllAsync` reads batches from a point-in-time snapshot (or explicit scroll snapshot), so patches that modify sort fields do not revisit documents after refreshes. Patch reads that discover locations by search use snapshot paging too. Multi-ID pipeline `PartialPatch` uses real-time multi-get for known index/routing locations, including daily/monthly ObjectIds, and searches only unresolved locations; a mixed batch preserves real-time visibility for known locations. The single-ID overload requires a resolvable location. JSON/action patches across multiple indexes retain search visibility and filtering. Pipeline `PartialPatch` recursively merges objects, retaining unspecified nested fields.
 
 `PatchAllAsync` with `ScriptPatch` uses the bulk Update API. `o.UseUpdateByQuery()` opts into update-by-query (faster, but skips concurrently changed documents and throws unless `o.ProceedOnQueryConflicts()`).
 

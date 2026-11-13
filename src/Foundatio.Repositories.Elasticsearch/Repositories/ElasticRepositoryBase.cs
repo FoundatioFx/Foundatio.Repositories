@@ -321,9 +321,11 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// </summary>
     /// <remarks>
     /// <para>Script and partial patches use one bulk Update API request per round. JSON, action and pipeline partial patches
-    /// read every document with one multi-get, write them with one bulk request, and re-read conflicting documents together
-    /// in grouped rounds, up to <c>Retry(n)</c>. Script patches with a default pipeline run update-by-query per id.</para>
-    /// <para>Repeated id and routing inputs are deduplicated. Documents in different indexes remain separate matches;
+    /// read the documents, write them with one bulk request, and re-read conflicting documents together in grouped rounds,
+    /// up to <c>Retry(n)</c>. JSON and action patches search when multiple indexes or unknown routing require discovery.
+    /// Pipeline partial patches use real-time multi-get for known index and routing locations, searching only unresolved
+    /// locations. Script patches with a default pipeline run update-by-query per id.</para>
+    /// <para>Repeated id and routing inputs are deduplicated. Search-discovered documents in different indexes remain separate matches;
     /// the same id with different routing values is retained because those values can identify different documents.</para>
     /// <para>Every document ends with an outcome. Successful documents are invalidated in the cache and notified before a
     /// <see cref="VersionConflictDocumentException"/>, <see cref="DocumentNotFoundException"/> or <see cref="DocumentException"/>
@@ -354,7 +356,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         string operationName = operation.GetType().Name;
         if (strategy is PatchStrategy.ClientSide)
         {
-            var (hits, readFailures) = await ReadForPatchAsync(ids, options, allowSearch: true).AnyContext();
+            var (hits, readFailures) = await ReadForPatchAsync(ids, options, allowSearch: true, preferRealtime: operation is PartialPatch).AnyContext();
             var run = WriteRunResult<IndexItem>.Merge(readFailures, await PatchClientSideAsync(hits, operation, null, options, refresh, operationName).AnyContext());
             var patched = run.Succeeded;
             await OnPatchedAsync(patched.Select(i => i.Key.Id).ToList(), patched.Select(i => i.Document).ToList(), options).AnyContext();

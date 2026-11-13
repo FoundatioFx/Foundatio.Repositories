@@ -301,6 +301,10 @@ await repository.PatchAsync(ids, new PartialPatch(new { Department = "Engineerin
 await repository.PatchAsync(ids, new ScriptPatch("ctx._source.reviewCount++"));
 ```
 
+For multi-ID batches with a default ingest pipeline, `PartialPatch` reads known index and routing locations with a real-time multi-get. This includes ObjectId-based daily and monthly indexes, so an acknowledged write can be patched before a search refresh. IDs whose locations require discovery, such as custom time-series IDs or parent documents without routing, use search. A mixed batch keeps real-time reads for the resolvable IDs; only discovery depends on refreshed search data. The single-ID overload still requires a resolvable location.
+
+JSON and action patches across multiple indexes use search, including its normal soft-delete filtering and matches in different indexes. `PatchAllAsync` also uses search. These operations retain their search visibility semantics.
+
 ### Patch by Query (PatchAllAsync)
 
 For `ISearchableRepository<T>`:

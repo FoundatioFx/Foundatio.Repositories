@@ -170,6 +170,8 @@ await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.I
 
 For JSON, action and pipeline partial patches on many documents, a bulk write can return 409 (changed since read) or 429/503 for some items. Conflicting documents are re-read **together** with one multi-get, the patch is re-applied in memory (an action patch that no longer changes the document is not written), and they are re-sent in one bulk request with their fresh versions. Transient failures are re-sent unchanged. This repeats for up to `Retry(n)` rounds with exponential backoff (50 ms doubling, capped at 2 s) and jitter.
 
+The initial read for a multi-ID pipeline `PartialPatch` also uses real-time multi-get when the index and required routing are known. Only unresolved locations use search discovery; a mixed batch preserves real-time visibility for its resolvable IDs. The single-ID overload still requires a resolvable location. JSON/action patches across multiple indexes and `PatchAllAsync` retain search visibility. See [Patch by IDs](/guide/patch-operations#patch-by-ids).
+
 - Documents deleted in the meantime are skipped.
 - Cache invalidation, notifications and the `UpdateCallback` fire once per document, after its batch completes.
 - Documents still failing after the last round are reported in one exception with counts and up to 10 ids, **after** the successes are invalidated and notified (see [Failure handling](#failure-handling)).

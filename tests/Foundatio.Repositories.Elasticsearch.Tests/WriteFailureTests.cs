@@ -963,6 +963,74 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
+    public async Task PartialPatchAsyncIds_WithPipelineOnTimeSeriesIndex_ReadsResolvableDocumentsBeforeRefresh(bool monthly, bool mixedDiscoveryIds)
+    {
+        // Arrange
+        const string pipelineId = "write-failure-realtime-pipeline";
+        IIndex index = monthly ? new MonthlyEmployeeIndex(_configuration, 1) : new DailyEmployeeIndex(_configuration, 1);
+        await index.DeleteAsync();
+        try
+        {
+            var pipeline = await _client.Ingest.PutPipelineAsync(pipelineId,
+                p => p.Processors(pr => pr.Lowercase(l => l.Field("name"))), TestCancellationToken);
+            Assert.True(pipeline.IsValidResponse, pipeline.DebugInformation);
+            using var repository = new EmployeeWithPipelineRepository(index, pipelineId);
+            var now = DateTime.UtcNow;
+            var earlier = monthly ? now.AddMonths(-1) : now.AddDays(-1);
+            var employees = new[]
+            {
+                EmployeeGenerator.Generate(id: ObjectId.GenerateNewId(now).ToString(), name: "ORIGINAL", age: 37, createdUtc: now),
+                EmployeeGenerator.Generate(id: mixedDiscoveryIds ? "custom-realtime-patch-id" : ObjectId.GenerateNewId(earlier).ToString(),
+                    name: "ORIGINAL", age: 37, createdUtc: earlier)
+            };
+            await index.EnsureIndexAsync(now);
+            await index.EnsureIndexAsync(earlier);
+            var settings = await _client.Indices.PutSettingsAsync(index.Name,
+                s => s.Settings(i => i.RefreshInterval(Elastic.Clients.Elasticsearch.Duration.MinusOne)), TestCancellationToken);
+            Assert.True(settings.IsValidResponse, settings.DebugInformation);
+
+            if (mixedDiscoveryIds)
+            {
+                // The custom id needs search discovery; only that document is refreshed.
+                await repository.AddAsync(employees[1], o => o.ImmediateConsistency());
+                await repository.AddAsync(employees[0], o => o.Consistency(Consistency.Eventual));
+            }
+            else
+            {
+                await repository.AddAsync(employees, o => o.Consistency(Consistency.Eventual));
+            }
+
+            var searchable = await _client.SearchAsync<Employee>(s => s.Indices(index.Name).Size(0), TestCancellationToken);
+            Assert.True(searchable.IsValidResponse, searchable.DebugInformation);
+            Assert.Equal(mixedDiscoveryIds ? 1L : 0L, searchable.Total);
+
+            // Act
+            long patched = await repository.PatchAsync(employees.Select(e => e.Id).ToArray(),
+                new PartialPatch(new { name = "PATCHED" }), o => o.Consistency(Consistency.Eventual).Retry(0));
+
+            // Assert
+            Assert.Equal(2, patched);
+            foreach (var employee in employees)
+            {
+                var stored = await _client.GetAsync<Employee>(
+                    new Elastic.Clients.Elasticsearch.GetRequest(index.GetIndex(employee), employee.Id), TestCancellationToken);
+                Assert.True(stored.Found, stored.DebugInformation);
+                Assert.Equal("patched", stored.Source?.Name);
+                Assert.Equal(37, stored.Source?.Age);
+            }
+        }
+        finally
+        {
+            await index.DeleteAsync();
+            await _client.Ingest.DeletePipelineAsync(pipelineId, cancellationToken: TestCancellationToken);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task SaveAsync_WithSameIdInDifferentLocations_CorrelatesSuccessfulOriginals(bool differentIndexes, bool conflict)
     {
         IIndex index = differentIndexes ? new MonthlyEmployeeIndex(_configuration, 1) : new RoutedEmployeeIndex(_configuration);
