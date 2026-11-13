@@ -216,7 +216,6 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             return false;
 
         ClientPatchApplier<T>.ValidateOperation(operation);
-        await ElasticIndex.EnsureIndexAsync(id).AnyContext();
 
         options = ConfigureOptions(options?.As<T>());
         var expectedVersion = GetExpectedVersion(options);
@@ -224,6 +223,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         var strategy = PatchStrategyResolver.Resolve<T>(operation, !String.IsNullOrEmpty(DefaultPipeline), false);
         if (strategy is PatchStrategy.UpdateByQueryPerId && expectedVersion is not null)
             throw new ArgumentException("IfVersion is not supported for ScriptPatch when a default pipeline is configured.", nameof(options));
+
+        await ElasticIndex.EnsureIndexAsync(id).AnyContext();
 
         var refresh = options.GetRefreshMode(DefaultConsistency);
         string operationName = operation.GetType().Name;
@@ -336,10 +337,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;
 
         ClientPatchApplier<T>.ValidateOperation(operation);
+        operation = PreparePatch(operation);
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
-        operation = PreparePatch(operation);
         var strategy = PatchStrategyResolver.Resolve<T>(operation, !String.IsNullOrEmpty(DefaultPipeline), false);
         var refresh = options.GetRefreshMode(DefaultConsistency);
         string operationName = operation.GetType().Name;
@@ -464,22 +465,13 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (docs.Count == 0)
             return;
 
-        if (ElasticIndex.HasMultipleIndexes)
-        {
-            foreach (var documentGroup in docs.GroupBy(ElasticIndex.GetIndex))
-                await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
-        }
-        else
-        {
-            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
-        }
-
         options = ConfigureOptions(options?.As<T>());
         if (IsCacheEnabled && options.HasCacheKey())
             throw new ArgumentException("Cache key can't be set when calling RemoveAsync");
 
         var items = CreateDeleteItems(docs, options);
         await OnDocumentsRemovingAsync(docs, options).AnyContext();
+        await EnsureIndexesAsync(docs).AnyContext();
 
         var run = await DeleteDocumentsAsync(items, options).AnyContext();
         var removed = run.With(WriteOutcome.Succeeded, WriteOutcome.Missing).Select(i => i.Item.Document).ToList();

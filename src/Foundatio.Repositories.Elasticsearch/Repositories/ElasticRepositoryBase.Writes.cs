@@ -43,6 +43,19 @@ public abstract partial class ElasticRepositoryBase<T>
         return new WriteRoundRunner(_logger, ElasticIndex.Configuration.TimeProvider);
     }
 
+    /// <summary>Ensures the index of every document exists. Call it after the request is validated, so a rejected call creates no index.</summary>
+    private async Task EnsureIndexesAsync(IReadOnlyCollection<T> documents)
+    {
+        if (!ElasticIndex.HasMultipleIndexes)
+        {
+            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
+            return;
+        }
+
+        foreach (var documentGroup in documents.GroupBy(ElasticIndex.GetIndex))
+            await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
+    }
+
     private IndexItem CreateIndexItem(T document, bool isCreateOperation, ICommandOptions options)
     {
         var key = new DocumentKey(ElasticIndex.GetIndex(document), document.Id);
@@ -58,15 +71,7 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <summary>Indexes documents in rounds; a single document uses the index API, several use one bulk request per round.</summary>
     private async Task<WriteRunResult<IndexItem>> IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
     {
-        if (ElasticIndex.HasMultipleIndexes)
-        {
-            foreach (var documentGroup in documents.GroupBy(ElasticIndex.GetIndex))
-                await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
-        }
-        else
-        {
-            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
-        }
+        await EnsureIndexesAsync(documents).AnyContext();
 
         var items = documents.Select(d => CreateIndexItem(d, isCreateOperation, options)).ToList();
         string operation = isCreateOperation ? "Add" : "Save";

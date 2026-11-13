@@ -293,6 +293,82 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         await _employeeRepository.RemoveAsync(employees.Skip(1).ToList(), o => o.ImmediateConsistency());
     }
 
+    private async Task<(EmployeeRepository Repository, MyAppElasticConfiguration Configuration)> CreateRepositoryWithoutIndexAsync()
+    {
+        await _configuration.DeleteIndexesAsync();
+        var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
+        return (new EmployeeRepository(configuration), configuration);
+    }
+
+    private async Task<bool> EmployeesIndexExistsAsync()
+    {
+        var response = await _client.Indices.ExistsAsync(_configuration.Employees.Name, cancellationToken: TestCancellationToken);
+        return response.Exists;
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WithVersionedDocumentWithoutVersion_DoesNotCreateIndex()
+    {
+        // Arrange
+        var (repository, configuration) = await CreateRepositoryWithoutIndexAsync();
+        using var _ = configuration;
+        var employee = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(() => repository.RemoveAsync(employee));
+
+        // Assert
+        Assert.False(await EmployeesIndexExistsAsync());
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WithCacheKey_DoesNotCreateIndex()
+    {
+        // Arrange
+        var (repository, configuration) = await CreateRepositoryWithoutIndexAsync();
+        using var _ = configuration;
+        var employee = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
+
+        // Act
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.RemoveAsync(employee, o => o.CacheKey("key").SkipVersionCheck()));
+
+        // Assert
+        Assert.False(await EmployeesIndexExistsAsync());
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WhenRemovingHandlerThrows_DoesNotCreateIndex()
+    {
+        // Arrange
+        var (repository, configuration) = await CreateRepositoryWithoutIndexAsync();
+        using var _ = configuration;
+        repository.DocumentsRemoving.AddSyncHandler((o, args) => throw new InvalidOperationException("vetoed"));
+        var employee = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
+
+        // Act
+        await Assert.ThrowsAsync<InvalidOperationException>(() => repository.RemoveAsync(employee, o => o.SkipVersionCheck()));
+
+        // Assert
+        Assert.False(await EmployeesIndexExistsAsync());
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithInvalidExpectedVersion_DoesNotCreateIndex()
+    {
+        // Arrange
+        var (repository, configuration) = await CreateRepositoryWithoutIndexAsync();
+        using var _ = configuration;
+        string id = ObjectId.GenerateNewId().ToString();
+        var patch = new PartialPatch(new { companyName = "Patched" });
+
+        // Act
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.PatchAsync(id, patch, o => o.IfVersion("not-a-version")));
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.PatchAsync(id, patch, o => o.IfVersion("1:1").SkipVersionCheck()));
+
+        // Assert
+        Assert.False(await EmployeesIndexExistsAsync());
+    }
+
     private sealed class NoCacheEmployeeRepository : EmployeeRepository
     {
         public NoCacheEmployeeRepository(MyAppElasticConfiguration configuration) : base(configuration.Employees)
