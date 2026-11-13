@@ -20,7 +20,8 @@ namespace Foundatio.Repositories
         /// <remarks>
         /// The same budget applies everywhere: Elasticsearch <c>retry_on_conflict</c> for script and partial patches,
         /// client-side re-read and re-apply rounds for JSON and action patches, delete-by-query passes, and retries
-        /// of transient errors (HTTP 429, 502, 503 and 504) for single-document writes.
+        /// of transient errors (HTTP 429 and 503, and requests that were never sent) for document writes. HTTP 502,
+        /// 504 and timeouts are reported rather than retried, because the write may already have been applied.
         /// </remarks>
         public static T Retry<T>(this T options, int retryCount) where T : ICommandOptions
         {
