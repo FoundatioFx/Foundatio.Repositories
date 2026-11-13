@@ -35,7 +35,8 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
         public int Seen;
     }
 
-    private sealed record Fault(Func<Endpoint, bool> Match, int? StatusCode, string? Body, Exception? Exception, Func<Task>? AfterFault);
+    private sealed record Fault(Func<Endpoint, bool> Match, int? StatusCode, string? Body, Exception? Exception, Func<Task>? AfterFault,
+        Dictionary<string, IEnumerable<string>>? Headers = null, string? ContentType = "application/json");
 
     public ResponseFactory ResponseFactory => inner.ResponseFactory;
 
@@ -56,11 +57,17 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
         RespondNext(count, statusCode, body, method, pathContains, afterFault);
     }
 
-    /// <summary>Answers the next <paramref name="count"/> matching requests with <paramref name="body"/> without sending them.</summary>
-    public void RespondNext(int count, int statusCode, string body, HttpMethod method, string pathContains, Func<Task>? afterFault = null)
+    /// <summary>
+    /// Answers the next <paramref name="count"/> matching requests with <paramref name="body"/> without sending them.
+    /// Set <paramref name="elasticsearchResponse"/> to include the Elasticsearch product identity header.
+    /// </summary>
+    public void RespondNext(int count, int statusCode, string body, HttpMethod method, string pathContains, Func<Task>? afterFault = null, bool elasticsearchResponse = false)
     {
+        Dictionary<string, IEnumerable<string>>? headers = elasticsearchResponse
+            ? new(StringComparer.OrdinalIgnoreCase) { ["X-Elastic-Product"] = ["Elasticsearch"] }
+            : null;
         for (int i = 0; i < count; i++)
-            _faults.Enqueue(new Fault(Matches(method, pathContains), statusCode, body, null, afterFault));
+            _faults.Enqueue(new Fault(Matches(method, pathContains), statusCode, body, null, afterFault, headers));
     }
 
     /// <summary>
@@ -174,7 +181,17 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
 
         var root = JsonNode.Parse(bytes)!.AsObject();
         rewrite(root);
-        return CreateFaultResponse<TResponse>(endpoint, boundConfiguration, postData, new Fault(_ => true, 200, root.ToJsonString(), null, null));
+
+        var headers = new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase);
+        var headerNames = new HeadersList(boundConfiguration.ResponseHeadersToParse, new HeadersList(["X-Elastic-Product", "Warning"]));
+        foreach (string headerName in headerNames)
+        {
+            if (response.ApiCallDetails.TryGetHeader(headerName, out var values))
+                headers[headerName] = values;
+        }
+
+        return CreateFaultResponse<TResponse>(endpoint, boundConfiguration, postData,
+            new Fault(_ => true, response.ApiCallDetails.HttpStatusCode, root.ToJsonString(), null, null, headers, response.ApiCallDetails.ResponseContentType));
     }
 
     public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
@@ -204,8 +221,9 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
             return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, fault.Exception, null, null, System.IO.Stream.Null, null, -1, null, null);
 
         string body = fault.Body ?? String.Empty;
-        using var stream = new System.IO.MemoryStream(Encoding.UTF8.GetBytes(body));
-        return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, fault.StatusCode, null, stream, "application/json", body.Length, null, null);
+        byte[] bytes = Encoding.UTF8.GetBytes(body);
+        using var stream = new System.IO.MemoryStream(bytes);
+        return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, fault.StatusCode, fault.Headers, stream, fault.ContentType, bytes.Length, null, null);
     }
 
     public void Dispose()

@@ -546,7 +546,7 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
         var repository = new PlainEmployeeRepository(configuration);
         await repository.CountAsync();
-        invoker.RespondNext(1, 200, DeleteByQueryWithConflicts, HttpMethod.POST, "_delete_by_query");
+        invoker.RespondNext(1, 200, DeleteByQueryWithConflicts, HttpMethod.POST, "_delete_by_query", elasticsearchResponse: true);
         invoker.FailNext(1, 500, HttpMethod.POST, "_delete_by_query");
         _messageBus.ResetMessagesSent();
 
@@ -571,7 +571,7 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         {
             repository.Dispose();
             return Task.CompletedTask;
-        });
+        }, elasticsearchResponse: true);
 
         // Act & Assert
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.RemoveAllAsync(q => q.Company("1")));
@@ -973,13 +973,16 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
             Employee[] employees;
             if (differentIndexes)
             {
-                string id = ObjectId.GenerateNewId().ToString();
+                // An ObjectId determines a time-series document's index before CreatedUtc is considered.
+                // Use a caller-assigned id so the same id can belong to both monthly indexes.
+                string id = $"shared-employee-{Guid.NewGuid():N}";
                 var now = DateTime.UtcNow;
                 employees =
                 [
                     EmployeeGenerator.Generate(id: id, companyId: "first", createdUtc: now),
                     EmployeeGenerator.Generate(id: id, companyId: "second", createdUtc: now.AddMonths(-1))
                 ];
+                Assert.NotEqual(index.GetIndex(employees[0]), index.GetIndex(employees[1]));
                 await repository.AddAsync(employees, o => o.ImmediateConsistency().Notifications(false));
             }
             else
