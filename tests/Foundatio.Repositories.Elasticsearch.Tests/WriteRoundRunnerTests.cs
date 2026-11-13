@@ -94,7 +94,9 @@ public sealed class WriteRoundRunnerTests
 
         // Assert
         Assert.Equal([WriteOutcome.Succeeded, WriteOutcome.Cancelled], run.Items.Select(i => i.Result.Outcome));
-        Assert.IsType<OperationCanceledException>(WriteExceptionMapper.CreateException(run, "testing", MissingDocumentPolicy.Skip));
+        var exception = WriteExceptionMapper.CreateException(run, "testing", MissingDocumentPolicy.Skip);
+        Assert.IsType<OperationCanceledException>(exception);
+        Assert.Contains("1 documents not confirmed", exception.Message);
     }
 
     [Fact]

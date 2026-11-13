@@ -51,7 +51,7 @@ internal static class WriteExceptionMapper
 
         var cancelled = failed.Where(i => i.Result.Outcome is WriteOutcome.Cancelled).ToList();
         if (cancelled.Count > 0)
-            return new OperationCanceledException($"Error {operationLabel} documents: cancelled with {cancelled.Count} documents not written {summary}. Ids: {FormatIds(cancelled)}");
+            return new OperationCanceledException($"Error {operationLabel} documents: cancelled with {cancelled.Count} documents not confirmed {summary}. Ids: {FormatIds(cancelled)}");
 
         var unsupported = failed.FirstOrDefault(i => i.Result.Outcome is WriteOutcome.VersioningNotSupported);
         if (unsupported.Item is not null)

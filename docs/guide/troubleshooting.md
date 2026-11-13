@@ -313,7 +313,7 @@ The index was created with `index.disable_sequence_numbers: true` (the default f
 
 ### OperationCanceledException from a write
 
-The repository was disposed while the write was running or waiting to retry. Documents written before that were notified and invalidated; the rest were not written (or, for an update-by-query task, may still be written by Elasticsearch).
+The repository was disposed while the write was running or waiting to retry. Documents written before that were notified and invalidated; the rest were not confirmed (an in-flight request that was cancelled may still have been applied by Elasticsearch).
 
 ## Performance Issues
 
