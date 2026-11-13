@@ -114,6 +114,66 @@ public sealed class WriteRoundRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_WhenSendReturnsWrongResultCount_EndsPendingAsFatalAndKeepsEarlierSuccesses()
+    {
+        // Arrange
+        var items = new[] { new Item(new DocumentKey("i", "ok")), new Item(new DocumentKey("i", "retry")) };
+        int rounds = 0;
+
+        // Act
+        var run = await CreateRunner().RunAsync<Item>("Test", items, 5, (pending, _) =>
+        {
+            rounds++;
+            return Task.FromResult<IReadOnlyList<WriteItemResult>>(rounds is 1
+                ? pending.Select(p => new WriteItemResult(p.Key.Id is "ok" ? WriteOutcome.Succeeded : WriteOutcome.Transient)).ToList()
+                : []);
+        }, null, CancellationToken.None);
+
+        // Assert
+        Assert.Equal([WriteOutcome.Succeeded, WriteOutcome.Fatal], run.Items.Select(i => i.Result.Outcome));
+        Assert.Contains("returned 0 results for 1 items", run.Items[1].Result.Reason);
+        Assert.IsType<DocumentException>(WriteExceptionMapper.CreateException(run, "testing", MissingDocumentPolicy.Skip));
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenConflictHandlerReturnsWrongCount_EndsConflictsAsFatalAndKeepsSuccesses()
+    {
+        // Arrange
+        var items = new[] { new Item(new DocumentKey("i", "ok")), new Item(new DocumentKey("i", "conflict")) };
+
+        // Act
+        var run = await CreateRunner().RunAsync<Item>("Test", items, 5,
+            (pending, _) => Task.FromResult<IReadOnlyList<WriteItemResult>>(pending.Select(p => new WriteItemResult(p.Key.Id is "ok" ? WriteOutcome.Succeeded : WriteOutcome.Conflict)).ToList()),
+            (_, _) => Task.FromResult<IReadOnlyList<(Item?, WriteItemResult?)>>([]), CancellationToken.None);
+
+        // Assert
+        Assert.Equal([WriteOutcome.Succeeded, WriteOutcome.Fatal], run.Items.Select(i => i.Result.Outcome));
+        Assert.Contains("prepared 0 retries for 1 conflicts", run.Items[1].Result.Reason);
+    }
+
+    [Fact]
+    public void AccumulateAndMerge_CarryDroppedCountsAndKeepOnlyItemsNeedingReport()
+    {
+        // Arrange
+        static WriteRunResult<Item> Run(params WriteOutcome[] outcomes) => new(outcomes.Select((o, i) => new WriteItemOutcome<Item>(new Item(new DocumentKey("i", i.ToString())), new WriteItemResult(o, 404))).ToList(), 1);
+        var decided = new[] { new WriteItemOutcome<Item>(new Item(new DocumentKey("i", "noop")), new WriteItemResult(WriteOutcome.Noop)) };
+
+        // Act
+        var total = WriteRunResult<Item>.Accumulate(null, Run(WriteOutcome.Succeeded, WriteOutcome.Noop, WriteOutcome.Missing, WriteOutcome.Fatal));
+        total = WriteRunResult<Item>.Accumulate(total, Run(WriteOutcome.Succeeded, WriteOutcome.Missing));
+        var merged = WriteRunResult<Item>.Merge(decided, total);
+
+        // Assert
+        Assert.Equal(3, total.OtherSucceeded);
+        Assert.Equal(2, total.OtherMissing);
+        Assert.Equal([WriteOutcome.Fatal], total.Items.Select(i => i.Result.Outcome));
+        Assert.Equal(3, merged.OtherSucceeded);
+        Assert.Equal(2, merged.OtherMissing);
+        Assert.Equal(2, merged.Items.Count);
+        Assert.Contains("(1 failed, 4 succeeded)", WriteExceptionMapper.CreateException(merged, "testing", MissingDocumentPolicy.Skip)!.Message);
+    }
+
+    [Fact]
     public void CreateException_UsesOnePrecedence()
     {
         static WriteRunResult<Item> Run(params WriteOutcome[] outcomes) => new(outcomes.Select((o, i) => new WriteItemOutcome<Item>(new Item(new DocumentKey("i", i.ToString())), new WriteItemResult(o, 404))).ToList(), 1);

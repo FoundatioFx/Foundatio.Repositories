@@ -45,7 +45,7 @@ internal static class WriteExceptionMapper
         if (failed.Count is 0)
             return null;
 
-        int succeeded = run.Items.Count - failed.Count + run.OtherSucceeded;
+        int succeeded = run.Count(WriteOutcome.Succeeded) + run.Count(WriteOutcome.Noop) + run.OtherSucceeded;
         string summary = $"({failed.Count} failed, {succeeded} succeeded)";
 
         var cancelled = failed.Where(i => i.Result.Outcome is WriteOutcome.Cancelled).ToList();
