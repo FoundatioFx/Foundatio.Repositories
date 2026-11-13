@@ -553,7 +553,16 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         if (strategy is PatchStrategy.UpdateByQueryBulk)
         {
-            (affectedRecords, queryConflicts) = await PatchAllWithUpdateByQueryAsync(query, (ScriptPatch)operation, options).AnyContext();
+            string taskId = await StartPatchAllByQueryAsync(query, (ScriptPatch)operation, options).AnyContext();
+            try
+            {
+                (affectedRecords, queryConflicts) = await WaitForPatchAllByQueryAsync(taskId, options).AnyContext();
+            }
+            catch (Exception ex) when (ex is DocumentException or OperationCanceledException)
+            {
+                await NotifyPatchedByQuerySafelyAsync(query, options).AnyContext();
+                throw;
+            }
         }
         else if (strategy is PatchStrategy.ClientSide)
         {
@@ -591,13 +600,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         }
 
         if (strategy is PatchStrategy.UpdateByQueryBulk && affectedRecords > 0)
-        {
-            if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
-
-            await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-            await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
-        }
+            await NotifyPatchedByQueryAsync(query, options).AnyContext();
 
         if (queryConflicts > 0)
         {
@@ -617,6 +620,31 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         DisposedCancellationToken.ThrowIfCancellationRequested();
         return affectedRecords;
+    }
+
+    private async Task NotifyPatchedByQueryAsync(IRepositoryQuery query, ICommandOptions options)
+    {
+        if (IsCacheEnabled)
+            await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
+
+        await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
+        await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
+    }
+
+    /// <summary>
+    /// Invalidates and notifies after an update-by-query task whose outcome is unknown (it may already have patched
+    /// documents). A failure here is logged so it never replaces the exception that is about to be rethrown.
+    /// </summary>
+    private async Task NotifyPatchedByQuerySafelyAsync(IRepositoryQuery query, ICommandOptions options)
+    {
+        try
+        {
+            await NotifyPatchedByQueryAsync(query, options).AnyContext();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error invalidating the cache or sending notifications after an update by query with an unknown outcome");
+        }
     }
 
     public Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)

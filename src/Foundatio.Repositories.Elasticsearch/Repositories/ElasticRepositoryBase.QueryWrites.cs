@@ -76,15 +76,10 @@ public abstract partial class ElasticRepositoryBase<T>
     }
 
     /// <summary>
-    /// Runs a script patch as one asynchronous update-by-query task (<see cref="PatchStrategy.UpdateByQueryBulk"/>) and
-    /// waits for it. Documents changed after the task's snapshot are skipped and counted as conflicts, never retried,
-    /// because the script may not be idempotent.
+    /// Starts a script patch as one asynchronous update-by-query task (<see cref="PatchStrategy.UpdateByQueryBulk"/>) and
+    /// returns its task id. Nothing was started when this throws a <see cref="DocumentException"/>.
     /// </summary>
-    /// <exception cref="OperationCanceledException">The repository was disposed while waiting. The task keeps running
-    /// in Elasticsearch, so how many documents it patched is unknown.</exception>
-    /// <exception cref="DocumentException">The task failed or its status could not be read (including a task that
-    /// disappeared): the outcome is unknown, so it is never reported as zero documents patched.</exception>
-    private async Task<(long Affected, long Conflicts)> PatchAllWithUpdateByQueryAsync(IRepositoryQuery query, ScriptPatch scriptOperation, ICommandOptions options)
+    private async Task<string> StartPatchAllByQueryAsync(IRepositoryQuery query, ScriptPatch scriptOperation, ICommandOptions options)
     {
         var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
         {
@@ -106,7 +101,19 @@ public abstract partial class ElasticRepositoryBase<T>
         if (response.Task is null)
             throw new DocumentException("Update by query did not return a task identifier.", response.OriginalException());
 
-        string taskId = response.Task.ToString();
+        return response.Task.ToString();
+    }
+
+    /// <summary>
+    /// Waits for an update-by-query task started by <see cref="StartPatchAllByQueryAsync"/>. Documents changed after the
+    /// task's snapshot are skipped and counted as conflicts, never retried, because the script may not be idempotent.
+    /// </summary>
+    /// <exception cref="OperationCanceledException">The repository was disposed while waiting. The task keeps running
+    /// in Elasticsearch, so how many documents it patched is unknown.</exception>
+    /// <exception cref="DocumentException">The task failed or its status could not be read (including a task that
+    /// disappeared): the outcome is unknown, so it is never reported as zero documents patched.</exception>
+    private async Task<(long Affected, long Conflicts)> WaitForPatchAllByQueryAsync(string taskId, ICommandOptions options)
+    {
         int failedReads = 0;
         for (int attempt = 1; ; attempt++)
         {

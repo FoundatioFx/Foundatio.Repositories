@@ -362,10 +362,41 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
         var repository = new NoCacheEmployeeRepository(configuration);
         invoker.FailNext(1, 404, HttpMethod.GET, "_tasks/");
+        int changedEvents = 0;
+        repository.DocumentsChanged.AddHandler((_, args) =>
+        {
+            if (args.ChangeType is ChangeType.Saved)
+                changedEvents++;
+
+            return Task.CompletedTask;
+        });
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.UseUpdateByQuery()));
         Assert.Contains("not found", exception.Message);
+        Assert.Equal(1, changedEvents);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WithUpdateByQueryWhenSubmitFails_DoesNotReportChanges()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new NoCacheEmployeeRepository(configuration);
+        invoker.FailNext(1, 400, HttpMethod.POST, "_update_by_query");
+        int changedEvents = 0;
+        repository.DocumentsChanged.AddHandler((_, _) =>
+        {
+            changedEvents++;
+            return Task.CompletedTask;
+        });
+
+        // Act & Assert
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.UseUpdateByQuery()));
+        Assert.Equal(0, changedEvents);
     }
 
     [Fact]
@@ -383,8 +414,18 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
             return Task.CompletedTask;
         });
 
+        int changedEvents = 0;
+        repository.DocumentsChanged.AddHandler((_, args) =>
+        {
+            if (args.ChangeType is ChangeType.Saved)
+                changedEvents++;
+
+            return Task.CompletedTask;
+        });
+
         // Act & Assert
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.UseUpdateByQuery()));
+        Assert.Equal(1, changedEvents);
     }
 
     [Fact]
