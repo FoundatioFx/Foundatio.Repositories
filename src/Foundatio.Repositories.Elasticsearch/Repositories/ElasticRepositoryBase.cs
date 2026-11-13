@@ -582,7 +582,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         {
             await BatchProcessAsync(query, async results =>
             {
-                var run = await PatchClientSideAsync(results.Hits.Where(h => h.Id is not null).ToList(), operation, null, options, Refresh.False, operationName).AnyContext();
+                var run = await PatchClientSideAsync(WithIds(results.Hits).ToList(), operation, null, options, Refresh.False, operationName).AnyContext();
                 var patched = run.Succeeded;
                 affectedRecords += patched.Count;
                 skippedMissing += run.Count(WriteOutcome.Missing);
@@ -598,9 +598,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
             await BatchProcessAsync(query, async results =>
             {
-                var items = results.Hits
-                    .Where(h => h.Id is not null)
-                    .Select(h => new UpdateItem(new DocumentKey(h.GetIndex() ?? ElasticIndex.GetIndex(h.Id!), h.Id!), h.Routing, ElasticDocumentVersion.Empty))
+                var items = WithIds(results.Hits)
+                    .Select(h => new UpdateItem(new DocumentKey(h.Hit.GetIndex() ?? ElasticIndex.GetIndex(h.Id), h.Id), h.Hit.Routing, ElasticDocumentVersion.Empty))
                     .ToList();
 
                 var run = await PatchServerSideAsync(items, operation, strategy, options, Refresh.False, operationName).AnyContext();
