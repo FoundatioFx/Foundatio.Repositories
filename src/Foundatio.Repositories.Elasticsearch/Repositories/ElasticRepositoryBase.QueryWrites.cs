@@ -114,7 +114,7 @@ public abstract partial class ElasticRepositoryBase<T>
     /// disappeared): the outcome is unknown, so it is never reported as zero documents patched.</exception>
     private async Task<(long Affected, long Conflicts)> WaitForPatchAllByQueryAsync(string taskId, ICommandOptions options)
     {
-        int failedReads = 0;
+        var failedReads = new ConsecutiveFailureCounter(20);
         for (int attempt = 1; ; attempt++)
         {
             DisposedCancellationToken.ThrowIfCancellationRequested();
@@ -127,16 +127,21 @@ public abstract partial class ElasticRepositoryBase<T>
                     throw new DocumentException($"Update by query task {taskId} was not found, so how many documents it patched is unknown.", taskStatus.OriginalException());
 
                 _logger.LogError("Error getting task status for {TaskId}: {Error}", taskId, taskStatus.ElasticsearchServerError);
-                if (++failedReads >= 20)
-                    throw new DocumentException($"Failed to get task status for {taskId} after {failedReads} attempts", taskStatus.OriginalException());
+                if (failedReads.RecordFailure())
+                    throw new DocumentException($"Failed to get task status for {taskId} after {failedReads.Count} consecutive attempts", taskStatus.OriginalException());
             }
             else
             {
+                failedReads.RecordSuccess();
                 var status = ReadTaskStatus(taskStatus.Task.Status);
                 if (taskStatus.Completed)
                 {
                     if (taskStatus.Error is not null)
                         throw new DocumentException($"Script operation task ({taskId}) failed: {taskStatus.Error.Type} - {taskStatus.Error.Reason}", taskStatus.OriginalException());
+
+                    var failures = TaskResponseFailures.Read(taskStatus.Response);
+                    if (failures.Count > 0)
+                        throw new DocumentException($"Script operation task ({taskId}) completed with {failures.Count} failures after patching {status.Created + status.Updated + status.Deleted} documents: {TaskResponseFailures.Summarize(failures)}", taskStatus.OriginalException());
 
                     _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
                     return (status.Created + status.Updated + status.Deleted, status.VersionConflicts);
