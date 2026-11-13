@@ -120,7 +120,7 @@ public class DailyIndex : VersionedIndex
         if (version == null || version < 0)
             version = Version;
 
-        return $"{Name}-v{version}-{utcDate.ToString(DateFormat)}";
+        return $"{Name}-v{version}-{utcDate.ToString(DateFormat, CultureInfo.InvariantCulture)}";
     }
 
     protected override DateTime GetIndexDate(string index)
@@ -442,7 +442,7 @@ public class DailyIndex : VersionedIndex
 
     protected override string GetIndexByDate(DateTime date)
     {
-        return $"{Name}-{date.ToString(DateFormat)}";
+        return $"{Name}-{date.ToString(DateFormat, CultureInfo.InvariantCulture)}";
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()
