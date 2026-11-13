@@ -415,6 +415,7 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         // Act
         await Assert.ThrowsAsync<ArgumentException>(() => repository.PatchAsync(id, patch, o => o.IfVersion("not-a-version")));
         await Assert.ThrowsAsync<ArgumentException>(() => repository.PatchAsync(id, patch, o => o.IfVersion("1:1").SkipVersionCheck()));
+        await Assert.ThrowsAsync<ArgumentException>(() => repository.PatchAllAsync(q => q, patch, o => o.IfVersion("1:1")));
 
         // Assert
         Assert.False(await EmployeesIndexExistsAsync());
@@ -843,10 +844,10 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         });
         IPatchOperation patch = patchType switch
         {
-            "script" => new ScriptPatch("ctx._source.age = 30;"),
+            "script" => new ScriptPatch("ctx._source.age += 10;"),
             "partial" => new PartialPatch(new { Age = 30 }),
             "json" => new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/age", Value = 30 })),
-            _ => new ActionPatch<Employee>(e => e.Age = 30)
+            _ => new ActionPatch<Employee>(e => e.Age += 10)
         };
         var updatedIds = new List<string>();
 
@@ -858,7 +859,7 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         Assert.Equal(employees.Count, patched);
         Assert.Equal(employees.Select(e => e.Id).Order(), updatedIds.Order());
         var stored = await repository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
-        Assert.All(stored, e => Assert.Equal(30, e.Age));
+        Assert.All(stored, e => Assert.Equal(patchType is "script" or "action" ? employees.Single(original => original.Id == e.Id).Age + 10 : 30, e.Age));
     }
 
     [Fact]
@@ -932,6 +933,49 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task BatchProcessAsync_WhenProcessingStops_ClosesOwnedPointInTime(bool throws)
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        var (repository, invoker, configuration) = CreateFaultInjectingRepository();
+        using var _ = configuration;
+
+        Task<long> ProcessAsync() => repository.BatchProcessAsync(q => q, _ => throws
+            ? Task.FromException<bool>(new InvalidOperationException("processing failed"))
+            : Task.FromResult(false), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+
+        // Act
+        if (throws)
+            await Assert.ThrowsAsync<InvalidOperationException>(ProcessAsync);
+        else
+            Assert.Equal(0, await ProcessAsync());
+
+        // Assert
+        Assert.Equal(1, invoker.CountRequests(HttpMethod.DELETE, "_pit"));
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenFirstSnapshotSearchFails_ClosesOwnedPointInTime()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        var (repository, invoker, configuration) = CreateFaultInjectingRepository();
+        using var _ = configuration;
+        invoker.FailNext(1, 500, HttpMethod.POST, "_search");
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAllAsync(q => q,
+            new ScriptPatch("ctx._source.age += 1;"), o => o.PageLimit(1)));
+
+        // Assert
+        Assert.Contains("injected 500", exception.Message);
+        Assert.Equal(1, invoker.CountRequests(HttpMethod.DELETE, "_pit"));
+        Assert.Equal(0, invoker.CountRequests(HttpMethod.POST, "_bulk"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task PatchAsyncIds_WithCustomNotificationPublisher_UsesVirtualPublisher(bool clientSide)
     {
         // Arrange
@@ -951,6 +995,147 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         Assert.Equal(employees.Select(e => e.Id).Order(), repository.PublishedIds.Order());
         Assert.Equal(clientSide ? employees.Count : 0, repository.PublishedDocuments.Count);
         Assert.Equal(0, _messageBus.MessagesSent);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ClientPatch_WithSourceProjection_PreservesUnreturnedFields(bool byIds, bool includes)
+    {
+        IIndex index = byIds ? _configuration.MonthlyEmployees : _configuration.Employees;
+        using var repository = new EmployeeRepository(index);
+        var employees = EmployeeGenerator.GenerateEmployees(2, age: 37, companyId: "projected-patch");
+        await repository.AddAsync(employees, o => o.ImmediateConsistency());
+        var patch = new ActionPatch<Employee>(employee => employee.CompanyName = "Patched");
+
+        long patched = byIds
+            ? await repository.PatchAsync(employees.Select(e => e.Id).ToArray(), patch, o => includes
+                ? o.Include(e => e.CompanyName).ImmediateConsistency()
+                : o.Exclude(e => e.Age).ImmediateConsistency())
+            : await repository.PatchAllAsync(q => includes ? q.Include(e => e.CompanyName) : q.Exclude(e => e.Age),
+                patch, o => o.ImmediateConsistency());
+
+        Assert.Equal(employees.Count, patched);
+        foreach (var employee in employees)
+        {
+            var stored = await _client.GetAsync<Employee>(
+                new Elastic.Clients.Elasticsearch.GetRequest(index.GetIndex(employee), employee.Id), TestCancellationToken);
+            Assert.True(stored.Found);
+            Assert.Equal("Patched", stored.Source?.CompanyName);
+            Assert.Equal(employee.Age, stored.Source?.Age);
+            Assert.Equal(employee.CompanyId, stored.Source?.CompanyId);
+            Assert.Equal(employee.Name, stored.Source?.Name);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAsyncIds_WithSameIdAndDifferentRouting_PatchesBothDocumentsOnce(bool clientSide)
+    {
+        var index = new RoutedEmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        try
+        {
+            var employees = await CreateRoutedEmployeesAsync(index);
+            using var repository = new RoutedEmployeeRepository(index);
+            IPatchOperation patch = clientSide
+                ? new ActionPatch<Employee>(e => e.YearsEmployed += 1)
+                : new ScriptPatch("ctx._source.yearsEmployed += 1;");
+            var first = new Id(employees[0].Id, employees[0].CompanyId);
+            var second = new Id(employees[1].Id, employees[1].CompanyId);
+
+            long patched = await repository.PatchAsync(new Ids(first, second, first), patch, o => o.ImmediateConsistency());
+
+            Assert.Equal(2, patched);
+            foreach (var employee in employees)
+            {
+                var stored = await _client.GetAsync<Employee>(new Elastic.Clients.Elasticsearch.GetRequest(index.Name, employee.Id)
+                {
+                    Routing = employee.CompanyId
+                }, TestCancellationToken);
+                Assert.True(stored.Found);
+                Assert.Equal(1, stored.Source?.YearsEmployed);
+            }
+        }
+        finally
+        {
+            await index.DeleteAsync();
+        }
+    }
+
+    [Fact]
+    public async Task PatchAsyncIds_WithMixedRouting_PatchesOnlyRequestedRoutedDocuments()
+    {
+        var index = new RoutedEmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        try
+        {
+            var employees = await CreateRoutedEmployeesAsync(index);
+            using var repository = new RoutedEmployeeRepository(index);
+            var other = EmployeeGenerator.Generate(id: "unrouted", companyId: "other-parent", yearsEmployed: 0);
+            await repository.AddAsync(other, o => o.ImmediateConsistency());
+
+            long patched = await repository.PatchAsync(new Ids(new Id(employees[0].Id, employees[0].CompanyId), new Id(other.Id)),
+                new ActionPatch<Employee>(e => e.YearsEmployed += 1), o => o.ImmediateConsistency());
+
+            Assert.Equal(2, patched);
+            foreach (var employee in employees.Append(other))
+            {
+                var stored = await _client.GetAsync<Employee>(new Elastic.Clients.Elasticsearch.GetRequest(index.Name, employee.Id)
+                {
+                    Routing = employee.CompanyId
+                }, TestCancellationToken);
+                Assert.True(stored.Found);
+                Assert.Equal(ReferenceEquals(employee, employees[1]) ? 0 : 1, stored.Source?.YearsEmployed);
+            }
+        }
+        finally
+        {
+            await index.DeleteAsync();
+        }
+    }
+
+    private async Task<Employee[]> CreateRoutedEmployeesAsync(RoutedEmployeeIndex index)
+    {
+        await index.ConfigureAsync();
+        var first = EmployeeGenerator.Generate(id: "shared-id", companyId: "parent-0", yearsEmployed: 0);
+        var response = await _client.IndexAsync(first, i => i.Index(index.Name).Id(first.Id).Routing(first.CompanyId)
+            .OpType(Elastic.Clients.Elasticsearch.OpType.Create).Refresh(Elastic.Clients.Elasticsearch.Refresh.True), TestCancellationToken);
+        Assert.True(response.IsValidResponse, response.DebugInformation);
+
+        for (int parent = 1; parent <= 32; parent++)
+        {
+            var second = EmployeeGenerator.Generate(id: first.Id, companyId: $"parent-{parent}", yearsEmployed: 0);
+            response = await _client.IndexAsync(second, i => i.Index(index.Name).Id(second.Id).Routing(second.CompanyId)
+                .OpType(Elastic.Clients.Elasticsearch.OpType.Create).Refresh(Elastic.Clients.Elasticsearch.Refresh.True), TestCancellationToken);
+            if (response.IsValidResponse)
+                return [first, second];
+
+            Assert.Equal(409, response.ApiCallDetails.HttpStatusCode);
+        }
+
+        throw new InvalidOperationException("Could not find routing values on separate shards for the regression test.");
+    }
+
+    private sealed class RoutedEmployeeIndex(IElasticConfiguration configuration) : Index<Employee>(configuration, "routed-employees")
+    {
+        public override void ConfigureIndex(Elastic.Clients.Elasticsearch.IndexManagement.CreateIndexRequestDescriptor descriptor)
+        {
+            base.ConfigureIndex(descriptor.Settings(s => s.NumberOfShards(2).NumberOfReplicas(0)));
+        }
+    }
+
+    private sealed class RoutedEmployeeRepository : EmployeeRepository
+    {
+        public RoutedEmployeeRepository(IIndex index) : base(index)
+        {
+            HasParent = true;
+            GetParentIdFunc = employee => employee.CompanyId;
+            DisableCache();
+        }
     }
 
     private sealed class NotificationTrackingEmployeeRepository(MyAppElasticConfiguration configuration) : EmployeeRepository(configuration)

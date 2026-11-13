@@ -1296,6 +1296,46 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             Assert.False(await ((ISupportPointInTime)_employeeRepository).ClosePointInTimeAsync(finalPitId));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FindAsync_WhenReusingOptionsWithCallerPointInTime_DoesNotCloseCallerContext(bool completeOwnedPaging)
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        var options = new CommandOptions().Cache(false).PageLimit(completeOwnedPaging ? 10 : 1)
+            .SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        var ownedResults = await _employeeRepository.FindAsync(new RepositoryQuery(), options);
+        Assert.Equal(!completeOwnedPaging, ownedResults.HasMore);
+        var opened = await _client.OpenPointInTimeAsync(_configuration.Employees.Name,
+            p => p.KeepAlive("1m"), TestCancellationToken);
+        Assert.True(opened.IsValidResponse);
+        Assert.False(String.IsNullOrEmpty(opened.Id));
+        var pointInTime = (ISupportPointInTime)_employeeRepository;
+        string? callerId = opened.Id;
+
+        try
+        {
+            // Act
+            var results = await _employeeRepository.FindAsync(new RepositoryQuery(),
+                options.PointInTimeId(callerId).PageLimit(10));
+            callerId = results.GetPointInTimeId() ?? callerId;
+
+            // Assert
+            Assert.False(results.HasMore);
+            Assert.Equal(3, results.Documents.Count);
+            Assert.True(await pointInTime.ClosePointInTimeAsync(callerId));
+            callerId = null;
+        }
+        finally
+        {
+            if (callerId is not null)
+                await pointInTime.ClosePointInTimeAsync(callerId);
+            if (!completeOwnedPaging)
+                await pointInTime.ClosePointInTimeAsync(ownedResults);
+        }
+    }
+
     [Fact]
     public async Task GetAllWithSearchAfterPagingWithCustomSortAsync()
     {

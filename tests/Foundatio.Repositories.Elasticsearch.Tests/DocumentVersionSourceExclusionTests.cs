@@ -160,6 +160,44 @@ public sealed class DocumentVersionSourceExclusionTests
     }
 
     [Fact]
+    public void Serialize_WithRegisteredDocumentBehindPolymorphicBase_KeepsNestedVersion()
+    {
+        var options = CreateOptions(typeof(PolymorphicContainerDocument), typeof(PolymorphicRootDocument));
+        var document = new PolymorphicContainerDocument
+        {
+            Version = "1:5",
+            Child = new PolymorphicRootDocument { Version = "business-2", Name = "nested" }
+        };
+
+        string json = JsonSerializer.Serialize(document, options);
+        var roundTripped = JsonSerializer.Deserialize<PolymorphicContainerDocument>(json, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.False(parsed.RootElement.TryGetProperty("version", out _));
+        Assert.Equal("business-2", parsed.RootElement.GetProperty("child").GetProperty("version").GetString());
+        Assert.Equal("business-2", Assert.IsType<PolymorphicRootDocument>(roundTripped?.Child).Version);
+    }
+
+    [Fact]
+    public void Serialize_WithRegisteredDocumentInNonGenericCollection_KeepsNestedVersion()
+    {
+        var options = CreateOptions(typeof(CollectionContainerDocument), typeof(VersionedRootDocument));
+        var document = new CollectionContainerDocument
+        {
+            Version = "1:5",
+            Children = [new VersionedRootDocument { Id = "nested", Version = "business-2" }]
+        };
+
+        string json = JsonSerializer.Serialize(document, options);
+        var roundTripped = JsonSerializer.Deserialize<CollectionContainerDocument>(json, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.False(parsed.RootElement.TryGetProperty("version", out _));
+        Assert.Equal("business-2", parsed.RootElement.GetProperty("children")[0].GetProperty("version").GetString());
+        Assert.Equal("business-2", roundTripped?.Children[0].Version);
+    }
+
+    [Fact]
     public void Serialize_WithExtensionData_RoundTripsValuesAndExcludesRootVersion()
     {
         var options = CreateOptions(typeof(ExtensionDataDocument));
@@ -203,18 +241,75 @@ public sealed class DocumentVersionSourceExclusionTests
         Assert.Equal("business-2", parsed.RootElement.GetProperty("child").GetProperty("version").GetString());
     }
 
-    [Fact]
-    public void Deserialize_WithStaleRootVersionAndExtensionData_DoesNotCaptureVersion()
+    [Theory]
+    [InlineData("\"1:5\"")]
+    [InlineData("23")]
+    [InlineData("{\"legacy\":true}")]
+    public void Deserialize_WithStaleRootVersionAndExtensionData_DoesNotCaptureVersion(string storedVersion)
     {
         var options = CreateOptions(typeof(ExtensionDataDocument));
 
-        var document = JsonSerializer.Deserialize<ExtensionDataDocument>("""{"id":"extension","version":"1:5","label":"preserved"}""", options);
+        var document = JsonSerializer.Deserialize<ExtensionDataDocument>($$"""{"id":"extension","version":{{storedVersion}},"label":"preserved"}""", options);
 
         Assert.NotNull(document);
         Assert.Null(document.Version);
         Assert.False(document.Extra.ContainsKey("version"));
         Assert.Single(document.Extra);
         Assert.DoesNotContain("\"version\"", JsonSerializer.Serialize(document, options));
+    }
+
+    [Fact]
+    public void Serialize_WithCustomExtensionDataDictionary_PreservesValuesWithoutMutation()
+    {
+        var options = CreateOptions(typeof(CustomExtensionDataDocument), typeof(VersionedRootDocument));
+        var child = new VersionedRootDocument { Id = "nested", Version = "business-2" };
+        var extra = new ExtensionDictionary { ["child"] = child, ["name"] = "preserved", ["empty"] = null! };
+        var document = new CustomExtensionDataDocument { Version = "1:5", Extra = extra };
+
+        string json = JsonSerializer.Serialize(document, options);
+        var roundTripped = JsonSerializer.Deserialize<CustomExtensionDataDocument>(json, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.False(parsed.RootElement.TryGetProperty("version", out _));
+        Assert.Equal("business-2", parsed.RootElement.GetProperty("child").GetProperty("version").GetString());
+        Assert.Equal("preserved", parsed.RootElement.GetProperty("name").GetString());
+        Assert.Equal(JsonValueKind.Null, parsed.RootElement.GetProperty("empty").ValueKind);
+        Assert.Same(extra, document.Extra);
+        Assert.Same(child, extra["child"]);
+        Assert.Equal("business-2", child.Version);
+        Assert.NotNull(roundTripped);
+        Assert.IsType<ExtensionDictionary>(roundTripped.Extra);
+        Assert.Equal(3, roundTripped.Extra.Count);
+    }
+
+    [Fact]
+    public void Serialize_WithNullExtensionDataDictionary_SerializesNormally()
+    {
+        var options = CreateOptions(typeof(ExtensionDataDocument));
+        var document = new ExtensionDataDocument { Id = "extension", Version = "1:5", Extra = null! };
+
+        string json = JsonSerializer.Serialize(document, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.False(parsed.RootElement.TryGetProperty("version", out _));
+        Assert.Equal("extension", parsed.RootElement.GetProperty("id").GetString());
+        Assert.Single(parsed.RootElement.EnumerateObject());
+    }
+
+    [Fact]
+    public void Serialize_WithJsonElementExtensionData_KeepsValuesAndIgnoresLegacyVersion()
+    {
+        var options = CreateOptions(typeof(JsonElementExtensionDataDocument));
+        var document = JsonSerializer.Deserialize<JsonElementExtensionDataDocument>("""{"version":"1:5","child":{"version":"business-2"}}""", options);
+
+        Assert.NotNull(document);
+        string json = JsonSerializer.Serialize(document, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Null(document.Version);
+        Assert.False(document.Extra.ContainsKey("version"));
+        Assert.False(parsed.RootElement.TryGetProperty("version", out _));
+        Assert.Equal("business-2", parsed.RootElement.GetProperty("child").GetProperty("version").GetString());
     }
 
     [Fact]
@@ -291,6 +386,33 @@ public sealed class DocumentVersionSourceExclusionTests
         public List<object> List { get; set; } = [];
     }
 
+    [JsonDerivedType(typeof(PolymorphicRootDocument), "root")]
+    private abstract class PolymorphicBase
+    {
+        public string? Name { get; set; }
+    }
+
+    private sealed class PolymorphicRootDocument : PolymorphicBase, IVersioned
+    {
+        public string? Version { get; set; }
+    }
+
+    private sealed class PolymorphicContainerDocument : IVersioned
+    {
+        public string? Version { get; set; }
+        public PolymorphicBase? Child { get; set; }
+    }
+
+    private sealed class DocumentList : List<VersionedRootDocument>
+    {
+    }
+
+    private sealed class CollectionContainerDocument : IVersioned
+    {
+        public string? Version { get; set; }
+        public DocumentList Children { get; set; } = [];
+    }
+
     private sealed class VersionedMetaData : IVersioned
     {
         public string? Version { get; set; }
@@ -311,5 +433,25 @@ public sealed class DocumentVersionSourceExclusionTests
         public string Id { get; set; } = null!;
         public string? Version { get; set; }
         string? IVersioned.Version { get; set; }
+    }
+
+    private sealed class CustomExtensionDataDocument : IVersioned
+    {
+        public string? Version { get; set; }
+
+        [JsonExtensionData]
+        public ExtensionDictionary Extra { get; set; } = [];
+    }
+
+    private sealed class ExtensionDictionary : Dictionary<string, object>
+    {
+    }
+
+    private sealed class JsonElementExtensionDataDocument : IVersioned
+    {
+        public string? Version { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> Extra { get; set; } = [];
     }
 }
