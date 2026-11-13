@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Serialization;
@@ -159,6 +160,81 @@ public sealed class DocumentVersionSourceExclusionTests
     }
 
     [Fact]
+    public void Serialize_WithExtensionData_RoundTripsValuesAndExcludesRootVersion()
+    {
+        var options = CreateOptions(typeof(ExtensionDataDocument));
+        var document = new ExtensionDataDocument
+        {
+            Id = "extension",
+            Version = "1:5",
+            Extra = new Dictionary<string, object> { ["label"] = "preserved", ["number"] = 7 }
+        };
+
+        string json = JsonSerializer.Serialize(document, options);
+        var roundTripped = JsonSerializer.Deserialize<ExtensionDataDocument>(json, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.False(parsed.RootElement.TryGetProperty("version", out _));
+        Assert.Equal("preserved", parsed.RootElement.GetProperty("label").GetString());
+        Assert.Equal(7, parsed.RootElement.GetProperty("number").GetInt32());
+        Assert.NotNull(roundTripped);
+        Assert.Null(roundTripped.Version);
+        Assert.Equal(2, roundTripped.Extra.Count);
+    }
+
+    [Fact]
+    public void Serialize_WithRegisteredDocumentInExtensionData_KeepsNestedVersion()
+    {
+        var options = CreateOptions(typeof(ExtensionDataDocument), typeof(VersionedRootDocument));
+        var document = new ExtensionDataDocument
+        {
+            Id = "extension",
+            Version = "1:5",
+            Extra = new Dictionary<string, object>
+            {
+                ["child"] = new VersionedRootDocument { Id = "nested", Version = "business-2" }
+            }
+        };
+
+        string json = JsonSerializer.Serialize(document, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.False(parsed.RootElement.TryGetProperty("version", out _));
+        Assert.Equal("business-2", parsed.RootElement.GetProperty("child").GetProperty("version").GetString());
+    }
+
+    [Fact]
+    public void Deserialize_WithStaleRootVersionAndExtensionData_DoesNotCaptureVersion()
+    {
+        var options = CreateOptions(typeof(ExtensionDataDocument));
+
+        var document = JsonSerializer.Deserialize<ExtensionDataDocument>("""{"id":"extension","version":"1:5","label":"preserved"}""", options);
+
+        Assert.NotNull(document);
+        Assert.Null(document.Version);
+        Assert.False(document.Extra.ContainsKey("version"));
+        Assert.Single(document.Extra);
+        Assert.DoesNotContain("\"version\"", JsonSerializer.Serialize(document, options));
+    }
+
+    [Fact]
+    public void Serialize_WithExplicitConcurrencyVersion_KeepsPublicBusinessVersion()
+    {
+        var options = CreateOptions(typeof(ExplicitVersionDocument));
+        var document = new ExplicitVersionDocument { Id = "explicit", Version = "business-7" };
+        ((IVersioned)document).Version = "1:5";
+
+        string json = JsonSerializer.Serialize(document, options);
+        var roundTripped = JsonSerializer.Deserialize<ExplicitVersionDocument>(json, options);
+
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Equal("business-7", parsed.RootElement.GetProperty("version").GetString());
+        Assert.NotNull(roundTripped);
+        Assert.Equal("business-7", roundTripped.Version);
+        Assert.Null(((IVersioned)roundTripped).Version);
+    }
+
+    [Fact]
     public void ExcludeDocumentVersionFromSource_WithConcurrentFirstUse_IsThreadSafe()
     {
         // Arrange
@@ -219,5 +295,21 @@ public sealed class DocumentVersionSourceExclusionTests
     {
         public string? Version { get; set; }
         public string? Name { get; set; }
+    }
+
+    private sealed class ExtensionDataDocument : IIdentity, IVersioned
+    {
+        public string Id { get; set; } = null!;
+        public string? Version { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, object> Extra { get; set; } = [];
+    }
+
+    private sealed class ExplicitVersionDocument : IIdentity, IVersioned
+    {
+        public string Id { get; set; } = null!;
+        public string? Version { get; set; }
+        string? IVersioned.Version { get; set; }
     }
 }

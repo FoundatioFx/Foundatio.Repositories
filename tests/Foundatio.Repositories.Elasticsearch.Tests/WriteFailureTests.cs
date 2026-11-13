@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Elastic.Transport;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
@@ -819,6 +820,158 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         finally
         {
             await index.DeleteAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("script")]
+    [InlineData("partial")]
+    [InlineData("json")]
+    [InlineData("action")]
+    public async Task PatchAllAsync_WhenPatchChangesSortBetweenBatches_PatchesEachDocumentOnce(string patchType)
+    {
+        // Arrange
+        var employees = Enumerable.Range(20, 4).Select(age => EmployeeGenerator.Generate(age: age)).ToList();
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new NoCacheEmployeeRepository(configuration);
+        invoker.BeforeNthRequest(2, HttpMethod.POST, "_search", async () =>
+        {
+            var response = await _client.Indices.RefreshAsync(_configuration.Employees.Name, cancellationToken: TestCancellationToken);
+            Assert.True(response.IsValidResponse);
+        });
+        IPatchOperation patch = patchType switch
+        {
+            "script" => new ScriptPatch("ctx._source.age = 30;"),
+            "partial" => new PartialPatch(new { Age = 30 }),
+            "json" => new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/age", Value = 30 })),
+            _ => new ActionPatch<Employee>(e => e.Age = 30)
+        };
+        var updatedIds = new List<string>();
+
+        // Act
+        long patched = await repository.PatchAllAsync(q => q.SortAscending(e => e.Age), patch,
+            o => o.PageLimit(2).ImmediateConsistency().UpdateCallback(updatedIds.AddRange));
+
+        // Assert
+        Assert.Equal(employees.Count, patched);
+        Assert.Equal(employees.Select(e => e.Id).Order(), updatedIds.Order());
+        var stored = await repository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
+        Assert.All(stored, e => Assert.Equal(30, e.Age));
+    }
+
+    [Fact]
+    public async Task PatchAsyncIds_WhenMultiIndexReadExceedsResultWindow_PatchesEveryDocument()
+    {
+        // Arrange
+        var index = _configuration.MonthlyEmployees;
+        var repository = new EmployeeRepository(index);
+        var employees = EmployeeGenerator.GenerateEmployees(1100, companyId: "paged-patch");
+        await repository.AddAsync(employees, o => o.ImmediateConsistency());
+        var settings = await _client.Indices.PutSettingsAsync(index.Name,
+            s => s.Settings(i => i.MaxResultWindow(1100)), TestCancellationToken);
+        Assert.True(settings.IsValidResponse);
+        var updatedIds = new List<string>();
+
+        // Act
+        long patched = await repository.PatchAsync(employees.Select(e => e.Id).ToArray(),
+            new ActionPatch<Employee>(e => e.CompanyName = "Patched"),
+            o => o.ImmediateConsistency().UpdateCallback(updatedIds.AddRange));
+
+        // Assert
+        Assert.Equal(employees.Count, patched);
+        Assert.Equal(employees.Select(e => e.Id).Order(), updatedIds.Order());
+        var stored = await repository.FindAsync(q => q.Company("paged-patch"), o => o.PageLimit(1100).SnapshotPaging());
+        Assert.Equal(employees.Count, stored.Documents.Count);
+        Assert.All(stored.Documents, e => Assert.Equal("Patched", e.CompanyName));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PatchAsyncIds_WithCustomTimeSeriesIds_PatchesEachDocumentOnce(bool monthly, bool jsonPatch)
+    {
+        // Arrange
+        IIndex index = monthly ? _configuration.MonthlyEmployees : new DailyEmployeeIndex(_configuration, 1);
+        await index.DeleteAsync();
+        try
+        {
+            var repository = new EmployeeRepository(index);
+            var employees = new[]
+            {
+                EmployeeGenerator.Generate(id: "first-custom-id", createdUtc: DateTime.UtcNow),
+                EmployeeGenerator.Generate(id: "second-custom-id", createdUtc: DateTime.UtcNow.AddMonths(-1))
+            };
+            await repository.AddAsync(employees, o => o.ImmediateConsistency());
+            IPatchOperation patch = jsonPatch
+                ? new JsonPatch(new PatchDocument(new AddOperation { Path = "/companyName", Value = "Patched" }))
+                : new ActionPatch<Employee>(e => e.CompanyName = "Patched");
+
+            // Act
+            long patched = await repository.PatchAsync(new[] { employees[0].Id, employees[1].Id, employees[0].Id }, patch,
+                o => o.ImmediateConsistency());
+
+            // Assert
+            Assert.Equal(employees.Length, patched);
+            foreach (var employee in employees)
+            {
+                var stored = await _client.GetAsync<Employee>(
+                    new Elastic.Clients.Elasticsearch.GetRequest(index.GetIndex(employee.CreatedUtc), employee.Id), TestCancellationToken);
+                Assert.Equal("Patched", stored.Source?.CompanyName);
+            }
+        }
+        finally
+        {
+            await index.DeleteAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAsyncIds_WithCustomNotificationPublisher_UsesVirtualPublisher(bool clientSide)
+    {
+        // Arrange
+        var repository = new NotificationTrackingEmployeeRepository(_configuration);
+        var employees = EmployeeGenerator.GenerateEmployees(2);
+        await repository.AddAsync(employees, o => o.ImmediateConsistency().Notifications(false));
+        _messageBus.ResetMessagesSent();
+        IPatchOperation patch = clientSide
+            ? new ActionPatch<Employee>(e => e.CompanyName = "Patched")
+            : new ScriptPatch("ctx._source.companyName = 'Patched';");
+
+        // Act
+        long patched = await repository.PatchAsync(employees.Select(e => e.Id).ToArray(), patch, o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(employees.Count, patched);
+        Assert.Equal(employees.Select(e => e.Id).Order(), repository.PublishedIds.Order());
+        Assert.Equal(clientSide ? employees.Count : 0, repository.PublishedDocuments.Count);
+        Assert.Equal(0, _messageBus.MessagesSent);
+    }
+
+    private sealed class NotificationTrackingEmployeeRepository(MyAppElasticConfiguration configuration) : EmployeeRepository(configuration)
+    {
+        public List<string> PublishedIds { get; } = [];
+        public List<Employee> PublishedDocuments { get; } = [];
+
+        protected override Task PublishChangeTypeMessageAsync(ChangeType changeType, Employee? document, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
+        {
+            if (document is not null)
+                PublishedDocuments.Add(document);
+
+            return base.PublishChangeTypeMessageAsync(changeType, document, data, delay);
+        }
+
+        protected override Task PublishChangeTypeMessageAsync(ChangeType changeType, string? id, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
+        {
+            if (id is not null)
+                PublishedIds.Add(id);
+
+            return Task.CompletedTask;
         }
     }
 }
