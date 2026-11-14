@@ -237,14 +237,20 @@ internal sealed class WriteRoundRunner
 /// <summary>The terminal outcome of every item passed to <see cref="WriteRoundRunner.RunAsync{TItem}"/>.</summary>
 internal sealed class WriteRunResult<TItem> where TItem : IWriteItem
 {
-    public WriteRunResult(IReadOnlyList<WriteItemOutcome<TItem>> items, int rounds)
+    private readonly WriteItemOutcome<TItem>[] _items;
+
+    public WriteRunResult(WriteItemOutcome<TItem>[] items, int rounds)
     {
-        Items = items;
+        ArgumentNullException.ThrowIfNull(items);
+        _items = items;
         Rounds = rounds;
     }
 
-    public IReadOnlyList<WriteItemOutcome<TItem>> Items { get; }
+    public IReadOnlyList<WriteItemOutcome<TItem>> Items => _items;
     public int Rounds { get; }
+
+    /// <summary>Reads the fixed terminal outcomes without an enumerator allocation or interface dispatch per item.</summary>
+    public ReadOnlySpan<WriteItemOutcome<TItem>> AsSpan() => _items;
 
     public IEnumerable<WriteItemOutcome<TItem>> With(params WriteOutcome[] outcomes) => Items.Where(i => outcomes.Contains(i.Result.Outcome));
     public int Count(WriteOutcome outcome) => Items.Count(i => i.Result.Outcome == outcome);

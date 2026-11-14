@@ -37,9 +37,8 @@ internal sealed class WriteFailureSummary(MissingDocumentPolicy missingPolicy)
     public void Add<TItem>(WriteRunResult<TItem> run, Func<TItem, bool>? isCreate = null) where TItem : IWriteItem
     {
         Rounds = Math.Max(Rounds, run.Rounds);
-        for (int index = 0; index < run.Items.Count; index++)
+        foreach (var item in run.AsSpan())
         {
-            var item = run.Items[index];
             var outcome = item.Result.Outcome;
             if (outcome is WriteOutcome.Succeeded or WriteOutcome.Noop)
             {

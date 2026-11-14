@@ -157,7 +157,7 @@ public sealed class WriteRoundRunnerTests
     public void Merge_CombinesDecidedAndWrittenOutcomes()
     {
         // Arrange
-        static WriteRunResult<Item> Run(params WriteOutcome[] outcomes) => new(outcomes.Select((o, i) => new WriteItemOutcome<Item>(new Item(new DocumentKey("i", i.ToString())), new WriteItemResult(o, 404))).ToList(), 1);
+        static WriteRunResult<Item> Run(params WriteOutcome[] outcomes) => new(outcomes.Select((o, i) => new WriteItemOutcome<Item>(new Item(new DocumentKey("i", i.ToString())), new WriteItemResult(o, 404))).ToArray(), 1);
         var decided = Run(WriteOutcome.Noop, WriteOutcome.Missing).Items.ToArray();
         var run = Run(WriteOutcome.Succeeded, WriteOutcome.Fatal);
 
@@ -174,7 +174,7 @@ public sealed class WriteRoundRunnerTests
     [Fact]
     public void CreateException_UsesOnePrecedence()
     {
-        static WriteRunResult<Item> Run(params WriteOutcome[] outcomes) => new(outcomes.Select((o, i) => new WriteItemOutcome<Item>(new Item(new DocumentKey("i", i.ToString())), new WriteItemResult(o, 404))).ToList(), 1);
+        static WriteRunResult<Item> Run(params WriteOutcome[] outcomes) => new(outcomes.Select((o, i) => new WriteItemOutcome<Item>(new Item(new DocumentKey("i", i.ToString())), new WriteItemResult(o, 404))).ToArray(), 1);
 
         Assert.IsType<OperationCanceledException>(WriteExceptionMapper.CreateException(Run(WriteOutcome.Fatal, WriteOutcome.Conflict, WriteOutcome.Cancelled), "x", MissingDocumentPolicy.Skip));
         Assert.IsType<DocumentVersioningNotSupportedException>(WriteExceptionMapper.CreateException(Run(WriteOutcome.Fatal, WriteOutcome.Conflict, WriteOutcome.VersioningNotSupported), "x", MissingDocumentPolicy.Skip));

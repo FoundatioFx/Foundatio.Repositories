@@ -40,9 +40,9 @@ internal static class WriteExceptionMapper
     public static Exception? CreateException<TItem>(WriteRunResult<TItem> run, string operationLabel, MissingDocumentPolicy missing, Func<TItem, bool>? isCreate = null)
         where TItem : IWriteItem
     {
-        for (int index = 0; index < run.Items.Count; index++)
+        foreach (var item in run.AsSpan())
         {
-            if (!IsFailure(run.Items[index].Result.Outcome, missing))
+            if (!IsFailure(item.Result.Outcome, missing))
                 continue;
 
             var summary = new WriteFailureSummary(missing);
