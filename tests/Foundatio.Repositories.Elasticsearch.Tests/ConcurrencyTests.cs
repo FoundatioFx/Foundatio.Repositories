@@ -703,6 +703,7 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
 
             string? preReindexVersion = employee.Version;
             Assert.Equal($"1:{savesBeforeReindex}", preReindexVersion);
+            string? expectedSourceVersion = savesBeforeReindex is 0 ? null : $"1:{savesBeforeReindex - 1}";
 
             await version2Index.ConfigureAsync();
             await version2Index.ReindexAsync();
@@ -722,6 +723,7 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
             }
             else
             {
+                expectedSourceVersion = preReindexVersion;
                 await reindexedRepository.SaveAsync(employee, o => o.Cache(false).ImmediateConsistency());
                 var overwritten = await reindexedRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
                 Assert.Equal("stale", overwritten?.Name);
@@ -729,7 +731,9 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
 
             var source = await _client.GetAsync<Dictionary<string, object?>>(new Elastic.Clients.Elasticsearch.GetRequest(version2Index.Name, employee.Id), TestCancellationToken);
             Assert.True(source.Found);
-            Assert.DoesNotContain("version", source.Source!.Keys);
+            Assert.NotNull(source.Source);
+            Assert.True(source.Source.TryGetValue("version", out var sourceVersion));
+            Assert.Equal(expectedSourceVersion, sourceVersion);
         }
         finally
         {
