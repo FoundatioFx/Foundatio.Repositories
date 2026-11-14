@@ -585,7 +585,7 @@ For `PatchAsync(Ids, ...)`, repeated `(ID, routing)` pairs are patched once. The
 - `o.Retry(n)` means n retries after the first attempt on every patch path (default 10): `retry_on_conflict = n` on the Update API, and up to n re-read-and-re-apply rounds for JSON, action and pipeline partial patches.
 - Transient errors (HTTP 429, 503 responses containing an Elasticsearch error type, and requests that were never sent) are retried within the same budget with exponential backoff and jitter. HTTP 502/504, unstructured gateway 503 responses and timeouts are reported. `DocumentNotFoundException` is not retried.
 - With `IfVersion`, every attempt (including transient retries) is sent with the expected version and the document is never re-read.
-- A JSON patch targeting the root `IVersioned.Version` property is rejected with `ArgumentException`, including a name assigned by `JsonPropertyName`. An ordinary business property named `Version`, such as `MigrationState.Version`, and nested version fields can be patched.
+- Models retain their configured JSON contracts, including explicit `IVersioned.Version` implementations and `[JsonIgnore]`. After a client-side patch, the repository restores the token captured with the read, so a JSON field cannot replace the concurrency token used for the write. Independent business properties named `Version`, such as `MigrationState.Version`, and nested version fields can be patched normally.
 - Conflicts and retries are logged at Warning level with the expected and current versions; an exhausted budget is logged at Error level.
 ## Performance Considerations
 

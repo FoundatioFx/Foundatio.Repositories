@@ -168,15 +168,22 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAsync_JsonPatchTargetingVersion_IsRejected()
+    public async Task PatchAsync_JsonPatchTargetingPublicVersion_PreservesConcurrencyMetadata()
     {
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/version", Value = "9:9" }));
+        var patch = new JsonPatch(new PatchDocument(
+            new ReplaceOperation { Path = "/version", Value = "9:9" },
+            new ReplaceOperation { Path = "/name", Value = "patched" }));
 
         // Act & Assert
-        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.PatchAsync(employee.Id, patch));
-        await Assert.ThrowsAsync<ArgumentException>(() => _employeeRepository.PatchAllAsync(q => q.Id(employee.Id), patch));
+        Assert.True(await _employeeRepository.PatchAsync(employee.Id, patch, o => o.ImmediateConsistency()));
+        Assert.Equal(1, await _employeeRepository.PatchAllAsync(q => q.Id(employee.Id), patch, o => o.ImmediateConsistency()));
+        var current = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(current);
+        Assert.Equal("patched", current.Name);
+        Assert.NotEqual("9:9", current.Version);
+        Assert.True(current.GetElasticVersion() > employee.GetElasticVersion());
     }
 
     [Fact]

@@ -22,6 +22,30 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class PatchReadConsistencyTests
 {
+    [Fact]
+    public async Task JsonPatch_WithPublicVersion_PreservesReadTokenForConditionalWrites()
+    {
+        var first = StoredDocument.Create(1);
+        var second = StoredDocument.Create(2);
+        using var configuration = new TestConfiguration([first, second]);
+        using var repository = new TestRepository(configuration, [first, second]);
+        var patch = new JsonPatch(new PatchDocument(
+            new ReplaceOperation { Path = "/version", Value = "9:9" },
+            new ReplaceOperation { Path = "/value", Value = "patched" }));
+
+        long patched = await repository.PatchAsync(new Ids(first.Document.Id, second.Document.Id), patch, o => o.Retry(0).Notifications(false));
+
+        Assert.Equal(2, patched);
+        Assert.Equal(2, configuration.Invoker.Writes.Count);
+        foreach (var write in configuration.Invoker.Writes)
+        {
+            Assert.Equal(1, write.PrimaryTerm);
+            Assert.Equal(7, write.SequenceNumber);
+            Assert.Equal("patched", write.Source.GetProperty("value").GetString());
+            Assert.Equal("1:7", write.Source.GetProperty("version").GetString());
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

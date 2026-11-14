@@ -193,7 +193,7 @@ Cached reads return documents with the `Version` they had when they were cached.
 var employee = await repository.GetByIdAsync(id, o => o.Cache(false));
 ```
 
-The version of a cached document always comes from Elasticsearch metadata captured when it was cached (it is copied back onto the document when read from the cache), so saving a cached copy is safe even though the version isn't stored in `_source`. Patches don't compare against the cached version; they invalidate the cached entry by id. See [Versioning](/guide/versioning#caching-and-versions). The race where stale data can be re-cached right after an invalidation is tracked in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
+The version of a cached document always comes from Elasticsearch metadata captured when it was cached (it is copied back onto the document when read from the cache), so cached copies retain optimistic concurrency even when an explicit `IVersioned.Version` implementation or `[JsonIgnore]` omits the token from model JSON. A missing envelope token clears a stale model token. Patches don't compare against the cached version; they invalidate the cached entry by id. See [Versioning](/guide/versioning#caching-and-versions). The race where stale data can be re-cached right after an invalidation is tracked in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
 
 ## Cache Invalidation Gaps
 

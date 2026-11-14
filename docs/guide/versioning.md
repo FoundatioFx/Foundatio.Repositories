@@ -80,29 +80,46 @@ An `IVersioned` document whose `Version` is empty has never been read from Elast
 
 ## Where the Version Comes From
 
-The version is metadata. It is **not stored in `_source`**: the Elasticsearch source serializer leaves `IVersioned.Version` out of the document, and ignores a `version` value already stored there by older releases.
+The concurrency token comes from Elasticsearch's `_primary_term` and `_seq_no` metadata. The model and its configured serializer control the JSON document, just as they do for other properties. An existing public `Version` property continues to serialize normally; its stored value is not authoritative because it predates the write response.
 
-| Read | How `Version` is set |
+| Read | How `IVersioned.Version` is set |
 | --- | --- |
-| `GetByIdAsync` / `GetByIdsAsync` | From GET/mget metadata. `null` when missing. A multi-get item error (for example an unavailable shard) throws `DocumentException`; it's never treated as "not found". |
+| `GetByIdAsync` / `GetByIdsAsync` | From GET/mget metadata. `null` when missing. A multi-get item error (for example an unavailable shard) throws `DocumentException`; it is never treated as "not found". |
 | `FindAsync` / `FindOneAsync` / `SearchAsync` | From hit metadata (`seq_no_primary_term=true` is requested automatically). |
-| Cache hit | From the cached `FindHit.Version`, which was taken from metadata when the entry was cached. |
-| `FindAsAsync<TResult>` | A `TResult` that implements `IVersioned` gets `Version` from hit metadata. Otherwise only `hit.Version` carries it. |
-| `top_hits` aggregations | Built from `_source` only, so they carry no version. |
+| Cache hit | From the cached `FindHit.Version` envelope, including clearing a stale model token when that envelope has no version. |
+| `FindAsAsync<TResult>` | A versioned `TResult` requests metadata even when the repository's document type is nonversioned. For other result types, any requested metadata remains available on `hit.Version`. |
+| `top_hits` aggregations | Deserialized from `_source` without repository metadata synchronization. A source property named `Version` may be stale; read the document through the repository before saving it. |
 
-`hit.Version` (on `FindHit<T>`) and `hit.Document.Version` always agree for repository reads.
+For ordinary repository reads, `hit.Version` and `((IVersioned)hit.Document).Version` agree. The envelope preserves the token even when the model omits it from JSON.
 
-- The version is removed only from **root document types**: the document type of every index and repository in an `ElasticConfiguration`, and types derived from them. Each configuration keeps its own set of types, so two configurations never affect each other.
-- Only the document itself loses the field. A root document type that appears **nested** inside another document (or in a list) keeps its `version` there, and a nested object that implements `IVersioned` (for example a metadata object with its own business version) keeps its `version` field. Don't reuse `IVersioned` for business counters on the root document.
-- `[JsonExtensionData]` keeps its flattened JSON shape and preserves nested document versions. Legacy root version values are consumed without being captured as extension data. A separate business `Version` property is preserved when concurrency metadata is implemented explicitly through `IVersioned.Version`.
-- Numeric collections keep their native serializer converters, including property-level `JsonNumberHandling` settings. Number handling on object-valued properties and collections stays scoped to that property; it does not change numeric fields inside a nested document.
-- Ordinary properties that need a nested-document converter do not support `JsonObjectCreationHandling.Populate`. A property-level setting or a type/global population preference throws `NotSupportedException` instead of silently replacing initialized values. Use `[JsonObjectCreationHandling(JsonObjectCreationHandling.Replace)]` on the property when replacement is intended. Numeric collections keep their native population behavior.
-- `ReferenceHandler.Preserve`, `ReferenceHandler.IgnoreCycles`, and custom reference handlers cannot be used when a property needs a nested-document converter, including object-valued extension data. The serializer throws `NotSupportedException` because separate serialization calls cannot preserve the original reference scope. Flat documents that need no nested converters retain native reference handling.
-- A proxy property such as `public string? Version { get => MetaData.Version; set => MetaData.Version = value; }` still writes `metaData.version`, because the nested object is serialized normally.
-- If you replace the Elasticsearch source serializer, call `options.ExcludeDocumentVersionFromSource(documentTypes)` on its `JsonSerializerOptions`, or override `ElasticConfiguration.ConfigureSourceSerializerOptions` and call the base method. Never add `[JsonIgnore]` to `Version`: the cache serializer needs it.
-- Documents written by older releases keep a stale `version` field in `_source` until their next full write (`SaveAsync`, JSON/action patches). Script and partial patches merge into the stored document and leave the old field in place. It is ignored on reads. To remove it, run an update-by-query with `ctx._source.remove('version')`.
-- Source exclusion is decided per type, the first time the Elasticsearch serializer builds its type info for it, and then cached. A document type registered after that point (for example a repository for a new document type constructed after the first request for that type was serialized) is **not** excluded and keeps writing `version` to `_source`. Create every repository, or call `ExcludeDocumentVersionFromSource(documentTypes)` with all document types, before the client is first used.
-- A JSON patch targeting the root `IVersioned.Version` property is rejected with `ArgumentException`; use `IfVersion` to require a version instead. The guard follows `JsonPropertyName` when the metadata property is renamed. Ordinary business properties named `Version` and nested version fields remain patchable.
+### Choosing the model's JSON contract
+
+Use an explicit interface implementation when the token should be accessible through `IVersioned` but absent from the model's public JSON contract:
+
+```csharp
+public sealed class Document : IIdentity, IVersioned
+{
+    public string Id { get; set; } = null!;
+    public string? Name { get; set; }
+
+    string? IVersioned.Version { get; set; }
+}
+```
+
+An explicit concurrency property can coexist with an ordinary public business property named `Version`. The repository reads and writes the interface property; normal serialization and patches use the business property. System.Text.Json omits an unannotated explicit implementation when serializing the concrete model. Serializing an object as the interface itself, or supplying a custom serializer, uses that selected contract.
+
+Alternatively, keep direct property access and opt out of JSON with System.Text.Json's `[JsonIgnore]`:
+
+```csharp
+[JsonIgnore]
+public string? Version { get; set; }
+```
+
+Both choices work with repository caching because the token is stored separately in `FindHit.Version` and restored when a cached document is returned. Neither change is required for existing public properties. A model-only JSON round trip outside the repository does not preserve an omitted token.
+
+The repository does not rewrite source serializer contracts or require document-type registration. Nested properties, extension data, number handling, object population, reference handling and source-generated metadata follow the configured serializer's normal rules. Custom serializers need no version-exclusion adapter.
+
+JSON and pipeline partial patches deserialize through the configured source serializer. After a client-side patch, the repository restores the token captured with the read before performing the conditional write. Changing a JSON property cannot replace the expected concurrency token. Use `IfVersion` to require a specific version; an independent business `Version` remains ordinary patchable data.
 
 ### Debugging versions
 
@@ -275,9 +292,9 @@ Messages include the number of failed and succeeded documents and up to 10 ids. 
 
 Writes use these retries instead of the repository's `IResiliencePolicy`, because a policy can't tell a write that was never sent from one that may already be applied. Configuring a custom policy is still honored for reads and other operations; the repository logs a warning that it isn't used for document writes.
 
-The standard Elasticsearch client uses a separate write transport that allows one document request per repository attempt. It shares the configured connection resources, authentication, serializers and request callbacks, while the original client retains its read retries. This matters with multiple nodes: transport failover must not replay an ambiguous write before the repository can classify its outcome.
+Writes pass through the configured Elasticsearch transport with a bound configuration that permits one document request per repository attempt in the standard transport. Connection resources, node health, authentication, serializers, request callbacks and transparent transport decorators remain shared, while reads retain their configured retries. This prevents standard transport failover from replaying an ambiguous write before the repository can classify its outcome.
 
-Repositories using a custom Elasticsearch transport must override `CreateWriteClient()` and return a client whose transport guarantees one attempt per write. The default implementation rejects an unrecognized transport rather than silently accepting an unsafe retry policy. Setting `MaximumRetries(0)` alone does not establish that guarantee; test the actual number of requests for gateway failures, timeouts and node changes. An override that creates separate connection resources must manage their disposal.
+No repository override is required for a custom transport. Transparent decorators forward the supplied request configuration unchanged. A custom transport that implements additional retries or reconstructs that configuration controls its own dispatch behavior and must preserve the write attempt boundary. The pinned Elastic.Transport implementation can retry an invalid-status-line failure on its single-node fast path even with `MaximumRetries(0)`; the internal write adapter avoids that path. Copying a bound configuration into an ordinary `RequestConfiguration` discards the adapter's node-pool settings and can reintroduce that dependency behavior. Validate custom transports with actual request counts for ambiguous failures.
 
 ## Handling Version Conflicts
 
@@ -366,22 +383,19 @@ Conflicts and retries are logged with structured fields and never include docume
 
 ## Upgrading (Breaking Changes)
 
-- **`IVersioned.Version` is `string?`.** It's `null` when a document has no version (never stored, or stored in an index with sequence numbers disabled). Implementations must declare `public string? Version { get; set; }`; `string Version` with `= null!` compiles with a nullability warning and should be changed.
+- **`IVersioned.Version` is `string?`.** It's `null` when a document has no version (never stored, or stored in an index with sequence numbers disabled). Declare the property as nullable, whether it is public or explicitly implemented; a nonnullable implementation produces a nullability warning.
 - **`ElasticDocumentVersion` is a `readonly struct` with a `static readonly Empty`.** The implicit `string` conversion now returns `null` for an empty version, the same as `ToVersionString()`; it used to return `"0:0"`. Two empty versions are equal.
 - **`SaveAsync` without a version creates.** Saving an `IVersioned` document whose `Version` is empty uses `op_type=create` and throws `DuplicateDocumentException` if the id exists. Before, it overwrote the document. Use `SkipVersionCheck()` to overwrite.
 - **`RemoveAsync(T)` checks the version.** Removing an `IVersioned` document whose copy is stale throws `VersionConflictDocumentException`, and removing one without a version throws `DocumentException`. Use `SkipVersionCheck()` to delete regardless, or `RemoveAsync(id)`, which loads the document and deletes it without a check.
 - **`RemoveAsync` no longer reports already-deleted documents as removed.** A document that is already gone is still not an error and its cache entry is still evicted, but `DocumentsRemoved`, `DocumentsChanged` and the `EntityChanged` (`Removed`) message are raised only for the documents the call actually deleted.
 - **`VersionCheck(bool)` is fixed.** `VersionCheck(false)` now skips the check and `VersionCheck(true)` checks; they were inverted. Code that called `VersionCheck(true)` to skip the check must change to `SkipVersionCheck()`.
 - **`IfVersion`** is new. It's rejected by `PatchAsync(ids)` for any number of ids, by `PatchAllAsync`, and by `AddAsync`, `SaveAsync`, `RemoveAsync` and `RemoveAllAsync` (which check the version of the document you pass in), and can't be combined with `SkipVersionCheck()`.
-- **JSON patches on the root `IVersioned.Version` property are rejected** with `ArgumentException`, including its `JsonPropertyName` alias. Ordinary business properties named `Version` and nested version fields remain patchable.
 - **`PatchAllAsync` with `ScriptPatch` uses the bulk Update API by default** instead of update-by-query when caching is disabled. Results are the same, but every matching document is patched even under concurrent writes. Opt back in with `o.UseUpdateByQuery()`; it now throws `VersionConflictDocumentException` when documents were skipped unless `o.ProceedOnQueryConflicts()` is set.
 - **`RemoveAllAsync` delete-by-query throws on leftover conflicts** after the retry budget, instead of only logging. Use `o.ProceedOnQueryConflicts()` to restore logging only.
-- **`Version` is no longer stored in `_source`.** The `"primaryTerm:sequenceNumber"` format is unchanged. Raw Elasticsearch clients must request `seq_no_primary_term=true` instead of reading `version` from `_source`. Queries, sorts or aggregations on `version` will stop matching new documents. `DocumentVersionSourceExclusion.RegisterDocumentType` and the parameterless `ExcludeDocumentVersionFromSource()` were replaced by `ExcludeDocumentVersionFromSource(documentTypes)`; `ElasticConfiguration` registers its document types itself.
-- **Ordinary document-bearing properties cannot use population with source version exclusion.** An effective `JsonObjectCreationHandling.Populate` setting on an ordinary property that requires a nested-document converter throws `NotSupportedException`. Select `Replace` explicitly for those properties; numeric collections continue to support native population.
-- **Reference handling is unsupported when nested-document converters are required.** A configured `ReferenceHandler` causes `NotSupportedException` for those models, including object-valued extension data, instead of producing duplicate reference identifiers or changing cycle behavior. Flat documents without nested converters retain native reference handling.
+- **Model serialization remains model-owned.** Public properties retain their configured JSON behavior. Explicit `IVersioned.Version` implementations and `[JsonIgnore]` are supported without losing cached metadata. Repository reads use Elasticsearch or cache-envelope metadata, including clearing stale tokens when metadata is absent.
 - **`Retry(n)` means n retries everywhere.** Patch paths that used the resilience policy made n attempts before; they now make n + 1. This includes transient failures when submitting an asynchronous update-by-query task. `AddAsync`/`SaveAsync`/`RemoveAsync` retry 429, structured Elasticsearch 503 errors and unsent requests. Document writes are not retried after 502, 504, unstructured gateway 503 responses or timeouts.
 - **Writes don't use the repository's `IResiliencePolicy`.** Retries are governed by `Retry(n)` and the transient classification above.
-- **Custom Elasticsearch transports need an explicit write client.** Override `CreateWriteClient()` with a transport that guarantees one attempt per write. Standard Elasticsearch transports are adapted automatically; read retries and shared connection settings are preserved.
+- **Write attempts use the configured transport.** Standard transports and transparent decorators receive a bound configuration that prevents automatic write replay. Read retries and shared connection resources are preserved; no new repository override is required. Custom transports that discard this configuration or add retries remain responsible for their dispatch behavior.
 - **Failures and cancellation are no longer silent.** Batch operations process every batch and throw at the end; disposing the repository during a write throws `OperationCanceledException` after completed documents are notified, instead of returning a partial count; an update-by-query task that disappears throws instead of reporting zero; a multi-get item error throws instead of being treated as a missing document.
 
 ## Best Practices

@@ -231,6 +231,8 @@ await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.I
 // throws VersionConflictDocumentException if the document changed
 ```
 
+Models own their JSON representation. Use an explicit `string? IVersioned.Version { get; set; }` or `[JsonIgnore]` to omit the token, or keep an existing public property. GET/search/mget metadata and the cached `FindHit.Version` envelope are authoritative, including null; a separate public business `Version` can coexist with explicit concurrency metadata. Client-side patches preserve that metadata after applying the configured serializer contract. They do not infer reserved JSON paths from CLR property names.
+
 `PatchAllAsync` reads batches from a point-in-time snapshot (or explicit scroll snapshot), so patches that modify sort fields do not revisit documents after refreshes. Patch reads that discover locations by search use snapshot paging too. Multi-ID pipeline `PartialPatch` uses real-time multi-get for known index/routing locations, including daily/monthly ObjectIds, and searches only unresolved locations; a mixed batch preserves real-time visibility for known locations. The single-ID overload requires a resolvable location. JSON/action patches across multiple indexes retain search visibility and filtering. Pipeline `PartialPatch` recursively merges objects, retaining unspecified nested fields.
 
 `PatchAllAsync` with `ScriptPatch` uses the bulk Update API. `o.UseUpdateByQuery()` opts into update-by-query (faster, but skips concurrently changed documents and throws unless `o.ProceedOnQueryConflicts()`).
@@ -292,7 +294,7 @@ All index configurations use `.Dynamic(false)`, which disables Elasticsearch's a
 | `.Nested(e => e.Field, n => n.Properties(...))` | Nested objects needing independent querying | `nested` |
 | `.Object(e => e.Field, o => o.Properties(...))` | Embedded objects (flattened) | `object` |
 
-`.SetupDefaults()` automatically maps `Id` (keyword), `CreatedUtc` (date), `UpdatedUtc` (date), and `IsDeleted` (boolean) based on which model interfaces are implemented. `IVersioned.Version` is not mapped or stored: it comes from `_seq_no`/`_primary_term` metadata.
+`.SetupDefaults()` automatically maps `Id` (keyword), `CreatedUtc` (date), `UpdatedUtc` (date), and `IsDeleted` (boolean) based on which model interfaces are implemented. It does not map `IVersioned.Version`: concurrency uses `_seq_no`/`_primary_term` metadata. The model's configured serializer controls whether its public version property is stored in `_source`.
 
 ### When to Bump the Index Version
 

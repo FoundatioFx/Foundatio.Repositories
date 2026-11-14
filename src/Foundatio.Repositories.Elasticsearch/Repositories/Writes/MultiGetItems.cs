@@ -40,9 +40,10 @@ internal static class MultiGetItems
                     FindHit<T>? hit = null;
                     if (result.Found)
                     {
-                        var version = ElasticIndexExtensions.ToElasticVersion(result.PrimaryTerm, result.SeqNo);
-                        result.Source.SetDocumentVersion(version);
-                        hit = new FindHit<T>(result.Id, result.Source, 0, version.ToVersionString(), result.Routing, new DataDictionary { { ElasticDataKeys.Index, result.Index } });
+                        string? version = ElasticIndexExtensions.ToElasticVersion(result.PrimaryTerm, result.SeqNo).ToVersionString();
+                        if (result.Source is IVersioned versioned)
+                            versioned.Version = version;
+                        hit = new FindHit<T>(result.Id, result.Source, 0, version, result.Routing, new DataDictionary { { ElasticDataKeys.Index, result.Index } });
                     }
 
                     item = new MultiGetItem<T>(result.Id, result.Index, hit, null, null);

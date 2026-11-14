@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
-using Elastic.Transport;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -34,23 +33,9 @@ public abstract partial class ElasticRepositoryBase<T>
     private readonly Lazy<ElasticsearchClient> _lazyWriteClient;
     private ElasticsearchClient WriteClient => _lazyWriteClient.Value;
 
-    /// <summary>
-    /// Creates the client used for document writes. Transport retries must be disabled so <c>Retry(n)</c> and the
-    /// write outcome classifier control every retry, including when the connection pool contains multiple nodes.
-    /// </summary>
-    /// <remarks>
-    /// The default implementation shares the standard client's connection resources and serialization settings without
-    /// changing its read retry behavior. For a custom transport, override this method to supply a client whose transport
-    /// never resends a write automatically; the transport's retry setting alone does not establish that guarantee.
-    /// An override that creates separate connection resources is responsible for disposing those resources.
-    /// </remarks>
-    protected virtual ElasticsearchClient CreateWriteClient()
+    private ElasticsearchClient CreateWriteClient()
     {
-        var client = _client;
-        if (client.Transport is DistributedTransport<IElasticsearchClientSettings>)
-            return new ElasticsearchClient(new WriteTransport(client.Transport));
-
-        throw new InvalidOperationException("A custom Elasticsearch transport must guarantee one attempt per document write. Override CreateWriteClient to provide that client; setting MaximumRetries(0) alone is not sufficient.");
+        return new ElasticsearchClient(new WriteTransport(_client.Transport));
     }
 
     /// <summary>

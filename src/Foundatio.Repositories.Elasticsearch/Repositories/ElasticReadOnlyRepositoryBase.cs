@@ -60,7 +60,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected ElasticReadOnlyRepositoryBase(IIndex index)
     {
         ElasticIndex = index;
-        (index.Configuration as ElasticConfiguration)?.RegisterDocumentType(typeof(T));
         if (HasIdentity)
             _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
         if (HasDates)
@@ -463,6 +462,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             else
             {
                 var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                if (typeof(IVersioned).IsAssignableFrom(typeof(TResult)))
+                    searchDescriptor.SeqNoPrimaryTerm(true);
                 switch (pagingStrategy)
                 {
                     case PagingStrategy.Snapshot:
@@ -1221,7 +1222,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     /// </summary>
     private static void SyncDocumentVersion<TDocument>(FindHit<TDocument> hit) where TDocument : class
     {
-        if (hit.Document is IVersioned versioned && hit.Version is not null)
+        if (hit.Document is IVersioned versioned)
             versioned.Version = hit.Version;
     }
 

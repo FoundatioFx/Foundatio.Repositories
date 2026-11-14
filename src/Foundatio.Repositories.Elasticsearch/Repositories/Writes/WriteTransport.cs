@@ -13,39 +13,39 @@ using Foundatio.Repositories.Extensions;
 namespace Foundatio.Repositories.Elasticsearch;
 
 /// <summary>
-/// Uses the configured client serializers, mappings and connection resources while leaving every write retry to
-/// <see cref="WriteRoundRunner"/>. The source configuration owns the shared node pool and request invoker.
+/// Sends writes through the configured transport with a single-node request configuration. The source configuration
+/// owns the shared node pool and request invoker; transport decorators receive the bound write configuration unchanged.
 /// </summary>
 internal sealed class WriteTransport : ITransport<IElasticsearchClientSettings>
 {
-    private readonly ITransport<IElasticsearchClientSettings> _readTransport;
-    private readonly DistributedTransport<ITransportConfiguration> _transport;
-    private readonly DistributedTransport<ITransportConfiguration> _transportWithoutPings;
+    private readonly ITransport<IElasticsearchClientSettings> _transport;
+    private readonly WriteConfiguration _configuration;
+    private readonly WriteConfiguration _configurationWithoutPings;
     private readonly Func<Node, bool> _isEligible;
     private readonly WriteNodePool _nodePool;
 
-    public WriteTransport(ITransport<IElasticsearchClientSettings> readTransport)
+    public WriteTransport(ITransport<IElasticsearchClientSettings> transport)
     {
-        _readTransport = readTransport;
-        Configuration = readTransport.Configuration;
+        _transport = transport;
+        Configuration = transport.Configuration;
         _isEligible = Configuration.NodePredicate ?? Configuration.ProductRegistration.NodePredicate;
         _nodePool = new WriteNodePool(Configuration.NodePool);
         var configuration = new WriteConfiguration(Configuration, _nodePool);
-        _transport = new DistributedTransport<ITransportConfiguration>(configuration with { DisablePings = false });
-        _transportWithoutPings = new DistributedTransport<ITransportConfiguration>(configuration with { DisablePings = true });
+        _configuration = configuration with { DisablePings = false };
+        _configurationWithoutPings = configuration with { DisablePings = true };
     }
 
     public IElasticsearchClientSettings Configuration { get; }
-    ITransportConfiguration ITransport.Configuration => _transport.Configuration;
+    ITransportConfiguration ITransport.Configuration => _configuration;
 
     public TResponse Request<TResponse>(in EndpointPath path, PostData? postData, Action<Activity>? configureActivity, IRequestConfiguration? localConfiguration)
         where TResponse : TransportResponse, new()
     {
-        (DistributedTransport<ITransportConfiguration> Transport, RequestConfiguration Configuration, Node? Node, int ReseedVersion) request;
+        (BoundConfiguration Configuration, Node? Node, int ReseedVersion) request;
         try
         {
             if (NeedsDiscovery(localConfiguration))
-                CompleteDiscovery(_readTransport.Request<StringResponse>(new EndpointPath(HttpMethod.HEAD, "/"), null, null, localConfiguration));
+                CompleteDiscovery(_transport.Request<StringResponse>(new EndpointPath(HttpMethod.HEAD, "/"), null, null, localConfiguration));
 
             request = PrepareRequest(localConfiguration);
         }
@@ -54,7 +54,7 @@ internal sealed class WriteTransport : ITransport<IElasticsearchClientSettings>
             return CreateUnsentResponse<TResponse>(path, postData, localConfiguration, ex);
         }
 
-        var response = request.Transport.Request<TResponse>(path, postData, configureActivity, request.Configuration);
+        var response = _transport.Request<TResponse>(path, postData, configureActivity, request.Configuration);
         UpdateNodeHealth(request.Node, request.ReseedVersion, response);
         return response;
     }
@@ -68,11 +68,11 @@ internal sealed class WriteTransport : ITransport<IElasticsearchClientSettings>
     private async Task<TResponse> RequestAsyncCore<TResponse>(EndpointPath path, PostData? postData, Action<Activity>? configureActivity, IRequestConfiguration? localConfiguration, CancellationToken cancellationToken)
         where TResponse : TransportResponse, new()
     {
-        (DistributedTransport<ITransportConfiguration> Transport, RequestConfiguration Configuration, Node? Node, int ReseedVersion) request;
+        (BoundConfiguration Configuration, Node? Node, int ReseedVersion) request;
         try
         {
             if (NeedsDiscovery(localConfiguration))
-                CompleteDiscovery(await _readTransport.RequestAsync<StringResponse>(new EndpointPath(HttpMethod.HEAD, "/"), null, null, localConfiguration, cancellationToken).AnyContext());
+                CompleteDiscovery(await _transport.RequestAsync<StringResponse>(new EndpointPath(HttpMethod.HEAD, "/"), null, null, localConfiguration, cancellationToken).AnyContext());
 
             request = PrepareRequest(localConfiguration);
         }
@@ -81,7 +81,7 @@ internal sealed class WriteTransport : ITransport<IElasticsearchClientSettings>
             return CreateUnsentResponse<TResponse>(path, postData, localConfiguration, ex);
         }
 
-        var response = await request.Transport.RequestAsync<TResponse>(path, postData, configureActivity, request.Configuration, cancellationToken).AnyContext();
+        var response = await _transport.RequestAsync<TResponse>(path, postData, configureActivity, request.Configuration, cancellationToken).AnyContext();
         UpdateNodeHealth(request.Node, request.ReseedVersion, response);
         return response;
     }
@@ -110,17 +110,17 @@ internal sealed class WriteTransport : ITransport<IElasticsearchClientSettings>
         where TResponse : TransportResponse, new()
     {
         var failure = new TransportException(PipelineFailure.NoNodesAttempted, "No write was sent because a target node could not be prepared.", exception);
-        return Configuration.RequestInvoker.ResponseFactory.Create<TResponse>(Endpoint.Empty(path), new BoundConfiguration(_transport.Configuration, localConfiguration), postData, failure, null, null, Stream.Null, null, -1, null, null);
+        return Configuration.RequestInvoker.ResponseFactory.Create<TResponse>(Endpoint.Empty(path), new BoundConfiguration(_configuration, localConfiguration), postData, failure, null, null, Stream.Null, null, -1, null, null);
     }
 
-    private (DistributedTransport<ITransportConfiguration> Transport, RequestConfiguration Configuration, Node? Node, int ReseedVersion) PrepareRequest(IRequestConfiguration? localConfiguration)
+    private (BoundConfiguration Configuration, Node? Node, int ReseedVersion) PrepareRequest(IRequestConfiguration? localConfiguration)
     {
         int reseedVersion = _nodePool.ReseedVersion;
         Uri? forceNode = Configuration.ForceNode ?? localConfiguration?.ForceNode;
         Node? node = null;
         if (forceNode is null)
         {
-            node = _transport.Configuration.NodePool.CreateView().FirstOrDefault(_isEligible);
+            node = _nodePool.CreateView().FirstOrDefault(_isEligible);
             if (node is null)
                 throw new TransportException(PipelineFailure.NoNodesAttempted, "No configured node is eligible for this write.");
 
@@ -132,7 +132,8 @@ internal sealed class WriteTransport : ITransport<IElasticsearchClientSettings>
             ? new RequestConfiguration { ForceNode = forceNode }
             : new RequestConfiguration(localConfiguration) { ForceNode = forceNode };
         bool disablePings = (localConfiguration?.DisablePings ?? Configuration.DisablePings ?? !Configuration.NodePool.SupportsPinging) || node is { IsResurrected: false };
-        return (disablePings ? _transportWithoutPings : _transport, configuration, node, reseedVersion);
+        var boundConfiguration = new BoundConfiguration(disablePings ? _configurationWithoutPings : _configuration, configuration);
+        return (boundConfiguration, node, reseedVersion);
     }
 
     private void UpdateNodeHealth(Node? node, int reseedVersion, TransportResponse response)
@@ -193,7 +194,7 @@ internal sealed class WriteTransport : ITransport<IElasticsearchClientSettings>
         public override bool SupportsReseeding => _source.SupportsReseeding;
         public int ReseedVersion => Volatile.Read(ref _reseedVersion);
 
-        // Select the standard pipeline for all pool sizes. The chosen transport preserves whether pings are needed.
+        // Select the standard pipeline for all pool sizes. The bound configuration preserves whether pings are needed.
         public override bool SupportsPinging => true;
 
         public override IEnumerable<Node> CreateView(Auditor? auditor = null)

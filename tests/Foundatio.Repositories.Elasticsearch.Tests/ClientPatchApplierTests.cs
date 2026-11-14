@@ -23,7 +23,6 @@ public sealed class ClientPatchApplierTests
         var hit = new FindHit<MigrationState>(document.Id, document, 0, "1:4");
         var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = path, Value = 2 }));
 
-        ClientPatchApplier<MigrationState>.ValidateOperation(patch);
         var patched = applier.Apply(hit, patch);
 
         Assert.NotNull(patched);
@@ -34,36 +33,54 @@ public sealed class ClientPatchApplierTests
     [Theory]
     [InlineData("version")]
     [InlineData("/version")]
-    [InlineData("/Version")]
-    public void ValidateOperation_JsonPatchTargetsConcurrencyVersion_Throws(string path)
+    public void Apply_JsonPatchTargetsPublicConcurrencyVersion_PreservesHitMetadata(string path)
     {
+        using var configuration = new ElasticConfiguration();
+        var applier = new ClientPatchApplier<VersionedDocument>(configuration.Client.ElasticsearchClientSettings.SourceSerializer, _ => { }, _ => { });
+        var document = new VersionedDocument { Version = "9:9" };
+        var hit = new FindHit<VersionedDocument>("one", document, 0, "1:4");
         var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = path, Value = "2:5" }));
 
-        Assert.Throws<ArgumentException>(() => ClientPatchApplier<VersionedDocument>.ValidateOperation(patch));
+        var patched = applier.Apply(hit, patch);
+
+        Assert.NotNull(patched);
+        Assert.Equal("1:4", patched.Version);
+        Assert.Equal("9:9", document.Version);
     }
 
     [Fact]
-    public void ValidateOperation_JsonPatchTargetsNestedVersion_AllowsTheProperty()
+    public void Apply_WithExplicitConcurrencyVersion_PatchesPublicBusinessVersionAndPreservesMetadata()
     {
-        var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/details/version", Value = "business-2" }));
-
-        ClientPatchApplier<VersionedDocument>.ValidateOperation(patch);
-    }
-
-    [Fact]
-    public void ValidateOperation_WithExplicitConcurrencyVersion_AllowsPublicBusinessVersion()
-    {
+        using var configuration = new ElasticConfiguration();
+        var applier = new ClientPatchApplier<ExplicitVersionDocument>(configuration.Client.ElasticsearchClientSettings.SourceSerializer, _ => { }, _ => { });
+        var document = new ExplicitVersionDocument { Version = "business-1" };
+        ((IVersioned)document).Version = "9:9";
+        var hit = new FindHit<ExplicitVersionDocument>("one", document, 0, "1:4");
         var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/version", Value = "business-2" }));
 
-        ClientPatchApplier<ExplicitVersionDocument>.ValidateOperation(patch);
+        var patched = applier.Apply(hit, patch);
+
+        Assert.NotNull(patched);
+        Assert.Equal("business-2", patched.Version);
+        Assert.Equal("1:4", ((IVersioned)patched).Version);
+        Assert.Equal("business-1", document.Version);
+        Assert.Equal("9:9", ((IVersioned)document).Version);
     }
 
     [Fact]
-    public void ValidateOperation_WithRenamedConcurrencyVersion_RejectsSerializedPath()
+    public void Apply_WithRenamedConcurrencyVersion_PreservesHitMetadata()
     {
+        using var configuration = new ElasticConfiguration();
+        var applier = new ClientPatchApplier<RenamedVersionDocument>(configuration.Client.ElasticsearchClientSettings.SourceSerializer, _ => { }, _ => { });
+        var document = new RenamedVersionDocument { Version = "9:9" };
+        var hit = new FindHit<RenamedVersionDocument>("one", document, 0, "1:4");
         var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/token", Value = "2:5" }));
 
-        Assert.Throws<ArgumentException>(() => ClientPatchApplier<RenamedVersionDocument>.ValidateOperation(patch));
+        var patched = applier.Apply(hit, patch);
+
+        Assert.NotNull(patched);
+        Assert.Equal("1:4", patched.Version);
+        Assert.Equal("9:9", document.Version);
     }
 
     [Fact]

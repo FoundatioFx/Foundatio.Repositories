@@ -1,12 +1,7 @@
 using System;
-using System.IO;
-using System.Reflection;
-using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using Elastic.Transport;
-using Elastic.Transport.Extensions;
-using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
@@ -19,13 +14,11 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// batch patches.
 /// </summary>
 /// <remarks>
-/// <see cref="IVersioned.Version"/> is not part of <c>_source</c>, so a JSON patch operation that targets <c>/version</c>
-/// is rejected with an <see cref="ArgumentException"/> instead of silently having no effect. The patched document keeps
-/// the version it was read at; the write sends it as <c>if_seq_no</c>/<c>if_primary_term</c> and the response sets the new one.
+/// The configured serializer controls the document's JSON contract. The patched document keeps the metadata version
+/// it was read at; the write sends it as <c>if_seq_no</c>/<c>if_primary_term</c> and the response sets the new one.
 /// </remarks>
 internal sealed class ClientPatchApplier<T> where T : class, new()
 {
-    private static readonly string? _documentVersionPath = GetDocumentVersionPath();
     private readonly Elastic.Transport.Serializer _serializer;
     private readonly Action<JsonNode> _applyJsonDates;
     private readonly Action<T> _setDocumentDates;
@@ -38,29 +31,6 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
         _serializer = serializer;
         _applyJsonDates = applyJsonDates;
         _setDocumentDates = setDocumentDates;
-    }
-
-    /// <summary>Throws when <paramref name="operation"/> is a JSON patch that targets the version.</summary>
-    public static void ValidateOperation(IPatchOperation operation)
-    {
-        if (_documentVersionPath is null || operation is not JsonPatch { Patch.Operations: { } operations })
-            return;
-
-        foreach (var op in operations)
-        {
-            string path = op.Path?.TrimStart('/') ?? String.Empty;
-            if (String.Equals(path, _documentVersionPath, StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException("A JSON patch can't change the document version. The version is Elasticsearch metadata (_seq_no/_primary_term), not part of the document; use IfVersion to require a version.", nameof(operation));
-        }
-    }
-
-    private static string? GetDocumentVersionPath()
-    {
-        var property = DocumentVersionSourceExclusion.GetDocumentVersionProperty(typeof(T));
-        if (property is null || (property.GetMethod?.IsPublic is not true && property.GetCustomAttribute<JsonIncludeAttribute>() is null))
-            return null;
-
-        return property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name;
     }
 
     /// <summary>
@@ -83,7 +53,7 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
 
     private T ApplyJsonPatch(T source, JsonPatch operation)
     {
-        JsonNode? target = JsonNode.Parse(_serializer.SerializeToString(source))
+        JsonNode? target = SerializeToNode(source)
             ?? throw new DocumentException("Document JSON parsed to null; cannot apply JSON patch.");
         new JsonPatcher().Patch(ref target, operation.Patch);
         if (target is null)
@@ -108,9 +78,9 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
 
     private T ApplyPartialPatch(T source, PartialPatch operation)
     {
-        var sourceNode = JsonNode.Parse(_serializer.SerializeToString(source))
+        var sourceNode = SerializeToNode(source)
             ?? throw new DocumentException("Failed to parse source document JSON for partial merge.");
-        if (sourceNode is JsonObject sourceObject && JsonNode.Parse(_serializer.SerializeToString(operation.Document)) is JsonObject partialObject)
+        if (sourceNode is JsonObject sourceObject && SerializeToNode(operation.Document) is JsonObject partialObject)
             MergePartialObject(sourceObject, partialObject);
 
         return Deserialize(sourceNode, "Partial merge produced a null document.");
@@ -127,9 +97,20 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
         }
     }
 
+    private JsonNode? SerializeToNode<TValue>(TValue value)
+    {
+        using var stream = RecyclableMemoryStreamFactory.Default.Create();
+        _serializer.Serialize(value, stream);
+        stream.Position = 0;
+        return JsonNode.Parse(stream);
+    }
+
     private T Deserialize(JsonNode node, string nullMessage)
     {
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(node.ToJsonString()));
+        using var stream = RecyclableMemoryStreamFactory.Default.Create();
+        using (var writer = new Utf8JsonWriter(stream))
+            node.WriteTo(writer);
+        stream.Position = 0;
         return _serializer.Deserialize<T>(stream) ?? throw new DocumentException(nullMessage);
     }
 }

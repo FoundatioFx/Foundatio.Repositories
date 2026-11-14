@@ -20,12 +20,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class WriteTransportTests
 {
     [Theory]
-    [InlineData(502)]
-    [InlineData(504)]
-    public async Task PatchAsync_WithGatewayFailureAfterScriptApplied_DoesNotRetry(int status)
+    [InlineData(502, false)]
+    [InlineData(502, true)]
+    [InlineData(504, false)]
+    [InlineData(504, true)]
+    public async Task PatchAsync_WithGatewayFailureAfterScriptApplied_DoesNotRetry(int status, bool customTransport)
     {
         // Arrange
-        using var configuration = new TestConfiguration(status, applyBeforeFailure: true);
+        using var configuration = new TestConfiguration(status, applyBeforeFailure: true, customTransport: customTransport);
         using var repository = new TestRepository(configuration);
 
         // Act
@@ -121,11 +123,13 @@ public sealed class WriteTransportTests
         Assert.Equal(1, configuration.Invoker.AppliedWrites);
     }
 
-    [Fact]
-    public async Task GetAsync_AfterWriteClientInitialized_PreservesReadTransportRetries()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetAsync_AfterWriteClientInitialized_PreservesReadTransportRetries(bool customTransport)
     {
         // Arrange
-        using var configuration = new TestConfiguration(502);
+        using var configuration = new TestConfiguration(502, customTransport: customTransport);
         using var repository = new TestRepository(configuration);
         var client = configuration.Client;
         var settings = client.ElasticsearchClientSettings;
@@ -143,12 +147,14 @@ public sealed class WriteTransportTests
         Assert.Equal(0, configuration.Invoker.AppliedWrites);
     }
 
-    [Fact]
-    public async Task PatchAsync_WithCustomWriteClientOverride_UsesConfiguredTransport()
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    public async Task PatchAsync_WithCustomTransport_UsesConfiguredTransport(int? maxRetries)
     {
         // Arrange
-        using var configuration = new TestConfiguration(200, customTransport: true, maxRetries: 0);
-        using var repository = new TestRepository(configuration, useCustomWriteClient: true);
+        using var configuration = new TestConfiguration(200, customTransport: true, maxRetries: maxRetries);
+        using var repository = new TestRepository(configuration);
 
         // Act
         Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
@@ -159,40 +165,43 @@ public sealed class WriteTransportTests
         Assert.Equal(1, configuration.Invoker.AppliedWrites);
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData(0)]
-    public async Task PatchAsync_WithCustomTransportWithoutExplicitWriteClient_RejectsBeforeSending(int? maxRetries)
+    [Fact]
+    public async Task PatchAsync_WithCustomTransportCopyingRequestConfiguration_UsesConfiguredTransport()
     {
         // Arrange
-        using var configuration = new TestConfiguration(200, customTransport: true, maxRetries: maxRetries);
+        using var configuration = new TestConfiguration(200, customTransport: true, copyRequestConfiguration: true);
         using var repository = new TestRepository(configuration);
 
         // Act
-        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
 
         // Assert
-        var inner = Assert.IsType<InvalidOperationException>(exception.InnerException);
-        Assert.Contains("CreateWriteClient", inner.Message);
-        Assert.Equal(0, configuration.Invoker.WriteRequests);
         Assert.NotNull(configuration.CustomTransport);
-        Assert.Equal(0, configuration.CustomTransport.Requests);
+        Assert.Equal(1, configuration.CustomTransport.Requests);
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.AppliedWrites);
     }
 
-    [Fact]
-    public async Task PatchAsync_WithInvalidResponseAfterSendingToSingleNode_DoesNotRetry()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAsync_WithInvalidResponseAfterSendingToSingleNode_DoesNotRetry(bool customTransport)
     {
         // Arrange
         var exception = new HttpRequestException(HttpRequestError.InvalidResponse, "Received an invalid status line: 'unexpected'");
-        using var configuration = new TestConfiguration(200, applyBeforeFailure: true, singleNode: true, failureException: exception);
+        using var configuration = new TestConfiguration(200, applyBeforeFailure: true, customTransport: customTransport, singleNode: true, failureException: exception);
         using var repository = new TestRepository(configuration);
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++")));
+        var failure = await Record.ExceptionAsync(async () =>
+        {
+            _ = await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"));
+        });
 
         // Assert
         Assert.Equal(1, configuration.Invoker.WriteRequests);
         Assert.Equal(1, configuration.Invoker.AppliedWrites);
+        Assert.IsType<DocumentException>(failure);
     }
 
     [Fact]
@@ -331,11 +340,13 @@ public sealed class WriteTransportTests
         Assert.Equal(2, configuration.Invoker.SniffRequests);
     }
 
-    [Fact]
-    public async Task PatchAsync_WithConfiguredAuthenticationAndHooks_PreservesSettingsAndResourceOwnership()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAsync_WithConfiguredAuthenticationAndHooks_PreservesSettingsAndResourceOwnership(bool customTransport)
     {
         // Arrange
-        var configuration = new TestConfiguration(200);
+        var configuration = new TestConfiguration(200, customTransport: customTransport);
         using (configuration)
         {
             using (var repository = new TestRepository(configuration))
@@ -348,6 +359,8 @@ public sealed class WriteTransportTests
                 Assert.Equal(2, configuration.BeforeRequestCalls);
                 Assert.Same(configuration.Authentication, configuration.Invoker.LastAuthentication);
                 Assert.Equal(TimeSpan.FromSeconds(37), configuration.Invoker.LastRequestTimeout);
+                if (customTransport)
+                    Assert.Equal(2, configuration.CustomTransport!.Requests);
             }
 
             Assert.Equal(0, configuration.Invoker.DisposeCount);
@@ -384,17 +397,12 @@ public sealed class WriteTransportTests
 
     private sealed class TestRepository : ElasticRepositoryBase<TestDocument>
     {
-        private readonly ElasticsearchClient? _customWriteClient;
-
-        public TestRepository(TestConfiguration configuration, bool usePipeline = false, bool useCustomWriteClient = false) : base(new TestIndex(configuration))
+        public TestRepository(TestConfiguration configuration, bool usePipeline = false) : base(new TestIndex(configuration))
         {
             DisableCache();
             NotificationsEnabled = false;
             DefaultPipeline = usePipeline ? "test-pipeline" : null;
-            _customWriteClient = useCustomWriteClient ? configuration.Client : null;
         }
-
-        protected override ElasticsearchClient CreateWriteClient() => _customWriteClient ?? base.CreateWriteClient();
     }
 
     private sealed class TestIndex(TestConfiguration configuration) : Index<TestDocument>(configuration, "transport-tests")
@@ -402,7 +410,7 @@ public sealed class WriteTransportTests
         public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
     }
 
-    private sealed class TestConfiguration(int failureStatus, bool applyBeforeFailure = false, bool customTransport = false, int? maxRetries = null, bool singleNode = false, bool includeExcludedNode = false, Exception? failureException = null, bool sniffOnConnectionFailure = false, bool enablePings = false, bool sniffOnStartup = false) : ElasticConfiguration
+    private sealed class TestConfiguration(int failureStatus, bool applyBeforeFailure = false, bool customTransport = false, int? maxRetries = null, bool singleNode = false, bool includeExcludedNode = false, Exception? failureException = null, bool sniffOnConnectionFailure = false, bool enablePings = false, bool sniffOnStartup = false, bool copyRequestConfiguration = false) : ElasticConfiguration
     {
         public RecordingInvoker Invoker { get; } = new(failureStatus, applyBeforeFailure, failureException);
         public AuthorizationHeader Authentication { get; } = new BasicAuthentication("test", "test");
@@ -452,12 +460,12 @@ public sealed class WriteTransportTests
             if (!customTransport)
                 return client;
 
-            CustomTransport = new RecordingTransport(client.Transport);
+            CustomTransport = new RecordingTransport(client.Transport, copyRequestConfiguration);
             return new ElasticsearchClient(CustomTransport);
         }
     }
 
-    private sealed class RecordingTransport(ITransport<IElasticsearchClientSettings> inner) : ITransport<IElasticsearchClientSettings>
+    private sealed class RecordingTransport(ITransport<IElasticsearchClientSettings> inner, bool copyRequestConfiguration) : ITransport<IElasticsearchClientSettings>
     {
         public int Requests { get; private set; }
         public IElasticsearchClientSettings Configuration => inner.Configuration;
@@ -467,15 +475,18 @@ public sealed class WriteTransportTests
             where TResponse : TransportResponse, new()
         {
             Requests++;
-            return inner.Request<TResponse>(path, postData, configureActivity, localConfiguration);
+            return inner.Request<TResponse>(path, postData, configureActivity, CopyConfiguration(localConfiguration));
         }
 
         public Task<TResponse> RequestAsync<TResponse>(in EndpointPath path, PostData? postData, Action<Activity>? configureActivity, IRequestConfiguration? localConfiguration, CancellationToken cancellationToken = default)
             where TResponse : TransportResponse, new()
         {
             Requests++;
-            return inner.RequestAsync<TResponse>(path, postData, configureActivity, localConfiguration, cancellationToken);
+            return inner.RequestAsync<TResponse>(path, postData, configureActivity, CopyConfiguration(localConfiguration), cancellationToken);
         }
+
+        private IRequestConfiguration? CopyConfiguration(IRequestConfiguration? configuration) =>
+            copyRequestConfiguration && configuration is not null ? new RequestConfiguration(configuration) : configuration;
     }
 
     private sealed class RecordingInvoker(int failureStatus, bool applyBeforeFailure, Exception? failureException = null) : IRequestInvoker

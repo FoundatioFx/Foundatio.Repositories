@@ -211,8 +211,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// throws a <see cref="VersionConflictDocumentException"/>. It can't be combined with <c>SkipVersionCheck()</c>, or used
     /// for a script patch with a default pipeline.</para>
     /// <para>HTTP 429, structured Elasticsearch 503 errors and unsent requests are retried up to <c>Retry(n)</c> times. A missing document throws a
-    /// <see cref="DocumentNotFoundException"/>. A JSON patch that targets the root <see cref="IVersioned.Version"/>
-    /// property throws an <see cref="ArgumentException"/>; an ordinary business property named <c>Version</c> can be patched.</para>
+    /// <see cref="DocumentNotFoundException"/>. Client-side patches preserve the read's concurrency metadata regardless
+    /// of the model's JSON representation of <see cref="IVersioned.Version"/>.</para>
     /// </remarks>
     public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions? options = null)
     {
@@ -222,8 +222,6 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         ArgumentNullException.ThrowIfNull(operation);
         if (IsEmptyPatch(operation))
             return false;
-
-        ClientPatchApplier<T>.ValidateOperation(operation);
 
         options = ConfigureOptions(options?.As<T>());
         var expectedVersion = GetExpectedVersion(options);
@@ -346,7 +344,6 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         ids = new Ids(ids.Distinct());
 
-        ClientPatchApplier<T>.ValidateOperation(operation);
         operation = PreparePatch(operation);
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
@@ -556,7 +553,6 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (IsEmptyPatch(operation))
             return 0;
 
-        ClientPatchApplier<T>.ValidateOperation(operation);
         operation = PreparePatch(operation);
 
         if (!ElasticIndex.HasMultipleIndexes)

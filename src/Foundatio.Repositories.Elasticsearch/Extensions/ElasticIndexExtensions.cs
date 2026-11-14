@@ -336,10 +336,11 @@ public static class ElasticIndexExtensions
     public static FindHit<T> ToFindHit<T>(this GetResponse<T> hit) where T : class
     {
         var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
-        var version = hit.GetElasticVersion();
-        hit.Source.SetDocumentVersion(version);
+        string? version = hit.GetElasticVersion().ToVersionString();
+        if (hit.Source is IVersioned versioned)
+            versioned.Version = version;
 
-        return new FindHit<T>(hit.Id, hit.Source, 0, version.ToVersionString(), hit.Routing, data);
+        return new FindHit<T>(hit.Id, hit.Source, 0, version, hit.Routing, data);
     }
 
     /// <summary>
@@ -412,10 +413,11 @@ public static class ElasticIndexExtensions
         if (hit.Sort != null && hit.Sort.Count > 0)
             data[ElasticDataKeys.Sorts] = hit.Sort;
 
-        var version = hit.GetElasticVersion();
-        hit.Source.SetDocumentVersion(version);
+        string? version = hit.GetElasticVersion().ToVersionString();
+        if (hit.Source is IVersioned versioned)
+            versioned.Version = version;
 
-        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), version.ToVersionString(), hit.Routing, data);
+        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), version, hit.Routing, data);
     }
 
     /// <summary>
