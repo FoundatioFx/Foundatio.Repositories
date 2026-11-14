@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO.Hashing;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -74,15 +75,29 @@ public class ElasticConfiguration : IElasticConfiguration
 
     protected virtual ElasticsearchClient CreateElasticClient()
     {
-        var settings = new ElasticsearchClientSettings(
-            CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")),
-            sourceSerializer: (_, clientSettings) =>
-                new DefaultSourceSerializer(clientSettings, options => options.ConfigureFoundatioRepositoryDefaults()));
+        var nodePool = CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200"));
+        var requestInvoker = CreateRequestInvoker();
+        ElasticsearchClientSettings.SourceSerializerFactory sourceSerializer = (_, clientSettings) =>
+            new DefaultSourceSerializer(clientSettings, ConfigureSourceSerializerOptions);
+        var settings = requestInvoker is null
+            ? new ElasticsearchClientSettings(nodePool, sourceSerializer: sourceSerializer)
+            : new ElasticsearchClientSettings(nodePool, requestInvoker, sourceSerializer);
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);
 
         return new ElasticsearchClient(settings);
+    }
+
+    /// <summary>
+    /// Configures the <see cref="JsonSerializerOptions"/> used to serialize documents to and from <c>_source</c>.
+    /// Applies <c>ConfigureFoundatioRepositoryDefaults</c>. Models retain their configured JSON contracts, including
+    /// whether they serialize <see cref="Models.IVersioned.Version"/>. Call the base implementation when overriding
+    /// to retain the repository defaults.
+    /// </summary>
+    protected virtual void ConfigureSourceSerializerOptions(JsonSerializerOptions options)
+    {
+        options.ConfigureFoundatioRepositoryDefaults();
     }
 
     public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) { }
@@ -95,6 +110,15 @@ public class ElasticConfiguration : IElasticConfiguration
     }
 
     protected virtual NodePool? CreateConnectionPool()
+    {
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the <see cref="IRequestInvoker"/> used to send requests to Elasticsearch, or <c>null</c> to use the default
+    /// HTTP invoker. Override to share connections between clients or to wrap the HTTP handler (for example, in tests).
+    /// </summary>
+    protected virtual IRequestInvoker? CreateRequestInvoker()
     {
         return null;
     }

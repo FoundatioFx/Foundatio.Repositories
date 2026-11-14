@@ -50,6 +50,10 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="document">The document to save.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The saved document.</returns>
+    /// <remarks>An <see cref="IVersioned"/> document with a version uses optimistic concurrency. A versioned document
+    /// with no version is created and fails if its ID already exists. <c>SkipVersionCheck()</c> allows an unconditional overwrite.
+    /// <c>IfVersion</c> is supported only by single-document patches and is rejected here.</remarks>
+    /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when a versioned document with no version has an ID that already exists.</exception>
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts with the stored version (optimistic concurrency).</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task<T> SaveAsync(T document, CommandOptionsDescriptor<T>? options);
@@ -62,6 +66,10 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// </summary>
     /// <param name="documents">The documents to save.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <remarks>Each <see cref="IVersioned"/> document checks its version, or is created if it has no version, unless
+    /// <c>SkipVersionCheck()</c> is set. Successful documents are cached and notified before a failure is thrown.
+    /// <c>IfVersion</c> is rejected.</remarks>
+    /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when a versioned document with no version has an ID that already exists.</exception>
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when any document has a version conflict. Successfully saved documents are still cached and notified.</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T>? options);
@@ -78,8 +86,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <returns>
     /// <c>true</c> if the document was modified; <c>false</c> if the operation was a no-op.
     /// <list type="bullet">
-    /// <item><see cref="PartialPatch"/>: Elasticsearch's automatic <c>detect_noop</c> determines the result. Note that automatic date tracking injects <c>UpdatedUtc</c>, which typically prevents noop detection.</item>
-    /// <item><see cref="ScriptPatch"/>: Only a no-op when the script explicitly sets <c>ctx.op = 'none'</c>.</item>
+    /// <item><see cref="PartialPatch"/>: Elasticsearch's automatic <c>detect_noop</c> determines the result, except with a default ingest pipeline, where the document is reindexed. Automatic date tracking injects <c>UpdatedUtc</c>, which typically prevents noop detection.</item>
+    /// <item><see cref="ScriptPatch"/>: Signal a no-op explicitly with <c>ctx.op = 'noop'</c>.</item>
     /// <item><see cref="ActionPatch{T}"/>: Returns <c>false</c> when all <see cref="ActionPatch{T}.Actions"/> return <c>false</c>, or when there are no actions. The <c>Action{T}</c> overload always assumes modification.</item>
     /// <item><see cref="JsonPatch"/>: Always returns <c>true</c> (uses get-modify-reindex). Empty operations return <c>false</c>.</item>
     /// </list>
@@ -88,9 +96,13 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts (HTTP 409).</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     /// <remarks>
-    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> uses document-based cache invalidation
-    /// (the modified <typeparamref name="T"/> is passed to <c>InvalidateCacheAsync</c>), so custom cache key
-    /// overrides work correctly. All other patch types use ID-based invalidation only.</para>
+    /// <para><b>Concurrency:</b> Client-side patches on <see cref="IVersioned"/> documents re-read and re-apply on
+    /// conflicts unless <c>SkipVersionCheck()</c> is set. <c>IfVersion(version)</c> instead requires that exact version
+    /// and never re-reads after a conflict. It also works for nonversioned documents, but cannot be combined with
+    /// <c>SkipVersionCheck()</c> or used with a script patch and a default ingest pipeline.</para>
+    /// <para><b>Cache invalidation:</b> Client-side patches (<see cref="ActionPatch{T}"/>, <see cref="JsonPatch"/> and
+    /// <see cref="PartialPatch"/> with a default ingest pipeline) pass the patched document to the document-based
+    /// invalidation hook. Server-side patches provide no document values and invalidate by ID.</para>
     /// </remarks>
     Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T>? options);
 
@@ -105,9 +117,14 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The number of documents actually modified (excludes no-ops).</returns>
     /// <remarks>
-    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> and bulk <see cref="JsonPatch"/> use
-    /// document-based cache invalidation. <see cref="ScriptPatch"/> and <see cref="PartialPatch"/> use
-    /// ID-based invalidation only (the modified document is not available client-side).</para>
+    /// <para><b>Cache invalidation:</b> Client-side patches (<see cref="ActionPatch{T}"/>, <see cref="JsonPatch"/> and
+    /// <see cref="PartialPatch"/> with a default ingest pipeline) use document-based invalidation. Server-side patches
+    /// provide no document values and invalidate by ID.</para>
+    /// <para>For inputs containing multiple IDs, JSON and action patches use search and skip IDs excluded by the initial
+    /// query or soft-delete filters. A selected document that disappears before a conflict re-read is reported as
+    /// <see cref="Exceptions.DocumentNotFoundException"/>. Other patch paths report missing documents as well.
+    /// Successful documents are invalidated and notified before a failure is thrown.
+    /// <c>IfVersion</c> is rejected, even for one ID.</para>
     /// </remarks>
     Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T>? options);
 
@@ -139,6 +156,10 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// </summary>
     /// <param name="document">The document to remove.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <remarks>An <see cref="IVersioned"/> document checks its version unless <c>SkipVersionCheck()</c> is set.
+    /// A missing version throws <see cref="Exceptions.DocumentException"/> before deletion. A document that is already
+    /// gone is evicted from the cache without removal events or notifications. <c>IfVersion</c> is rejected.</remarks>
+    /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document has changed since it was read.</exception>
     Task RemoveAsync(T document, CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="RemoveAsync(T, CommandOptionsDescriptor{T})"/>
@@ -149,6 +170,11 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// </summary>
     /// <param name="documents">The documents to remove.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <remarks>Each <see cref="IVersioned"/> document checks its version unless <c>SkipVersionCheck()</c> is set.
+    /// A missing version throws <see cref="Exceptions.DocumentException"/> before any deletion. Documents actually
+    /// removed are notified before a failure is thrown; already-missing documents are only evicted from the cache.
+    /// <c>IfVersion</c> is rejected.</remarks>
+    /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when any document has changed since it was read.</exception>
     Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="RemoveAsync(IEnumerable{T}, CommandOptionsDescriptor{T})"/>
@@ -158,7 +184,10 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// Permanently removes all documents from the repository (hard delete).
     /// </summary>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
-    /// <returns>The number of documents removed.</returns>
+    /// <returns>The number deleted by delete-by-query, or the number processed by the batch path.</returns>
+    /// <remarks>When caching or remove event handlers require batches, the count includes documents that were found
+    /// but concurrently deleted before their remove request. Those missing documents raise no removal notifications.
+    /// A failed batch stops further processing after its successful removals are notified.</remarks>
     Task<long> RemoveAllAsync(CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="RemoveAllAsync(CommandOptionsDescriptor{T})"/>

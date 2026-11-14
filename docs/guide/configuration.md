@@ -254,13 +254,23 @@ await repository.FindAsync(query, o => o.SoftDeleteMode(SoftDeleteQueryMode.Acti
 ### Version Options
 
 ```csharp
-// Skip optimistic concurrency check
+// Skip optimistic concurrency check (SaveAsync, RemoveAsync(T), JSON/action/pipeline partial patches)
 await repository.SaveAsync(entity, o => o.SkipVersionCheck());
+await repository.SaveAsync(entity, o => o.VersionCheck(false)); // same as SkipVersionCheck()
+
+// Patch only if the stored document still has the version you read (PatchAsync(id) only)
+await repository.PatchAsync(id, patch, o => o.IfVersion(entity.Version));
 ```
 
-::: warning
-`o.VersionCheck(bool)` is currently inverted: `VersionCheck(false)` keeps the check on and `VersionCheck(true)` skips it. Use `SkipVersionCheck()`. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
-:::
+### Query-Based Write Options (Elasticsearch)
+
+```csharp
+// Run PatchAllAsync ScriptPatch as update-by-query (cache disabled only). Throws if documents were skipped.
+await repository.PatchAllAsync(query, new ScriptPatch("ctx._source.flag = true"), o => o.UseUpdateByQuery());
+
+// Log and return instead of throwing when update-by-query or delete-by-query leaves version conflicts
+await repository.RemoveAllAsync(query, o => o.ProceedOnQueryConflicts());
+```
 
 ### Originals Options
 
@@ -300,11 +310,11 @@ await repository.FindAsync(query, o => o.ExcludeMask("largeContent,internal*"));
 // Set query timeout
 await repository.FindAsync(query, o => o.Timeout(TimeSpan.FromSeconds(30)));
 
-// Set the conflict retry budget for patches and delete-by-query
+// Retry budget: n retries after the first attempt (default 10). Retry(0) fails fast.
 await repository.PatchAsync(id, patch, o => o.Retry(5));
 ```
 
-`Retry(n)` has no effect on `AddAsync`/`SaveAsync`, and its meaning differs between the patch paths. See [Versioning: Retry options](/guide/versioning#retry-options).
+`Retry(n)` means n retries on every write path: patch conflict retries, delete-by-query passes, asynchronous query submission, and transient retries for `AddAsync`, `SaveAsync` and `RemoveAsync`. Transient write failures are HTTP 429, 503 responses containing an Elasticsearch error type, and requests that were never sent. Version conflicts on `SaveAsync`, HTTP 502/504, unstructured gateway 503 responses and timeouts are reported. Writes don't use the repository's `IResiliencePolicy`. See [Versioning: Retry options](/guide/versioning#retry-options).
 
 ### Query Logging Options
 
@@ -386,7 +396,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 | Query Log Level | Trace | `DefaultQueryLogLevel` | `.QueryLogLevel()` |
 | Validation | true | N/A | `.SkipValidation()`, `.Validation()` |
 | Soft Deletes | ActiveOnly | N/A | `.IncludeSoftDeletes()`, `.SoftDeleteMode()` |
-| Version Check | true | N/A | `.SkipVersionCheck()`, `.VersionCheck()` |
+| Version Check | true | N/A | `.SkipVersionCheck()`, `.VersionCheck(bool)`, `.IfVersion(version)` |
 
 ## Next Steps
 

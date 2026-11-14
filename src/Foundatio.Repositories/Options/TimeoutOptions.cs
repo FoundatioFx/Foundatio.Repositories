@@ -12,6 +12,18 @@ namespace Foundatio.Repositories
         }
 
         internal const string RetryCountKey = "@RetryCount";
+
+        /// <summary>
+        /// Sets how many times a write is retried after a version conflict or a transient failure, in addition to the
+        /// first attempt. <c>Retry(0)</c> makes a single attempt and fails fast. Defaults to 10 retries when not set.
+        /// </summary>
+        /// <remarks>
+        /// The same budget applies everywhere: Elasticsearch <c>retry_on_conflict</c> for script and partial patches,
+        /// client-side re-read and re-apply rounds for JSON and action patches, delete-by-query passes, and retries
+        /// of transient errors (HTTP 429, structured Elasticsearch 503 errors, and requests that were never sent) for
+        /// document writes and asynchronous query submission. HTTP 502/504, unstructured gateway 503 responses and
+        /// timeouts are reported because the write may already have been applied.
+        /// </remarks>
         public static T Retry<T>(this T options, int retryCount) where T : ICommandOptions
         {
             return options.BuildOption(RetryCountKey, retryCount);
@@ -38,9 +50,13 @@ namespace Foundatio.Repositories.Options
             return options.SafeHasOption(TimeoutOptionsExtensions.RetryCountKey);
         }
 
+        /// <summary>
+        /// Gets the number of retries (not attempts) configured with <see cref="TimeoutOptionsExtensions.Retry{T}(T, int)"/>.
+        /// Defaults to 10. Negative values are treated as 0.
+        /// </summary>
         public static int GetRetryCount(this ICommandOptions options, int defaultRetryCount = 10)
         {
-            return options.SafeGetOption<int>(TimeoutOptionsExtensions.RetryCountKey, defaultRetryCount);
+            return Math.Max(0, options.SafeGetOption<int>(TimeoutOptionsExtensions.RetryCountKey, defaultRetryCount));
         }
     }
 }

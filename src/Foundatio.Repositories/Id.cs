@@ -92,18 +92,18 @@ public class Ids : List<Id>
 
     public static implicit operator List<string>(Ids ids)
     {
-        var result = new List<string>();
+        var result = new List<string>(ids.Count);
         for (int i = 0; i < ids.Count; i++)
-            result[i] = ids[i].ToString();
+            result.Add(ids[i].ToString());
 
         return result;
     }
 
     public static implicit operator Collection<string>(Ids ids)
     {
-        var result = new Collection<string>();
+        var result = new Collection<string>(new List<string>(ids.Count));
         for (int i = 0; i < ids.Count; i++)
-            result[i] = ids[i].ToString();
+            result.Add(ids[i].ToString());
 
         return result;
     }

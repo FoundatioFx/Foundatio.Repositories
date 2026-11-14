@@ -25,9 +25,11 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The number of documents patched.</returns>
     /// <remarks>
-    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> and <see cref="JsonPatch"/> use
-    /// document-based cache invalidation per batch. <see cref="ScriptPatch"/> and <see cref="PartialPatch"/>
-    /// use ID-based invalidation only (the modified document is not available client-side).</para>
+    /// <para><b>Cache invalidation:</b> Client-side patches (<see cref="ActionPatch{T}"/>, <see cref="JsonPatch"/> and
+    /// <see cref="PartialPatch"/> with a default ingest pipeline) use document-based invalidation per batch.
+    /// Server-side patches provide no document values and invalidate by ID.</para>
+    /// <para>Documents deleted while the operation runs are skipped. Successful documents are invalidated and notified
+    /// per batch before remaining write failures are thrown. <c>IfVersion</c> is rejected.</para>
     /// </remarks>
     Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T>? options = null);
 
@@ -39,16 +41,20 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// </summary>
     /// <param name="query">An object containing filter criteria used to enforce tenancy or other system-level filters.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
-    /// <returns>The number of documents removed.</returns>
+    /// <returns>The number deleted by delete-by-query, or the number processed by the batch path.</returns>
     /// <remarks>
+    /// <para>When caching or remove event handlers require batches, the count is the number of matching documents
+    /// processed, including documents concurrently deleted before their remove request. Those missing documents raise
+    /// no removal notifications. A failed batch stops further processing after its successful removals are notified.</para>
     /// <para>When no event listeners are registered and caching is disabled, removal uses Elasticsearch's
     /// delete-by-query, which snapshots document versions and skips any document modified before the delete
     /// executes (a version conflict). Because delete-by-query does not support <c>retry_on_conflict</c>, the
     /// query is re-run up to <c>o.Retry(n)</c> additional times (default 10 retries, i.e. up to 11 total
-    /// passes) until no conflicts remain. The returned count is the cumulative number of documents deleted
-    /// across all passes.</para>
-    /// <para>If conflicts persist after the retry budget is exhausted, a warning is logged and the partial
-    /// count is returned; no exception is thrown.</para>
+    /// passes), with backoff and a refresh between conflict retries, until no conflicts remain. The returned count is the
+    /// cumulative number of documents deleted across all passes.</para>
+    /// <para>If conflicts persist after the retry budget is exhausted, a
+    /// <see cref="Exceptions.VersionConflictDocumentException"/> is thrown. <c>ProceedOnQueryConflicts()</c> logs a warning
+    /// and returns the partial count instead. <c>IfVersion</c> is rejected.</para>
     /// </remarks>
     Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null);
 

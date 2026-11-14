@@ -15,6 +15,32 @@ namespace Foundatio.Repositories
         internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
         internal const string TrackTotalHitsKey = "@TrackTotalHits";
+        internal const string UseUpdateByQueryKey = "@UseUpdateByQuery";
+        internal const string ProceedOnQueryConflictsKey = "@ProceedOnQueryConflicts";
+
+        /// <summary>
+        /// Runs <c>PatchAllAsync</c> with a <c>ScriptPatch</c> as a server-side update-by-query instead of the default
+        /// batched bulk Update API path. Update-by-query is faster for large data sets, but it checks each document only
+        /// against its own snapshot: a document changed by another writer after the snapshot is skipped as a version
+        /// conflict, and the script is not re-run for it. By default the operation then throws a
+        /// <see cref="Exceptions.VersionConflictDocumentException"/> with the conflict count; call
+        /// <see cref="ProceedOnQueryConflicts{T}(T, bool)"/> to log and return instead. Ignored when the repository cache is enabled.
+        /// </summary>
+        public static T UseUpdateByQuery<T>(this T options, bool useUpdateByQuery = true) where T : ICommandOptions
+        {
+            return options.BuildOption(UseUpdateByQueryKey, useUpdateByQuery);
+        }
+
+        /// <summary>
+        /// When update-by-query (<see cref="UseUpdateByQuery{T}(T, bool)"/>) skips documents due to version conflicts, or
+        /// delete-by-query still has conflicts after its retry budget, log a warning and return the processed count
+        /// instead of throwing a <see cref="Exceptions.VersionConflictDocumentException"/>. Update-by-query conflicts
+        /// are not retried because replaying the whole query could apply the script twice to successful documents.
+        /// </summary>
+        public static T ProceedOnQueryConflicts<T>(this T options, bool proceed = true) where T : ICommandOptions
+        {
+            return options.BuildOption(ProceedOnQueryConflictsKey, proceed);
+        }
 
         public static T TrackTotalHits<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -181,6 +207,16 @@ namespace Foundatio.Repositories.Options
         public static bool ShouldTrackTotalHits(this ICommandOptions options)
         {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.TrackTotalHitsKey, true);
+        }
+
+        public static bool ShouldUseUpdateByQuery(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.UseUpdateByQueryKey, false);
+        }
+
+        public static bool ShouldProceedOnQueryConflicts(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.ProceedOnQueryConflictsKey, false);
         }
 
         private static Refresh ToRefresh(Consistency mode)

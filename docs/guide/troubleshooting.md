@@ -280,16 +280,40 @@ for (int attempt = 1; ; attempt++)
 await repository.SaveAsync(document, o => o.SkipVersionCheck());
 ```
 
-Don't use `VersionCheck(false)` for this; it's inverted today ([#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344)).
+`o.VersionCheck(false)` does the same thing.
 
-3. **Use server-side operations:**
+3. **Use patches** for changes that don't depend on values you read. They're re-applied to the latest document on conflict:
 
 ```csharp
-// Applied to the latest document on the node; conflicts are retried there
 await repository.PatchAsync(id, new ScriptPatch("ctx._source.counter++"));
+await repository.PatchAsync(id, new ActionPatch<Employee>(e => e.Status = "Active"));
 ```
 
-4. **Make sure `Version` came from a read.** A `Version` you set yourself, one read from `_source` (raw queries, `top_hits` aggregations), or one captured before a reindex can be stale. See [Versioning](/guide/versioning#where-the-version-comes-from-on-reads).
+4. **Make sure `Version` came from a read.** A `Version` you set yourself, or one captured before a reindex, can be stale. A pre-reindex version may even pass the check against the new index and overwrite the migrated document, so always re-read after a reindex. See [Versioning](/guide/versioning#where-the-version-comes-from).
+
+5. **`RemoveAsync(T)` throws a conflict.** Removing a versioned document checks its version since this release. Re-read it, use `RemoveAsync(id)`, or pass `o.SkipVersionCheck()`.
+
+6. **`PatchAllAsync` or `RemoveAllAsync` throws a conflict with counts.** Documents were still conflicting after the configured retries (for example a writer that never stops), or opt-in update-by-query skipped documents changed after its snapshot. Per-document write failures list counts and up to 10 ids; query APIs report counts without identifying skipped documents. Successful documents were already written, invalidated and notified. Retry the operation (scripts should be idempotent) or raise `Retry(n)` for paths that retry conflicts. For update-by-query and delete-by-query, `o.ProceedOnQueryConflicts()` logs instead of throwing.
+
+The Warning-level log entries `Version conflict during {Operation} on {Index}/{DocumentId}` include the expected and current versions, the attempt and the outcome, which shows which writer is winning.
+
+### DocumentVersioningNotSupportedException
+
+**Symptoms:** `Index ... has sequence numbers disabled`, or HTTP 400 `o_c_c_not_supported_exception` / `update_not_supported_exception`.
+
+The index was created with `index.disable_sequence_numbers: true` (the default for Elasticsearch 9.4+ time series data stream backing indexes), so version checks and the Update API are unavailable. Store `IVersioned` documents in an index with sequence numbers enabled, or use `SkipVersionCheck()` with `SaveAsync`, `RemoveAsync`, JSON patches and action patches. See [Versioning: Indexes without sequence numbers](/guide/versioning#indexes-without-sequence-numbers-elasticsearch-9-4).
+
+### DuplicateDocumentException from SaveAsync
+
+`SaveAsync` on an `IVersioned` document whose `Version` is empty creates it with `op_type=create`, so it fails when the id already exists. The document was never read (or was read from an index with sequence numbers disabled). Load the document before saving it, or use `SkipVersionCheck()` when overwriting is intended.
+
+### "has no version" DocumentException
+
+`RemoveAsync(T)` on an `IVersioned` document whose `Version` is empty. Remove the document as it was loaded, use `RemoveAsync(id)`, or use `SkipVersionCheck()`.
+
+### OperationCanceledException from a write
+
+The repository was disposed while the write was running or waiting to retry. Documents written before that were notified and invalidated; the rest were not confirmed (an in-flight request that was cancelled may still have been applied by Elasticsearch).
 
 ## Performance Issues
 
@@ -542,14 +566,14 @@ catch (VersionConflictDocumentException ex)
 
 ### Transient Error Retries
 
-Bulk writes (`AddAsync`/`SaveAsync` with more than one document, bulk `RemoveAsync`) retry failed items:
+All writes (`AddAsync`, `SaveAsync`, `RemoveAsync`, patches, single and bulk) retry transient failures up to `o.Retry(n)` times (default 10) with exponential backoff (50 ms doubling, capped at 2 s) and jitter:
 
-- **HTTP 429** (Too Many Requests) — retried with exponential backoff, up to 3 retries (4 total attempts)
-- **HTTP 503** (Service Unavailable) — retried with exponential backoff, up to 3 retries (4 total attempts)
-- **HTTP 409** (Version Conflict) — **not** retried; the caller must handle conflict resolution
+- **HTTP 429**, **503 with an Elasticsearch error type**, and connection failures where the request was never sent (refused connection, DNS or TLS failure) are retried. Bulk requests retry only the failed items.
+- **HTTP 502, 504, unstructured gateway 503 responses, timeouts** and failures without a status after the request was sent are **not** retried, because the write may already have been applied. They're reported as `DocumentException`; re-read without the cache before retrying.
+- **HTTP 409** (Version Conflict) on `AddAsync`/`SaveAsync`/`RemoveAsync` — **not** retried; the caller must handle conflict resolution. Patches can re-apply themselves to the latest document within their retry budget, except `IfVersion` patches and opt-in update-by-query, which report conflicts without replaying them.
 - `DuplicateDocumentException` — **not** retried
 
-Single-document `AddAsync`/`SaveAsync` aren't retried on 429/503 today. Patches go through the repository resilience policy, which also retries version conflicts on the fetch-and-index paths. See [Versioning: Retry options](/guide/versioning#retry-options) and [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+`o.Retry(0)` makes a single attempt. Writes use these rules instead of the repository's `IResiliencePolicy`. See [Versioning: Retry options](/guide/versioning#retry-options).
 
 ::: info Reindex task-status polling uses its own backoff
 This resilience policy covers the initial reindex kickoff request. Once reindexing has started, progress is monitored by repeatedly polling the Elasticsearch task status API, which is a plain "did this succeed" response rather than a thrown exception — so it isn't covered by the policy above. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.

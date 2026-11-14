@@ -43,6 +43,7 @@ namespace Foundatio.Repositories
 
         public static T PointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
         {
+            options.RepoOwnedPointInTime(false);
             if (!String.IsNullOrEmpty(pointInTimeId))
                 options.Values.Set(PointInTimeIdKey, pointInTimeId);
             else

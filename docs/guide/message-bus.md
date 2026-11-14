@@ -75,7 +75,8 @@ public enum ChangeType : byte
 | `Saved` | `PatchAsync` - Document patched (with document ID) |
 | `Saved` | `PatchAsync(Ids)` - Documents patched (one message per modified ID) |
 | `Saved` | `PatchAllAsync` - Documents patched (per ID or type-level) |
-| `Removed` | `RemoveAsync` - Document deleted |
+| `Removed` | `RemoveAsync` - Document deleted by this call (documents that were already gone raise no removal event) |
+| `Removed` | `RemoveAllAsync` - Documents deleted (per document, or one type-level message with `Id = null` when a server-side delete-by-query runs without an id filter) |
 | `Removed` | Soft delete transition (`IsDeleted: false → true`) via `SaveAsync` |
 
 ### Patch Notification Behavior
@@ -84,26 +85,33 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 
 | Method | Id Field | Notes |
 |--------|----------|-------|
-| `PatchAsync(id, ...)` | Document ID | One message per patched document |
-| `PatchAsync(Ids, ScriptPatch/PartialPatch)` | Document ID | One message **per modified ID** (noop IDs excluded) |
-| `PatchAsync(Ids, JsonPatch/ActionPatch)` | Document ID | Delegates to `PatchAllAsync` with explicit IDs — one message **per ID** in the query |
-| `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query (uncached) or **per modified ID** (cached/batch) |
-| `PatchAllAsync` with filter-only query (cached) | Document ID | One message **per modified ID** (sent per-batch) |
-| `PatchAllAsync` with filter-only query (uncached) | `null` | Single type-level notification |
+| `PatchAsync(id, ...)` | Document ID | One message, only when the patch modified the document (a noop patch or a missing document sends none) |
+| `PatchAsync(Ids, ...)` (any patch type) | Document ID | One message **per modified ID** (noop and missing IDs excluded). Documents that were patched are notified before the exception for the failed ones is thrown. A request containing one ID behaves like `PatchAsync(id, ...)` |
+| `PatchAllAsync` (default) | Document ID | One message **per modified ID** (sent per-batch) |
+| `PatchAllAsync` with `UseUpdateByQuery()` and explicit IDs | Document ID | One message **per ID** in the query |
+| `PatchAllAsync` with `UseUpdateByQuery()` and a filter-only query | `null` | Single type-level notification |
 
 ::: info
 `PatchAllAsync` sends notifications incrementally per batch as documents are processed. Subscribers may receive messages while the operation is still running. Design handlers to be idempotent.
 :::
 
+If an opt-in update-by-query task has an unknown outcome (for example, its status disappears or submission times out), the repository sends query-level notifications before throwing. These notifications tell subscribers to refresh; they do not confirm that any particular document changed.
+
 ::: warning
-When `PatchAllAsync` uses an uncached `ScriptPatch` or `PartialPatch` with a filter-only query (no explicit IDs), the `EntityChanged` message has `Id = null`. Cached/batch `PatchAllAsync` paths (`ActionPatch`, `JsonPatch`, or cached `ScriptPatch`/`PartialPatch`) send per-ID notifications for each modified document. Subscribers that depend on `msg.Id` to look up specific documents should handle the `null` case for uncached update-by-query, for example by re-querying the affected documents.
+Only `PatchAllAsync` with the opt-in `o.UseUpdateByQuery()` and a filter-only query (no explicit IDs) sends an `EntityChanged` message with `Id = null`. Every other `PatchAllAsync` path sends per-ID notifications for each modified document. Subscribers that depend on `msg.Id` should handle the `null` case if your code opts into update-by-query, for example by re-querying the affected documents.
 :::
 
-**In-process events:** The `DocumentsChanged` event fires for all patch types, but `args.Documents` is empty for `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch` because the modified document is not available client-side. Only single-document `ActionPatch` (`PatchAsync(id, ActionPatch)`) populates the documents list. Bulk operations — including `PatchAllAsync` and `PatchAsync(Ids)` for `ActionPatch`/`JsonPatch` (which delegates to `PatchAllAsync`) — fire `DocumentsChanged` with an **empty** documents list even though the documents may have been loaded during processing. The `DocumentsSaving` and `DocumentsSaved` events do **not** fire for patch operations.
+**In-process events:** The `DocumentsChanged` event fires for every patch that modified at least one document. `args.Documents` holds the patched documents for patches applied client-side (`JsonPatch`, `ActionPatch` and `PartialPatch` with a default pipeline) in `PatchAsync(id)`, `PatchAsync(Ids)` and each `PatchAllAsync` batch. It is **empty** for patches Elasticsearch applies server-side (`ScriptPatch`, and `PartialPatch` without a default pipeline), because the modified document is not available client-side, and for `PatchAllAsync` with `UseUpdateByQuery()`. The `DocumentsSaving` and `DocumentsSaved` events do **not** fire for patch operations.
+
+**`UpdateCallback`:** The `UpdateCallback` command option receives successful IDs together after each multi-ID `PatchAsync(Ids)` call or `PatchAllAsync` batch, before an exception for failed documents is thrown. If a pipeline script response reports changes together with a failure, those IDs are reported separately, including on single-ID calls. Ordinary successful `PatchAsync(id)` calls and inputs containing exactly one ID do not invoke the callback. Neither does `PatchAllAsync` with `UseUpdateByQuery()`, or a call that modified nothing.
+
+**Custom publishing:** Multi-ID patches and patch batches use the virtual `PublishChangeTypeMessageAsync` hooks. Client-side patches pass the patched document; server-side patches pass its ID. Overrides that enrich or suppress messages continue to apply, together with `Notifications(false)` and the configured notification delay.
 
 **Soft-delete detection:** Patch operations do not detect `IsDeleted` transitions. The `ChangeType` is always `Saved`, even if a patch sets `IsDeleted = true`. Use `SaveAsync` with `OriginalsEnabled = true` for soft-delete transition detection.
 
 ### Soft Delete Notification Logic
+
+`SaveAsync` pairs each document with its original by concrete index, routing and ID. Documents that share an ID across indexes or routing values therefore retain their own change events and soft-delete transitions. With `Originals()` enabled, routed and multi-index repositories read those exact locations; supplied originals avoid the corresponding reads. After a partial write failure, saved events and notifications include only the locations that succeeded.
 
 When a document supports soft deletes (`ISupportSoftDeletes`), the notification system intelligently determines the `ChangeType`:
 
@@ -377,7 +385,7 @@ await messageBus.SubscribeAsync<EntityChanged>(async (msg, ct) =>
 | Timing | Synchronous | Asynchronous |
 | Reliability | Guaranteed | Depends on bus |
 | Use Case | Local side effects | Cross-service |
-| Access to Document | Full document for `SaveAsync` and single-doc `PatchAsync(id, ActionPatch)` only; empty list for all other patch paths | ID only (or `null` for type-level) |
+| Access to Document | Full document for `SaveAsync` and client-side patches (`JsonPatch`, `ActionPatch`, pipeline `PartialPatch`); empty list for server-side patches | ID only (or `null` for type-level) |
 
 ## Distributed Cache Invalidation
 

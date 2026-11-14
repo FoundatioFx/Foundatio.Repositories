@@ -164,14 +164,14 @@ await repository.SaveAsync(employee);
 
 ## Cache Behavior on Partial Failure
 
-When a bulk write operation partially fails (some documents succeed, others fail), the cache is updated only for successful documents:
+When a bulk `AddAsync` or `SaveAsync` partially fails, cache changes follow the confirmed write outcomes:
 
 | Document Status | Cache Action |
 |-----------------|--------------|
 | Succeeded | Added to cache (freshest data available) |
-| Failed (any error) | Cache entry **unchanged** (failed writes don't mutate Elasticsearch) |
+| Failed (any error) | Cache entry **unchanged**; an ambiguous failure may still have changed Elasticsearch |
 
-Failed writes (409 conflicts, 429/503 rate limits, or other errors) do not mutate the document in Elasticsearch, so the existing cache entry (if any) remains valid. Cache consistency for concurrent writes is handled by the message bus `EntityChanged` notifications — the writer that successfully mutated the document is responsible for updating or invalidating the cache.
+A definitive rejection, such as a version conflict or rate limit, does not confirm a change by this call. Successful writes update or invalidate the cache and send `EntityChanged` notifications. Gateway failures and timeouts can leave the write outcome unknown; a failure does not prove the stored document or a cached copy is unchanged. Re-read with `o.Cache(false)` before deciding whether to retry an ambiguous write.
 
 ```csharp
 try
@@ -193,7 +193,9 @@ Cached reads return documents with the `Version` they had when they were cached.
 var employee = await repository.GetByIdAsync(id, o => o.Cache(false));
 ```
 
-Patches don't compare against the cached version; they invalidate the cached entry by id. See [Versioning](/guide/versioning#caching-and-versions). The race where stale data can be re-cached right after an invalidation is tracked in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
+The version of a cached document always comes from Elasticsearch metadata captured when it was cached (it is copied back onto the document when read from the cache), so cached copies retain optimistic concurrency even when an explicit `IVersioned.Version` implementation or `[JsonIgnore]` omits the token from model JSON. A missing envelope token clears a stale model token. Patches bypass the cached document and invalidate successful changes; `IfVersion` can explicitly require a token obtained from a cached read. See [Versioning](/guide/versioning#caching-and-versions). The race where stale data can be re-cached right after an invalidation is tracked in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
+
+Supplying routing to `GetByIdAsync` or `GetByIdsAsync` restricts cached matches to that route. Batched cached reads retain documents from different physical indexes, even when their IDs and routing values are the same.
 
 ## Cache Invalidation Gaps
 
@@ -203,7 +205,7 @@ There are scenarios where cache is NOT automatically invalidated. Understanding 
 
 ### PatchAllAsync - Partial Gap
 
-When using `PatchAllAsync`, only document IDs are invalidated. **Custom cache keys are NOT invalidated.**
+Server-side `PatchAllAsync` operations invalidate document IDs without loading the modified documents. Client-side JSON, action and pipeline partial patches pass the patched documents to custom `InvalidateCacheAsync` overrides. Arbitrary query-cache keys still need explicit invalidation.
 
 ```csharp
 // This will invalidate cache by document IDs
@@ -215,7 +217,7 @@ await repository.PatchAllAsync(
 // that cache key is NOT invalidated
 ```
 
-**Solution:** Override `InvalidateCacheByQueryAsync` or manually invalidate:
+**Solution:** Use document-based invalidation overrides for client-side patches, or manually invalidate custom query keys:
 
 ```csharp
 // After PatchAllAsync, manually invalidate custom keys

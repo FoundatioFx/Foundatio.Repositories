@@ -40,7 +40,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes
     public DateTimeOffset NextReview { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime UpdatedUtc { get; set; }
-    public string Version { get; set; } = null!;
+    public string? Version { get; set; }
     public bool IsDeleted { get; set; }
     public PeerReview[]? PeerReviews { get; set; }
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
@@ -87,7 +87,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes
             hashCode = (hashCode * 397) ^ LastReview.GetHashCode();
             hashCode = (hashCode * 397) ^ CreatedUtc.GetHashCode();
             hashCode = (hashCode * 397) ^ UpdatedUtc.GetHashCode();
-            hashCode = (hashCode * 397) ^ Version.GetHashCode();
+            hashCode = (hashCode * 397) ^ (Version?.GetHashCode() ?? 0);
             return hashCode;
         }
     }

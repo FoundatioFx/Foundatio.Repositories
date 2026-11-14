@@ -161,9 +161,7 @@ await repository.SaveAsync(employee, o => o.ImmediateConsistency());
 await repository.SaveAsync(employee, o => o.AddOriginals(originalEmployee));
 ```
 
-::: warning
-Don't use `o.VersionCheck(false)` to skip the check. It's currently inverted: `VersionCheck(false)` keeps the check on and `VersionCheck(true)` skips it. Use `SkipVersionCheck()`. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
-:::
+`o.VersionCheck(false)` is equivalent to `SkipVersionCheck()`. Saving an `IVersioned` document whose `Version` is empty (never read, or read from an index with sequence numbers disabled) creates it with `op_type=create`: it throws `DuplicateDocumentException` if a document with that id already exists, unless the check is skipped. See [Documents without a version](/guide/versioning#documents-without-a-version).
 
 ## Deleting Documents
 
@@ -180,6 +178,8 @@ var employee = await repository.GetByIdAsync(id);
 await repository.RemoveAsync(employee);
 ```
 
+For `IVersioned` documents, `RemoveAsync(T)` and `RemoveAsync(IEnumerable<T>)` send the document's version, like `SaveAsync`. If the document changed since you read it, `VersionConflictDocumentException` is thrown and nothing is deleted. A document with no version can't be checked (a delete has no create fallback), so it throws `DocumentException` before anything is deleted. Use `o.SkipVersionCheck()` to delete regardless. `RemoveAsync(id)` and `RemoveAsync(ids)` load the documents themselves and delete without a check. A document that was already deleted is not an error, for single and bulk removes alike, but it is not reported as removed either: its cache entry is evicted, and `DocumentsRemoved`, `DocumentsChanged` and the `EntityChanged` notification are raised only for the documents the call actually deleted.
+
 ### Remove Multiple Documents
 
 ```csharp
@@ -194,8 +194,8 @@ This permanently deletes ALL documents in the index.
 :::
 
 ```csharp
-long deleted = await repository.RemoveAllAsync();
-Console.WriteLine($"Deleted {deleted} documents");
+long processed = await repository.RemoveAllAsync();
+Console.WriteLine($"Processed {processed} matching documents");
 ```
 
 ### Remove with Query
@@ -204,14 +204,16 @@ For `ISearchableRepository<T>`:
 
 ```csharp
 // Remove all employees in a department
-long deleted = await repository.RemoveAllAsync(
+long processed = await repository.RemoveAllAsync(
     q => q.FieldEquals(e => e.Department, "Sales"));
 ```
 
-::: tip Version Conflicts and Retries
-When no event listeners are registered and caching is disabled, `RemoveAllAsync` uses Elasticsearch's `delete_by_query`. This API snapshots document versions when it begins and skips any document modified before the delete executes, counting it as a version conflict. Because `delete_by_query` does not support `retry_on_conflict`, the repository re-runs the query up to `Retry(n) + 1` times (default `10`, so 11 passes), with no delay between passes, until no conflicts remain.
+With caching or remove event listeners, `RemoveAllAsync` loads and removes documents in batches. Its returned count is the number of matching documents processed, including any that another writer deleted before the remove request. Those missing documents are not reported in removal events or notifications. A failed batch stops the operation after notifying its successful removals; later batches are not processed. The server-side delete-by-query path returns the actual number deleted instead.
 
-The returned count is the cumulative number of documents deleted across all attempts. If conflicts persist after the retry budget is exhausted, a warning is logged and the partial count is returned; no exception is thrown. Check the logs, or re-query, if you need to know that everything matching was deleted. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
+::: tip Version Conflicts and Retries
+When no event listeners are registered and caching is disabled, `RemoveAllAsync` uses Elasticsearch's `delete_by_query`. This API snapshots document versions when it begins and skips any document modified before the delete executes, counting it as a version conflict. Because `delete_by_query` does not support `retry_on_conflict`, the repository re-runs the query up to `Retry(n)` more times (default `10`, so up to 11 passes), with exponential backoff and a refresh between passes, until no conflicts remain.
+
+The returned count is the cumulative number of documents deleted across all passes. If conflicts persist after the retry budget, a `VersionConflictDocumentException` with the counts is thrown. Set `o.ProceedOnQueryConflicts()` to log a warning and return the partial count instead.
 :::
 
 ### Soft Delete vs Hard Delete
@@ -231,7 +233,7 @@ See [Soft Deletes](/guide/soft-deletes) for more details.
 
 ## Patch Operations
 
-Patch operations allow partial updates without fetching the full document.
+Server-side patch operations update selected fields without fetching the document. JSON, action and pipeline partial patches read the document before applying the change.
 
 ### Partial Patch
 
@@ -482,13 +484,12 @@ catch (DuplicateDocumentException ex)
 
 ### Automatic Retry Behavior
 
-- **Bulk `AddAsync`/`SaveAsync`** (more than one document) retry items that fail with HTTP **429** or **503** up to 3 more times with exponential backoff (1s, 2s, 4s).
-- **Single-document `AddAsync`/`SaveAsync`** are **not** retried on 429/503 today. Tracked in [#344](https://github.com/FoundatioFx/Foundatio.Repositories/issues/344).
-- **Version conflicts (409)** on `AddAsync`/`SaveAsync` are **never** retried; the caller has to re-read and re-apply.
-- `o.Retry(n)` has **no effect** on `AddAsync`/`SaveAsync`.
+- **`AddAsync`, `SaveAsync` and `RemoveAsync`** (single and bulk) retry transient failures up to `o.Retry(n)` times (default 10) with exponential backoff (50 ms doubling, capped at 2 s) and jitter: HTTP **429**, **503 with an Elasticsearch error type**, and connection failures where the request was never sent (refused connection, DNS or TLS failure). Bulk requests retry only the failed items.
+- **HTTP 502, 504, unstructured gateway 503 responses, timeouts** and failures without a status after the request was sent are **not** retried, because the write may already have been applied. They're reported as `DocumentException`; re-read without the cache before retrying.
+- **Version conflicts (409)** on `AddAsync`/`SaveAsync`/`RemoveAsync` are **never** retried; the caller has to re-read and re-apply.
 - `DuplicateDocumentException` is **not** retried.
-
-**Bulk delete retry**: Multi-document `RemoveAsync` (bulk delete) has its own dedicated retry loop — up to 3 retries with exponential backoff (1s, 2s, 4s) for transient 429/503 errors. Successfully deleted documents from earlier attempts are processed (events, cache, notifications) even if later retries fail for remaining documents. Fatal and conflict (HTTP 409) item IDs are accumulated across all attempts; remaining retryable errors and transport failures are surfaced through the final `BulkResult`, and any final error state (`HasErrors`) is thrown after the loop.
+- Successful documents are processed (events, cache, notifications) even if other documents fail. One exception is thrown at the end, chosen as described in [Failure handling](/guide/versioning#failure-handling).
+- Writes don't use the repository's `IResiliencePolicy`; see [Retry Options](/guide/versioning#retry-options).
 
 ::: tip
 For operations where version conflicts are expected (e.g., high-contention counters), use a `ScriptPatch` instead of `SaveAsync`. Script patches run on the Elasticsearch node and conflicts are retried server-side (`retry_on_conflict`, set with `o.Retry(n)`, default 10).

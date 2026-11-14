@@ -336,33 +336,35 @@ public static class ElasticIndexExtensions
     public static FindHit<T> ToFindHit<T>(this GetResponse<T> hit) where T : class
     {
         var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
+        string? version = hit.GetElasticVersion().ToVersionString();
+        if (hit.Source is IVersioned versioned)
+            versioned.Version = version;
 
-        if (hit.Source is IVersioned versionedDoc)
-            versionedDoc.Version = hit.GetElasticVersion();
+        return new FindHit<T>(hit.Id, hit.Source, 0, version, hit.Routing, data);
+    }
 
-        return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
+    /// <summary>
+    /// Creates an <see cref="ElasticDocumentVersion"/> from hit metadata. Returns <see cref="ElasticDocumentVersion.Empty"/>
+    /// when either value is missing, when the primary term is not positive or when the sequence number is negative
+    /// (for example the <c>-2</c>/<c>0</c> sentinel returned by indexes with sequence numbers disabled).
+    /// </summary>
+    internal static ElasticDocumentVersion ToElasticVersion(long? primaryTerm, long? sequenceNumber)
+    {
+        if (primaryTerm is not { } term || sequenceNumber is not { } seqNo)
+            return ElasticDocumentVersion.Empty;
+
+        var version = new ElasticDocumentVersion(term, seqNo);
+        return version.IsEmpty ? ElasticDocumentVersion.Empty : version;
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this GetResponse<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
-            return ElasticDocumentVersion.Empty;
-
-        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this Hit<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
-            return ElasticDocumentVersion.Empty;
-
-        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this FindHit<T> hit) where T : class
@@ -370,23 +372,17 @@ public static class ElasticIndexExtensions
         if (hit == null || String.IsNullOrEmpty(hit.Version))
             return ElasticDocumentVersion.Empty;
 
-        return hit.Version;
+        return ElasticDocumentVersion.Parse(hit.Version);
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this IndexResponse hit)
     {
-        if (hit.PrimaryTerm.GetValueOrDefault() == 0 && hit.SeqNo.GetValueOrDefault() == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.GetValueOrDefault(), hit.SeqNo.GetValueOrDefault());
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this ResponseItem hit)
     {
-        if (hit.PrimaryTerm.GetValueOrDefault() == 0 && hit.SeqNo.GetValueOrDefault() == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm.GetValueOrDefault(), hit.SeqNo.GetValueOrDefault());
+        return ToElasticVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this IVersioned versioned)
@@ -394,7 +390,17 @@ public static class ElasticIndexExtensions
         if (versioned == null || String.IsNullOrEmpty(versioned.Version))
             return ElasticDocumentVersion.Empty;
 
-        return versioned.Version;
+        return ElasticDocumentVersion.Parse(versioned.Version);
+    }
+
+    /// <summary>
+    /// Sets <see cref="IVersioned.Version"/> on <paramref name="document"/> from hit metadata. An empty version sets
+    /// the property to <c>null</c>. Documents that do not implement <see cref="IVersioned"/> are left unchanged.
+    /// </summary>
+    internal static void SetDocumentVersion(this object? document, ElasticDocumentVersion version)
+    {
+        if (document is IVersioned versionedDoc)
+            versionedDoc.Version = version.ToVersionString();
     }
 
     public static FindHit<T> ToFindHit<T>(this Hit<T> hit) where T : class
@@ -407,56 +413,29 @@ public static class ElasticIndexExtensions
         if (hit.Sort != null && hit.Sort.Count > 0)
             data[ElasticDataKeys.Sorts] = hit.Sort;
 
-        if (hit.Source is IVersioned versionedDoc && hit.PrimaryTerm.HasValue)
-            versionedDoc.Version = hit.GetElasticVersion();
+        string? version = hit.GetElasticVersion().ToVersionString();
+        if (hit.Source is IVersioned versioned)
+            versioned.Version = version;
 
-        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), hit.GetElasticVersion(), hit.Routing, data);
+        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), version, hit.Routing, data);
     }
 
+    /// <summary>
+    /// Returns the documents that were found. An item-level error (for example an unavailable shard) is not the same as
+    /// "not found", so it throws a <see cref="DocumentException"/> instead of silently dropping the document.
+    /// </summary>
     public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
     {
-        foreach (var doc in response.Docs)
+        var items = response.ToMultiGetItems();
+        var errors = items.Where(i => i.IsError).ToList();
+        if (errors.Count > 0)
         {
-            FindHit<T>? findHit = null;
-            doc.Match(
-                result =>
-                {
-                    if (result is null)
-                    {
-                        return;
-                    }
-
-                    if (result.Found)
-                    {
-                        var data = new DataDictionary { { ElasticDataKeys.Index, result.Index } };
-
-                        var version = ElasticDocumentVersion.Empty;
-                        if (result.PrimaryTerm.HasValue && result.SeqNo.HasValue && (result.PrimaryTerm.Value != 0 || result.SeqNo.Value != 0))
-                            version = new ElasticDocumentVersion(result.PrimaryTerm.Value, result.SeqNo.Value);
-
-                        if (result.Source is IVersioned versionedDoc)
-                            versionedDoc.Version = version;
-
-                        findHit = new FindHit<T>(result.Id, result.Source, 0, version, result.Routing, data);
-                    }
-                    else
-                    {
-                        logger?.LogDebug("MultiGet document not found: index={Index}, id={Id}", result.Index, result.Id);
-                    }
-                },
-                error =>
-                {
-                    if (error is null)
-                    {
-                        return;
-                    }
-
-                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
-                }
-            );
-            if (findHit is not null)
-                yield return findHit;
+            var first = errors[0];
+            logger?.LogWarning("MultiGet returned {Count} item errors, first: index={Index}, id={Id}, reason={Reason}", errors.Count, first.Index, first.Id, first.ErrorReason);
+            throw new DocumentException($"Error getting {errors.Count} documents. First error for {first.Index}/{first.Id}: {first.ErrorType}: {first.ErrorReason}");
         }
+
+        return items.Where(i => i.IsFound).Select(i => i.Hit!).ToList();
     }
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;

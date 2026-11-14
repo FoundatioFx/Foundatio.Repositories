@@ -4,9 +4,21 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
-public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComparable<ElasticDocumentVersion>, IComparable
+/// <summary>
+/// An Elasticsearch optimistic concurrency token made of the shard primary term and sequence number
+/// (<c>_primary_term</c> and <c>_seq_no</c>). Its string form is <c>"{primaryTerm}:{sequenceNumber}"</c>.
+/// </summary>
+/// <remarks>
+/// A version is empty when the primary term is not positive or the sequence number is negative. That covers
+/// a missing version, the <c>0:0</c> default and the <c>_seq_no: -2, _primary_term: 0</c> sentinel that
+/// Elasticsearch returns for indexes with sequence numbers disabled. All empty versions are equal to each other,
+/// sort before every non-empty version, and are never sent as <c>if_seq_no</c>/<c>if_primary_term</c>.
+/// </remarks>
+public readonly struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComparable<ElasticDocumentVersion>, IComparable
 {
-    public static ElasticDocumentVersion Empty = new();
+    /// <summary>The empty version. Its <see cref="ToString"/> is <c>0:0</c>; <see cref="ToVersionString"/> and the
+    /// implicit <see cref="string"/> conversion return <c>null</c>.</summary>
+    public static readonly ElasticDocumentVersion Empty = new();
 
     public ElasticDocumentVersion(long primaryTerm, long sequenceNumber)
     {
@@ -16,36 +28,40 @@ public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComp
 
     public long PrimaryTerm { get; }
     public long SequenceNumber { get; }
-    public bool IsEmpty => PrimaryTerm <= 0 && SequenceNumber <= 0;
+
+    /// <summary>
+    /// <c>true</c> when the primary term is not positive or the sequence number is negative (unassigned or disabled).
+    /// </summary>
+    public bool IsEmpty => PrimaryTerm <= 0 || SequenceNumber < 0;
 
     public override string ToString() => $"{PrimaryTerm}:{SequenceNumber}";
 
+    /// <summary>
+    /// Returns the <c>"{primaryTerm}:{sequenceNumber}"</c> string, or <c>null</c> when the version is empty.
+    /// This is the value assigned to <see cref="IVersioned.Version"/>.
+    /// </summary>
+    public string? ToVersionString() => IsEmpty ? null : ToString();
+
     public override bool Equals(object? obj)
     {
-        if (obj is ElasticDocumentVersion version)
-            return Equals(version);
-
-        if (obj is string stringVersion)
-            return Equals(Parse(stringVersion));
-
-        if (obj is IVersioned versioned)
-            return Equals(versioned.GetElasticVersion());
-
-        return false;
+        return obj switch
+        {
+            ElasticDocumentVersion version => Equals(version),
+            string stringVersion => Equals(Parse(stringVersion)),
+            IVersioned versioned => Equals(versioned.GetElasticVersion()),
+            _ => false
+        };
     }
 
     public override int GetHashCode()
     {
-        unchecked
-        {
-            return (PrimaryTerm.GetHashCode() * 397) ^ SequenceNumber.GetHashCode();
-        }
+        return IsEmpty ? 0 : HashCode.Combine(PrimaryTerm, SequenceNumber);
     }
 
     public bool Equals(ElasticDocumentVersion v)
     {
         if (IsEmpty || v.IsEmpty)
-            return false;
+            return IsEmpty && v.IsEmpty;
 
         return PrimaryTerm == v.PrimaryTerm && SequenceNumber == v.SequenceNumber;
     }
@@ -60,28 +76,43 @@ public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComp
         return !lhs.Equals(rhs);
     }
 
-    public static ElasticDocumentVersion Parse(string version)
+    /// <summary>
+    /// Parses a <c>"{primaryTerm}:{sequenceNumber}"</c> string. Returns <see cref="Empty"/> for <c>null</c>,
+    /// malformed values and empty or sentinel values such as <c>0:0</c> or <c>0:-2</c>.
+    /// </summary>
+    public static ElasticDocumentVersion Parse(string? version)
     {
         if (String.IsNullOrEmpty(version))
             return Empty;
 
-        string[] parts = version.Split(':');
-        if (parts.Length != 2)
+        var span = version.AsSpan();
+        int separator = span.IndexOf(':');
+        if (separator < 0)
             return Empty;
 
-        if (Int64.TryParse(parts[0], out long primaryTerm) && Int64.TryParse(parts[1], out long sequenceNumber))
-            return new ElasticDocumentVersion(primaryTerm, sequenceNumber);
+        var sequencePart = span[(separator + 1)..];
+        if (sequencePart.Contains(':'))
+            return Empty;
 
-        return Empty;
+        if (!Int64.TryParse(span[..separator], out long primaryTerm) || !Int64.TryParse(sequencePart, out long sequenceNumber))
+            return Empty;
+
+        var parsed = new ElasticDocumentVersion(primaryTerm, sequenceNumber);
+        return parsed.IsEmpty ? Empty : parsed;
     }
 
-    public static implicit operator ElasticDocumentVersion(string version) => Parse(version);
-    public static implicit operator string(ElasticDocumentVersion version) => version.ToString();
+    public static implicit operator ElasticDocumentVersion(string? version) => Parse(version);
+
+    /// <summary>Same as <see cref="ToVersionString"/>: <c>null</c> for an empty version, never <c>"0:0"</c>.</summary>
+    public static implicit operator string?(ElasticDocumentVersion version) => version.ToVersionString();
 
     public int CompareTo(ElasticDocumentVersion other)
     {
+        if (IsEmpty || other.IsEmpty)
+            return IsEmpty.CompareTo(other.IsEmpty) * -1;
+
         int result = PrimaryTerm.CompareTo(other.PrimaryTerm);
-        if (result != 0)
+        if (result is not 0)
             return result;
 
         return SequenceNumber.CompareTo(other.SequenceNumber);
@@ -89,19 +120,14 @@ public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComp
 
     public int CompareTo(object? obj)
     {
-        if (ReferenceEquals(null, obj))
-            return 1;
-
-        if (obj is ElasticDocumentVersion version)
-            return CompareTo(version);
-
-        if (obj is string stringVersion)
-            return CompareTo(Parse(stringVersion));
-
-        if (obj is IVersioned versioned)
-            return CompareTo(versioned.GetElasticVersion());
-
-        throw new ArgumentException($"Object must be of type {nameof(ElasticDocumentVersion)}");
+        return obj switch
+        {
+            null => 1,
+            ElasticDocumentVersion version => CompareTo(version),
+            string stringVersion => CompareTo(Parse(stringVersion)),
+            IVersioned versioned => CompareTo(versioned.GetElasticVersion()),
+            _ => throw new ArgumentException($"Object must be of type {nameof(ElasticDocumentVersion)}")
+        };
     }
 
     public static bool operator <(ElasticDocumentVersion left, ElasticDocumentVersion right)

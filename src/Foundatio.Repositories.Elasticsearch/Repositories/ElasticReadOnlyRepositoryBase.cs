@@ -51,6 +51,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
     protected readonly IResiliencePolicy _resiliencePolicy;
 
+    internal const string FullDocumentSourceKey = "@FullDocumentSource";
     private ScopedCacheClient _scopedCacheClient = null!;
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
     private int _disposed;
@@ -137,7 +138,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var findHit = response.Found ? response.ToFindHit() : null;
 
         if (IsCacheEnabled && options.ShouldUseCache())
-            await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options, false).AnyContext();
+            await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id.Value, null, 0, routing: id.Routing), options, false).AnyContext();
 
         var doc = findHit?.Document;
         return ShouldReturnDocument(doc, options) ? doc : null;
@@ -161,11 +162,23 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await OnBeforeGetAsync(new Ids(idList), options, typeof(T)).AnyContext();
 
-        var hits = new List<FindHit<T>>();
-        if (IsCacheEnabled && options.ShouldReadCache())
-            hits.AddRange(await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext());
+        var hits = IsCacheEnabled && options.ShouldReadCache()
+            ? await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext()
+            : new List<FindHit<T>>();
 
-        var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id!)).ToList();
+        var itemsToFind = idList;
+        if (hits.Count > 0)
+        {
+            var cachedIds = new HashSet<Id>(hits.Count);
+            foreach (var hit in hits)
+            {
+                cachedIds.Add(new Id(hit.Id!));
+                if (hit.Routing is not null)
+                    cachedIds.Add(new Id(hit.Id!, hit.Routing));
+            }
+
+            itemsToFind.RemoveAll(cachedIds.Contains);
+        }
         if (itemsToFind.Count == 0)
             return hits.Where(h => ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
 
@@ -202,6 +215,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         // fallback to doing a find
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
+            var requestedIds = itemsToFind.ToHashSet();
+            var foundLocations = hits.Select(hit => (hit.GetIndex(), hit.Id, hit.Routing)).ToHashSet();
             var findOptions = options.Clone();
             findOptions.PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
@@ -209,10 +224,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             {
                 if (response.Hits.Count > 0)
                 {
-                    foreach (var hit in response.Hits.Where(h => h.Document != null))
+                    foreach (var hit in response.Hits.Where(h => h.Document is not null && MatchesRequestedId(h, requestedIds)))
                     {
-                        hits.Add(hit);
+                        if (foundLocations.Add((hit.GetIndex(), hit.Id, hit.Routing)))
+                            hits.Add(hit);
                         itemsToFind.Remove(new Id(hit.Id!, hit.Routing));
+                        itemsToFind.Remove(new Id(hit.Id!));
                     }
                 }
             } while (await response.NextPageAsync().AnyContext());
@@ -222,7 +239,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             // Add null markers for IDs that were not found (to cache the "not found" result)
             foreach (var id in itemsToFind)
-                hits.Add(new FindHit<T>(id, null, 0));
+                hits.Add(new FindHit<T>(id.Value, null, 0, routing: id.Routing));
 
             await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
         }
@@ -422,75 +439,90 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             result = await GetCachedQueryResultAsync<FindResults<TResult>>(options!, cacheSuffix: cacheSuffix).AnyContext();
             if (result != null)
             {
+                SyncDocumentVersions(result.Hits);
                 ((IFindResults<TResult>)result).GetNextPageFunc = async previousResults => await GetNextPageFunc(previousResults, query, options!).AnyContext();
                 return result;
             }
         }
 
-        if (options.HasAsyncQueryId())
+        string? pointInTimeId = null;
+        try
         {
-            var queryId = options.GetAsyncQueryId();
-            ArgumentException.ThrowIfNullOrEmpty(queryId);
-
-            var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
+            if (options.HasAsyncQueryId())
             {
-                if (options.HasAsyncQueryWaitTime())
-                    s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
-            }).AnyContext();
+                var queryId = options.GetAsyncQueryId();
+                ArgumentException.ThrowIfNullOrEmpty(queryId);
 
-            if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
-                await RemoveQueryAsync(queryId).AnyContext();
+                var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
+                {
+                    if (options.HasAsyncQueryWaitTime())
+                        s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                }).AnyContext();
 
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
-                throw new AsyncQueryNotFoundException(queryId);
+                if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                    await RemoveQueryAsync(queryId).AnyContext();
 
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-        }
-        else if (options.HasSnapshotScrollId())
-        {
-            var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()!) { Scroll = options.GetSnapshotLifetime() };
-            var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-        }
-        else
-        {
-            var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
-            switch (pagingStrategy)
-            {
-                case PagingStrategy.Snapshot:
-                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
-                    break;
-                case PagingStrategy.SearchAfterPointInTime:
-                    await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
-                    break;
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+                    throw new AsyncQueryNotFoundException(queryId);
+
+                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
-
-            if (query.ShouldOnlyHaveIds())
-                searchDescriptor.Source(false);
-
-            if (options.ShouldUseAsyncQuery())
+            else if (options.HasSnapshotScrollId())
             {
-                SearchRequest searchRequest = searchDescriptor;
-                var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<TResult>();
-
-                if (options.HasAsyncQueryWaitTime())
-                    asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
-
-                var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
+                var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()!) { Scroll = options.GetSnapshotLifetime() };
+                var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
             else
             {
-                var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-            }
-        }
+                var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                if (typeof(IVersioned).IsAssignableFrom(typeof(TResult)))
+                    searchDescriptor.SeqNoPrimaryTerm(true);
+                switch (pagingStrategy)
+                {
+                    case PagingStrategy.Snapshot:
+                        searchDescriptor.Scroll(options.GetSnapshotLifetime());
+                        break;
+                    case PagingStrategy.SearchAfterPointInTime:
+                        pointInTimeId = await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
+                        break;
+                }
 
-        await OnAfterQueryAsync(query, options, result).AnyContext();
+                if (options.SafeGetOption<bool>(FullDocumentSourceKey))
+                    searchDescriptor.Source(true);
+                else if (query.ShouldOnlyHaveIds())
+                    searchDescriptor.Source(false);
+
+                if (options.ShouldUseAsyncQuery())
+                {
+                    SearchRequest searchRequest = searchDescriptor;
+                    var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<TResult>();
+
+                    if (options.HasAsyncQueryWaitTime())
+                        asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
+
+                    var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                }
+                else
+                {
+                    var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                }
+            }
+
+            pointInTimeId = result.GetPointInTimeId() ?? pointInTimeId;
+            await OnAfterQueryAsync(query, options, result).AnyContext();
+        }
+        catch
+        {
+            await CloseFailedPointInTimeAsync(pointInTimeId, options).AnyContext();
+            throw;
+        }
 
         if (pagingStrategy is PagingStrategy.Snapshot && !result.HasMore)
         {
@@ -505,6 +537,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && !result.HasMore && options.IsRepoOwnedPointInTime())
         {
+            options.PointInTimeId(null);
             bool closed = await ClosePointInTimeAsync(result).AnyContext();
             if (!closed)
                 _logger.LogWarning("Failed to close repository-owned point in time after paging completed; it will expire after its keep-alive window");
@@ -552,7 +585,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
         if (options.ShouldUseSearchAfterPagingPointInTime())
-            options.PointInTimeId(previousResults.GetPointInTimeId());
+        {
+            bool repoOwned = options.IsRepoOwnedPointInTime();
+            options.PointInTimeId(previousResults.GetPointInTimeId()).RepoOwnedPointInTime(repoOwned);
+        }
 
         options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
         return await FindAsAsync<TResult>(query, options).AnyContext();
@@ -828,7 +864,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return ConfigureSearchDescriptorAsync(new SearchRequestDescriptor<T>(), query, options);
     }
 
-    private async Task ConfigurePointInTimeAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
+    private async Task<string> ConfigurePointInTimeAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
     {
         string? pointInTimeId = options.GetPointInTimeId();
         if (String.IsNullOrEmpty(pointInTimeId))
@@ -840,6 +876,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         search.Pit(new PointInTimeReference(pointInTimeId) { KeepAlive = options.GetSnapshotLifetime().ToElasticDuration() });
+        return pointInTimeId;
+    }
+
+    private async Task CloseFailedPointInTimeAsync(string? pointInTimeId, ICommandOptions options)
+    {
+        if (!options.IsRepoOwnedPointInTime() || String.IsNullOrEmpty(pointInTimeId))
+            return;
+
+        options.PointInTimeId(null);
+        try
+        {
+            if (!await ClosePointInTimeAsync(pointInTimeId).AnyContext())
+                _logger.LogWarning("Failed to close repository-owned point in time after a query failed; it will expire after its keep-alive window");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error closing repository-owned point in time after a query failed");
+        }
     }
 
     private async Task<string> OpenPointInTimeAsync(IRepositoryQuery query, ICommandOptions options)
@@ -1101,6 +1155,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
 
             var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value : null;
+            if (result is not null)
+                SyncDocumentVersions(result);
 
             _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
 
@@ -1116,20 +1172,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected async Task<FindHit<T>?> GetCachedFindHit(Id id, string? cacheKey = null)
     {
+        cacheKey ??= id.Value;
         try
         {
-            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey ?? id).AnyContext();
+            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
 
             var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document != null && String.Equals(v.Id, id))
+                ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document is not null && String.Equals(v.Id, id.Value, StringComparison.Ordinal)
+                    && (id.Routing is null || String.Equals(v.Routing, id.Routing, StringComparison.Ordinal)))
                 : null;
+            if (result is not null)
+                SyncDocumentVersion(result);
 
-            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
+            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? id);
+            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey);
 
             return null;
         }
@@ -1137,39 +1197,70 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICollection<Id> ids, string? cacheKey = null)
     {
-        var idList = ids.Select(id => id.Value).ToList();
+        var requestedIds = ids.ToHashSet();
         IEnumerable<FindHit<T>> result;
 
         try
         {
             if (String.IsNullOrEmpty(cacheKey))
             {
-                var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(idList).AnyContext();
+                var cacheKeys = ids.Select(id => id.Value).ToArray();
+                var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(cacheKeys).AnyContext();
                 result = cacheHitsById
                     .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
                     .SelectMany(kvp => kvp.Value.Value)
-                    .Where(v => v is not null && v.Document is not null && v.Id is not null && idList.Contains(v.Id));
+                    .Where(v => v is not null && v.Document is not null && MatchesRequestedId(v, requestedIds));
             }
             else
             {
                 var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
                 result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                    ? cacheKeyHits.Value.Where(v => v is not null && v.Document is not null && v.Id is not null && idList.Contains(v.Id))
+                    ? cacheKeyHits.Value.Where(v => v is not null && v.Document is not null && MatchesRequestedId(v, requestedIds))
                     : Enumerable.Empty<FindHit<T>>();
             }
 
-            // Note: the distinct by is an extra safety check just in case we ever get into a weird state.
-            var distinctResults = result.DistinctBy(v => v.Id).ToList();
+            var distinctResults = result.ToList();
+            if (distinctResults.Count > 1)
+            {
+                var locations = new HashSet<(string? Index, string? Id, string? Routing)>(distinctResults.Count);
+                distinctResults.RemoveAll(hit => !locations.Add((hit.GetIndex(), hit.Id, hit.Routing)));
+            }
+            SyncDocumentVersions(distinctResults);
 
-            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", idList));
+            if (_logger.IsEnabled(LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", ids.Select(id => id.Value)));
 
             return distinctResults;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? String.Join(", ", idList));
+            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? String.Join(", ", ids.Select(id => id.Value)));
 
             return Enumerable.Empty<FindHit<T>>().ToList();
+        }
+    }
+
+    private static bool MatchesRequestedId(FindHit<T> hit, HashSet<Id> requestedIds)
+    {
+        return hit.Id is not null && (requestedIds.Contains(new Id(hit.Id)) || requestedIds.Contains(new Id(hit.Id, hit.Routing)));
+    }
+
+    /// <summary>
+    /// Copies <see cref="FindHit{T}.Version"/> (which always comes from Elasticsearch metadata) onto the cached document's
+    /// <see cref="IVersioned.Version"/>, so a document read from the cache can be saved with the right optimistic concurrency check.
+    /// </summary>
+    private static void SyncDocumentVersion<TDocument>(FindHit<TDocument> hit) where TDocument : class
+    {
+        if (hit.Document is IVersioned versioned)
+            versioned.Version = hit.Version;
+    }
+
+    private static void SyncDocumentVersions<TDocument>(IEnumerable<FindHit<TDocument>> hits) where TDocument : class
+    {
+        foreach (var hit in hits)
+        {
+            if (hit is not null)
+                SyncDocumentVersion(hit);
         }
     }
 
@@ -1250,7 +1341,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        // Cancel only: the source has no timer to release, and its token must stay readable for writes still finishing.
         _disposedCancellationTokenSource.Cancel();
-        _disposedCancellationTokenSource.Dispose();
     }
 }

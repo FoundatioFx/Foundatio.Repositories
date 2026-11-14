@@ -27,7 +27,7 @@ public class EmployeeWithDateMetaData : IIdentity, IVersioned, IHaveDateMetaData
     public int Age { get; set; }
     public string CompanyName { get; set; } = null!;
     public string CompanyId { get; set; } = null!;
-    public string Version { get; set; } = null!;
+    public string? Version { get; set; }
     public DateMetaData MetaData { get; set; } = new DateMetaData();
     IDateMetaData IHaveDateMetaData.MetaData { get => MetaData; set => MetaData = value as DateMetaData ?? new DateMetaData { DateCreatedUtc = value?.DateCreatedUtc, DateUpdatedUtc = value?.DateUpdatedUtc }; }
 }
