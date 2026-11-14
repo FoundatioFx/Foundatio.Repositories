@@ -1,7 +1,9 @@
 using System;
+using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Elastic.Transport;
+using Elastic.Transport.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
@@ -99,15 +101,15 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
 
     private JsonNode? SerializeToNode<TValue>(TValue value)
     {
-        using var stream = RecyclableMemoryStreamFactory.Default.Create();
-        _serializer.Serialize(value, stream);
-        stream.Position = 0;
-        return JsonNode.Parse(stream);
+        ReadOnlySpan<byte> json = _serializer.SerializeToBytes(value);
+        if (json.StartsWith(Encoding.UTF8.Preamble))
+            json = json[Encoding.UTF8.Preamble.Length..];
+        return JsonNode.Parse(json);
     }
 
     private T Deserialize(JsonNode node, string nullMessage)
     {
-        using var stream = RecyclableMemoryStreamFactory.Default.Create();
+        using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
             node.WriteTo(writer);
         stream.Position = 0;

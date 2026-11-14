@@ -30,12 +30,11 @@ internal static class MultiGetItems
         var items = new List<MultiGetItem<T>>(response.Docs.Count);
         foreach (var doc in response.Docs)
         {
-            var item = new MultiGetItem<T>(String.Empty, null, null, "unknown", "The multi-get response item held neither a document nor an error.");
-            doc.Match(
-                result =>
+            var item = doc.Match<MultiGetItem<T>>(
+                static result =>
                 {
                     if (result is null)
-                        return;
+                        return new MultiGetItem<T>(String.Empty, null, null, "unknown", "The multi-get response item held neither a document nor an error.");
 
                     FindHit<T>? hit = null;
                     if (result.Found)
@@ -46,14 +45,14 @@ internal static class MultiGetItems
                         hit = new FindHit<T>(result.Id, result.Source, 0, version, result.Routing, new DataDictionary { { ElasticDataKeys.Index, result.Index } });
                     }
 
-                    item = new MultiGetItem<T>(result.Id, result.Index, hit, null, null);
+                    return new MultiGetItem<T>(result.Id, result.Index, hit, null, null);
                 },
-                error =>
+                static error =>
                 {
                     if (error is null)
-                        return;
+                        return new MultiGetItem<T>(String.Empty, null, null, "unknown", "The multi-get response item held neither a document nor an error.");
 
-                    item = error.Error?.Type is "index_not_found_exception"
+                    return error.Error?.Type is "index_not_found_exception"
                         ? new MultiGetItem<T>(error.Id, error.Index, null, null, null)
                         : new MultiGetItem<T>(error.Id, error.Index, null, error.Error?.Type ?? "unknown", error.Error?.Reason);
                 });
