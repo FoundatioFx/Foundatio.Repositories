@@ -236,7 +236,8 @@ public sealed class QueryWriteFailureTests
         using var configuration = new TestConfiguration(
             ("_update_by_query", 200, """{"task":"node:1"}"""),
             ("_tasks", 503, """{"error":{"type":"unavailable_shards_exception","reason":"temporary outage"},"status":503}"""),
-            ("_tasks", 200, completedTask)) { ThrowOnErrors = true };
+            ("_tasks", 200, completedTask))
+        { ThrowOnErrors = true };
         using var repository = new TestRepository(configuration);
 
         // Act
@@ -257,7 +258,8 @@ public sealed class QueryWriteFailureTests
         // Arrange
         using var configuration = new TestConfiguration(
             ("_update_by_query", 200, """{"task":"node:1"}"""),
-            ("_tasks", 404, """{"error":{"type":"resource_not_found_exception","reason":"task is no longer available"},"status":404}""")) { ThrowOnErrors = throwOnErrors };
+            ("_tasks", 404, """{"error":{"type":"resource_not_found_exception","reason":"task is no longer available"},"status":404}"""))
+        { ThrowOnErrors = throwOnErrors };
         using var repository = new TestRepository(configuration);
 
         // Act
