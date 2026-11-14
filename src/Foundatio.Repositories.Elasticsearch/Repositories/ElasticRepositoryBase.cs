@@ -90,7 +90,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// <summary>
     /// Adds documents with <c>op_type=create</c>. A document whose id already exists fails with a
     /// <see cref="DuplicateDocumentException"/>. HTTP 429, structured Elasticsearch 503 errors and unsent requests are retried up to <c>Retry(n)</c> times.
-    /// Documents that were added are notified and cached before the exception for the others is thrown.
+    /// Documents that were added are notified before the exception for the others is thrown. Requested cache population
+    /// uses successful documents unless a default ingest pipeline may have transformed their submitted values.
     /// <c>IfVersion</c> is not supported (a new document has no version to check) and throws an <see cref="ArgumentException"/>.
     /// </summary>
     public virtual async Task AddAsync(IEnumerable<T> documents, ICommandOptions? options = null)
@@ -112,12 +113,12 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await ValidateAndThrowAsync(doc).AnyContext();
 
         var run = await IndexDocumentsAsync(docs, true, options).AnyContext();
-        var successDocs = run.Succeeded.Select(i => i.Document).ToList();
+        var successDocs = run.Items.Where(i => i.Result.Outcome is WriteOutcome.Succeeded).Select(i => i.Item.Document).ToList();
         if (successDocs.Count > 0)
         {
             await OnDocumentsAddedAsync(successDocs, options).AnyContext();
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(successDocs, options, false).AnyContext();
+                await CacheWrittenDocumentsAsync(run, options).AnyContext();
         }
 
         WriteExceptionMapper.ThrowIfFailed(run, "adding", MissingDocumentPolicy.Conflict, i => i.IsCreate);
@@ -152,7 +153,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// documents that don't implement <see cref="IVersioned"/>, are indexed unconditionally.
     /// </summary>
     /// <remarks>HTTP 429, structured Elasticsearch 503 errors and unsent requests are retried up to <c>Retry(n)</c> times; conflicts are never retried.
-    /// Documents that were saved are notified and cached before the exception for the others is thrown. <c>IfVersion</c> is
+    /// Documents that were saved are invalidated and notified before the exception for the others is thrown. Requested cache
+    /// population is skipped with a default ingest pipeline, so a later read retrieves the transformed source. <c>IfVersion</c> is
     /// not supported and throws an <see cref="ArgumentException"/>: a save checks the <see cref="IVersioned.Version"/> of the
     /// document passed in.</remarks>
     public virtual async Task SaveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
@@ -178,14 +180,14 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await ValidateAndThrowAsync(doc).AnyContext();
 
         var run = await IndexDocumentsAsync(docs, false, options).AnyContext();
-        var successDocs = run.Succeeded.Select(i => i.Document).ToList();
+        var successDocs = run.Items.Where(i => i.Result.Outcome is WriteOutcome.Succeeded).Select(i => i.Item.Document).ToList();
         if (successDocs.Count > 0)
         {
             var successKeys = successDocs.Select(GetDocumentLocationKey).ToHashSet();
             var successOriginals = originalDocuments.Where(o => successKeys.Contains(GetDocumentLocationKey(o))).ToList();
             await OnDocumentsSavedAsync(successDocs, successOriginals, options).AnyContext();
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(successDocs, options, false).AnyContext();
+                await CacheWrittenDocumentsAsync(run, options).AnyContext();
         }
 
         WriteExceptionMapper.ThrowIfFailed(run, "saving", MissingDocumentPolicy.Conflict, i => i.IsCreate);
@@ -242,7 +244,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             if (patched.Count > 0)
             {
                 await OnDocumentsChangedAsync(ChangeType.Saved, patched, options).AnyContext();
-                if (IsCacheEnabled)
+                if (IsCacheEnabled && !String.Equals(patched[0].Id, id.Value, StringComparison.Ordinal))
                     await InvalidateCacheAsync(id.Value).AnyContext();
 
                 if (options.ShouldNotify())
@@ -383,7 +385,20 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (IsCacheEnabled)
         {
             if (modifiedDocuments is { Count: > 0 })
-                await InvalidateCacheAsync(modifiedDocuments).AnyContext();
+            {
+                List<string>? changedIds = null;
+                foreach (var (id, document) in modifiedIds.Zip(modifiedDocuments))
+                {
+                    if (!String.Equals(id, document.Id, StringComparison.Ordinal))
+                    {
+                        changedIds ??= [];
+                        changedIds.Add(id);
+                    }
+                }
+
+                if (changedIds is not null)
+                    await InvalidateCacheAsync(changedIds).AnyContext();
+            }
             else
                 await InvalidateCacheAsync(modifiedIds).AnyContext();
         }
@@ -564,8 +579,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         long affectedRecords = 0;
         long queryConflicts = 0;
         long skippedMissing = 0;
-        WriteRunResult<IndexItem>? clientFailures = null;
-        WriteRunResult<UpdateItem>? serverFailures = null;
+        var failures = new WriteFailureSummary(MissingDocumentPolicy.Skip);
 
         if (strategy is PatchStrategy.UpdateByQueryBulk)
         {
@@ -589,7 +603,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 affectedRecords += patched.Count;
                 skippedMissing += run.Count(WriteOutcome.Missing);
                 await OnPatchedAsync(patched.Select(i => i.Key.Id).ToList(), patched.Select(i => i.Document).ToList(), options).AnyContext();
-                clientFailures = WriteRunResult<IndexItem>.Accumulate(clientFailures, run);
+                failures.Add(run);
                 return run.Count(WriteOutcome.Cancelled) is 0;
             }, CreatePatchPagingOptions(options, fullSource: true)).AnyContext();
         }
@@ -609,7 +623,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 affectedRecords += modifiedIds.Count;
                 skippedMissing += run.Count(WriteOutcome.Missing);
                 await OnPatchedAsync(modifiedIds, null, options).AnyContext();
-                serverFailures = WriteRunResult<UpdateItem>.Accumulate(serverFailures, run);
+                failures.Add(run);
                 return run.Count(WriteOutcome.Cancelled) is 0;
             }, CreatePatchPagingOptions(options)).AnyContext();
         }
@@ -628,10 +642,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (skippedMissing > 0)
             _logger.LogInformation("{Operation} skipped {Count} documents that were deleted while the operation ran", operationName, skippedMissing);
 
-        if (clientFailures is not null)
-            WriteExceptionMapper.ThrowIfFailed(clientFailures, "patching", MissingDocumentPolicy.Skip);
-        if (serverFailures is not null)
-            WriteExceptionMapper.ThrowIfFailed(serverFailures, "patching", MissingDocumentPolicy.Skip);
+        WriteExceptionMapper.ThrowIfFailed(failures, "patching");
 
         DisposedCancellationToken.ThrowIfCancellationRequested();
         return affectedRecords;
@@ -1512,6 +1523,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// Sets date properties on the document for Add, Save, and ActionPatch/JsonPatch-bulk operations.
     /// Override to handle custom date fields (e.g., <c>IHaveDateMetaData.MetaData.DateUpdatedUtc</c>).
     /// </summary>
+    /// <remarks>Dates are set on the typed model, so its configured source member converters apply when serialized.</remarks>
     protected virtual void SetDocumentDates(T document, TimeProvider timeProvider)
     {
         if (document is IHaveDates datesDoc)
@@ -1537,6 +1549,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// and adding the timestamp as a script parameter. Skips injection if the caller already provided
     /// the parameter (logged at Debug level).
     /// </summary>
+    /// <remarks>The UTC parameter uses ISO 8601 by default; source converters on the target model member do not
+    /// control script parameters. When supplying the parameter explicitly, the caller's script must assign it.</remarks>
     protected virtual ScriptPatch ApplyDateTracking(ScriptPatch script)
     {
         if (!HasDateTracking)
@@ -1566,8 +1580,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
     /// <summary>
     /// Injects the updated timestamp into a <see cref="PartialPatch"/> by adding the field to the
-    /// serialized document. Skips injection if the caller already provided the field (logged at Debug level).
+    /// serialized document. Skips injection if the caller provided a non-null field value (logged at Debug level).
     /// </summary>
+    /// <remarks>The injected value is UTC ISO 8601 and does not use the target model member's source converter.
+    /// For another stored date representation, supply the timestamp explicitly in that representation.</remarks>
     protected virtual PartialPatch ApplyDateTracking(PartialPatch patch)
     {
         if (!HasDateTracking)
@@ -1596,6 +1612,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// Sets the updated timestamp on a <see cref="JsonNode"/> document (used by single-doc JsonPatch).
     /// Supports nested dot-path fields.
     /// </summary>
+    /// <remarks>The injected value is UTC ISO 8601 and does not use the target model member's source converter.
+    /// Use <see cref="ActionPatch{T}"/> when a single-document patch needs typed model date serialization.</remarks>
     protected virtual void ApplyDateTracking(JsonNode target)
     {
         if (!HasDateTracking)

@@ -269,7 +269,7 @@ A reported failure may or may not have been applied. Re-read the document before
 
 ### Failure handling
 
-After the runner finishes, the repository invalidates the cache, raises events and sends notifications for every item that succeeded, and only then throws **one** exception for the items that didn't. The exception is chosen with a single precedence:
+After the runner finishes, the repository applies the operation's cache behavior, raises events and sends notifications for every item that succeeded, and only then throws **one** exception for the items that didn't. The exception is chosen with a single precedence:
 
 1. `OperationCanceledException` when any item was cancelled.
 2. `DocumentVersioningNotSupportedException` when the index has sequence numbers disabled.
@@ -279,6 +279,8 @@ After the runner finishes, the repository invalidates the cache, raises events a
 6. `DocumentException` for everything else, with the first error reason.
 
 Per-document conflict and general write-failure messages include the number of failed and succeeded documents and up to 10 ids. `DocumentNotFoundException` identifies the first missing ID; `DocumentVersioningNotSupportedException` names the affected index. Query-based writes report the counts available from Elasticsearch. A document that is already gone is not an error for `RemoveAsync` (it is evicted from the cache, but `DocumentsRemoved`, `DocumentsChanged` and `EntityChanged` are raised only for documents the call actually deleted), and is skipped by `PatchAllAsync`.
+
+For batched `PatchAllAsync`, these counts cover the processed batches, while the IDs remain a bounded sample rather than a complete list of failures. No-op outcomes count as succeeded in diagnostics but are excluded from the returned modified count. The repository accumulates counts and sampled failure details across batches without retaining their document payloads.
 
 ## Retry Options
 
@@ -359,7 +361,7 @@ await repository.SaveAsync(employee, o => o.VersionCheck(false)); // same thing
 
 When saving several versioned documents in one call, some may succeed while others conflict:
 
-1. **Successful documents** are fully processed: versions updated, events fired, cache populated, notifications sent.
+1. **Successful documents** are fully processed: versions updated, events fired, existing ID-cache entries invalidated, notifications sent. Requested cache population is skipped when a default ingest pipeline may have transformed the submitted models.
 2. **Conflicting documents** are left untouched in Elasticsearch and in the cache.
 3. One exception is thrown after the successes are processed (see [Failure handling](#failure-handling)). The message includes the counts and ids.
 

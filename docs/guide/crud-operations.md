@@ -452,8 +452,8 @@ When adding or saving multiple documents in a single call, some documents may su
 
 ### How It Works
 
-1. **Successful documents are fully processed** — events are fired, cache is populated, and change notifications are sent.
-2. **Failed documents leave cache unchanged** — failed writes don't mutate Elasticsearch, so existing cache entries remain valid. Cache consistency for concurrent writes is handled by message bus notifications.
+1. **Successful documents are fully processed** — events are fired, normal operation-specific cache handling runs, and change notifications are sent. Add may populate requested cache entries; Save invalidates and may repopulate them. A default ingest pipeline prevents cache population from the submitted model; a subsequent Elasticsearch read retrieves the transformed source.
+2. **Failed documents leave cache unchanged by this call** — a definitive rejection confirms no write, while a timeout or gateway failure can leave the stored outcome unknown. Re-read without the cache before retrying an ambiguous write.
 3. **A typed exception is thrown** after all successes are processed.
 
 ### Exception Types by Operation
@@ -475,7 +475,7 @@ try
 }
 catch (DuplicateDocumentException ex)
 {
-    // Some documents were added successfully (events fired, cached, notified).
+    // Some documents were added successfully (events fired, cache handled, notified).
     // Duplicate documents preserve their existing cache entries (nothing was mutated).
     // ex.Message contains details about which documents failed.
     _logger.LogWarning(ex, "Some documents already existed");

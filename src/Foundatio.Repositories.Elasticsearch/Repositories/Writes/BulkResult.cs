@@ -14,7 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch;
 /// </summary>
 internal sealed record BulkItemResult(WriteOutcome Outcome, int Status, string? Index, string? Id, string? ErrorType, string? Reason, ElasticDocumentVersion Version)
 {
-    public WriteItemResult ToWriteResult() => new(Outcome, Status, ErrorType, Reason, null, Version);
+    public WriteItemResult ToWriteResult() => new(Outcome, Status, ErrorType, Reason, null, Version, Index);
 }
 
 /// <summary>

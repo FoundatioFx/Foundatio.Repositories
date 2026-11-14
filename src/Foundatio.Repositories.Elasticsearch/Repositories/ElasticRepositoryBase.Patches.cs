@@ -246,8 +246,14 @@ public abstract partial class ElasticRepositoryBase<T>
         return searched;
     }
 
-    private static IEnumerable<(string Id, FindHit<T> Hit)> WithIds(IEnumerable<FindHit<T>> hits) =>
-        hits.SelectMany(hit => hit.Id is { } id ? new[] { (id, hit) } : []);
+    private static IEnumerable<(string Id, FindHit<T> Hit)> WithIds(IEnumerable<FindHit<T>> hits)
+    {
+        foreach (var hit in hits)
+        {
+            if (hit.Id is { } id)
+                yield return (id, hit);
+        }
+    }
 
     /// <summary>Returns the multi-get items in request order, or <c>null</c> items when the request failed as a whole.</summary>
     private async Task<(MultiGetResponse<T> Response, IReadOnlyList<MultiGetItem<T>>? Items)> MultiGetAsync(IReadOnlyList<(DocumentKey Key, string? Routing)> documents, ICommandOptions options, CancellationToken cancellationToken)
@@ -452,8 +458,7 @@ public abstract partial class ElasticRepositoryBase<T>
             Refresh = false,
             WaitForCompletion = true
         };
-        if (item.Routing is not null)
-            request.Routing = new Routing(item.Routing);
+        request.Routing = new Routing(item.Routing ?? item.Key.Id);
 
         var response = await WriteClient.UpdateByQueryAsync(request, cancellationToken).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());

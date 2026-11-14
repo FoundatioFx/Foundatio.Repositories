@@ -128,12 +128,24 @@ o.CacheKey("my-key")
 o.CacheExpiresIn(TimeSpan.FromMinutes(10))
 o.CacheExpiresAt(DateTime.UtcNow.AddHours(1))
 
-// Read from cache only (don't write)
+// Enable cache reads without enabling cache writes
 o.ReadCache()
 
-// Disable caching for this operation
+// Disable cache reads explicitly, including when Cache() is enabled
+o.ReadCache(false)
+
+// Disable cache writes and the default cache-read behavior
 o.Cache(false)
+
+// Bypass both when inherited options may already contain ReadCache()
+o.Cache(false).ReadCache(false)
 ```
+
+`ReadCache(bool)` overrides cache reads independently of cache writes. Calling `Cache(false)` does not clear a previously set `ReadCache()` override.
+
+### Source Projections
+
+ID reads requested with caller `Include`, `Exclude`, `IncludeMask`, or `ExcludeMask` command options do not populate the shared document-ID cache. This applies even without a custom cache key, so a later unfiltered read does not receive an incomplete document. `FindOneAsync` also checks the effective search request, including projections introduced by repository query hooks. A projected response can still be cached under its own explicit cache key. Repository default exclusions define the normal document shape and do not, by themselves, disable ID caching.
 
 ## Automatic Cache Invalidation
 
@@ -143,8 +155,8 @@ The repository automatically invalidates cache in most scenarios.
 
 | Operation | Behavior |
 |-----------|----------|
-| `AddAsync` | Documents added to cache after successful add |
-| `SaveAsync` | Cache invalidated by ID, then documents re-added |
+| `AddAsync` | Successful documents populate the cache when requested, except with a default ingest pipeline; the base implementation does not remove ID entries |
+| `SaveAsync` | Successful documents invalidate existing entries and populate the cache when requested, except with a default ingest pipeline |
 | `RemoveAsync` | Cache invalidated by document ID |
 | `PatchAsync` (single ID) | Cache invalidated by ID |
 | `PatchAsync` (multiple IDs) | Cache invalidated for all IDs |
@@ -153,14 +165,20 @@ The repository automatically invalidates cache in most scenarios.
 
 ```csharp
 // When you call SaveAsync:
-await repository.SaveAsync(employee);
+await repository.SaveAsync(employee, o => o.Cache());
 
 // Internally:
 // 1. Document is indexed to Elasticsearch
 // 2. Cache is invalidated for the document ID
-// 3. Document is added back to cache with updated values
-// 4. EntityChanged notification is published
+// 3. EntityChanged notification is published
+// 4. Without a default ingest pipeline, the document is cached with its new version
 ```
+
+### Writes with a Default Ingest Pipeline
+
+When `DefaultPipeline` is configured, `AddAsync` and `SaveAsync` do not populate the cache from the submitted model: Elasticsearch may have transformed that document. `SaveAsync` retains its normal ID-cache invalidation; `AddAsync` retains its existing behavior of not removing ID entries. When write caching is requested, the operation's explicit cache key is removed. A later read from Elasticsearch obtains the transformed source and can cache it normally. Versioned models receive the new version metadata, but submitted models are not reloaded with pipeline-transformed field values.
+
+Cache population is also skipped if an asynchronous write event saves the same versioned model again. The outer operation detects the newer version and removes its explicit cache key instead of pairing the changed model with its earlier write metadata.
 
 ## Cache Behavior on Partial Failure
 
@@ -168,10 +186,10 @@ When a bulk `AddAsync` or `SaveAsync` partially fails, cache changes follow the 
 
 | Document Status | Cache Action |
 |-----------------|--------------|
-| Succeeded | Added to cache (freshest data available) |
+| Succeeded | Normal operation-specific handling: Add may populate; Save invalidates and may repopulate. Pipeline inputs are not cached |
 | Failed (any error) | Cache entry **unchanged**; an ambiguous failure may still have changed Elasticsearch |
 
-A definitive rejection, such as a version conflict or rate limit, does not confirm a change by this call. Successful writes update or invalidate the cache and send `EntityChanged` notifications. Gateway failures and timeouts can leave the write outcome unknown; a failure does not prove the stored document or a cached copy is unchanged. Re-read with `o.Cache(false)` before deciding whether to retry an ambiguous write.
+A definitive rejection, such as a version conflict or rate limit, does not confirm a change by this call. Successful writes run their operation-specific cache handling and send `EntityChanged` notifications. Gateway failures and timeouts can leave the write outcome unknown; a failure does not prove the stored document or a cached copy is unchanged. Re-read with `o.Cache(false)` before deciding whether to retry an ambiguous write.
 
 ```csharp
 try
@@ -180,7 +198,7 @@ try
 }
 catch (VersionConflictDocumentException)
 {
-    // Successful docs: cached with latest data
+    // Successful docs: cache handled; pipeline inputs are not cached
     // Conflicting docs: cache unchanged (the successful concurrent writer handles its own cache update)
 }
 ```
@@ -195,7 +213,9 @@ var employee = await repository.GetByIdAsync(id, o => o.Cache(false));
 
 The version of a cached document always comes from Elasticsearch metadata captured when it was cached (it is copied back onto the document when read from the cache), so cached copies retain optimistic concurrency even when an explicit `IVersioned.Version` implementation or `[JsonIgnore]` omits the token from model JSON. A missing envelope token clears a stale model token. Patches bypass the cached document and invalidate successful changes; `IfVersion` can explicitly require a token obtained from a cached read. See [Versioning](/guide/versioning#caching-and-versions). The race where stale data can be re-cached right after an invalidation is tracked in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
 
-Supplying routing to `GetByIdAsync` or `GetByIdsAsync` restricts cached matches to that route. Batched cached reads retain documents from different physical indexes, even when their IDs and routing values are the same.
+Supplying routing to `GetByIdAsync` or `GetByIdsAsync` restricts cached matches to that route. Batched cached reads retain documents from different physical indexes, even when their IDs and routing values are the same. Successful cached writes also retain the response's physical index and the write's routing value.
+
+For repositories with parent routing, a cached document on one route does not establish that an unrouted ID has no other matches. `GetByIdsAsync` still searches Elasticsearch for unresolved locations. That discovery search bypasses inherited cache-read and cache-write options, so a partial custom-key result cannot replace discovery; the outer read retains its requested caching behavior.
 
 ## Cache Invalidation Gaps
 
@@ -444,9 +464,9 @@ Console.WriteLine($"Hits: {stats.Hits}, Misses: {stats.Misses}");
 
 ## Summary: Cache Invalidation Matrix
 
-| Operation | Auto-Invalidated | Custom Keys | Notes |
+| Operation | Auto-Invalidated | Arbitrary Custom Keys | Notes |
 |-----------|------------------|-------------|-------|
-| `AddAsync` | Yes (adds to cache) | No | Override `InvalidateCacheAsync` |
+| `AddAsync` | No ID removal | No | Optional cache population; pipeline inputs are not cached |
 | `SaveAsync` | Yes | No | Override `InvalidateCacheAsync` |
 | `RemoveAsync` | Yes | No | Override `InvalidateCacheAsync` |
 | `PatchAsync` (ID) | Yes | No | Override `InvalidateCacheAsync` |
@@ -458,7 +478,7 @@ Console.WriteLine($"Hits: {stats.Hits}, Misses: {stats.Misses}");
 
 Elasticsearch's search path is eventually consistent -- see [Consistency and Dirty Reads](consistency.md) for the full explanation of which operations are real-time vs. near real-time.
 
-The cache layer is aware of this. When a search-based method like `FindOneAsync` returns results without `ImmediateConsistency`, the repository treats them as a potential dirty read and skips caching them by document ID. This prevents stale search results from polluting the ID-based cache that `GetByIdAsync` relies on:
+The cache layer is aware of this. When a search-based method like `FindOneAsync` returns results without `ImmediateConsistency`, the repository treats them as a potential dirty read and skips caching them by document ID. Caller source projections are also excluded from ID caching, including real-time reads. This prevents stale or incomplete results from polluting the ID-based cache that `GetByIdAsync` relies on:
 
 ```csharp
 // Internal behavior in AddDocumentsToCacheAsync:
@@ -473,6 +493,13 @@ protected virtual async Task AddDocumentsToCacheAsync(
         await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn());
         // ...
     }
+
+    // Caller source projections belong only to their explicit cache key
+    if (options.SafeGetOption<bool>(SkipIdCacheKey)
+        || options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0
+        || !String.IsNullOrEmpty(options.GetIncludeMask())
+        || !String.IsNullOrEmpty(options.GetExcludeMask()))
+        return;
 
     // Don't add dirty read documents by ID - they may be out of sync
     if (isDirtyRead)

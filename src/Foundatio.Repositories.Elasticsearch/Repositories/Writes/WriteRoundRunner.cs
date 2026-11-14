@@ -20,7 +20,7 @@ internal interface IWriteItem
 }
 
 /// <summary>The outcome of one item in one round, or its terminal outcome once the runner finishes.</summary>
-internal sealed record WriteItemResult(WriteOutcome Outcome, int? Status = null, string? ErrorType = null, string? Reason = null, Exception? Exception = null, ElasticDocumentVersion Version = default)
+internal sealed record WriteItemResult(WriteOutcome Outcome, int? Status = null, string? ErrorType = null, string? Reason = null, Exception? Exception = null, ElasticDocumentVersion Version = default, string? Index = null)
 {
     public static readonly WriteItemResult Cancelled = new(WriteOutcome.Cancelled);
 }
@@ -237,36 +237,14 @@ internal sealed class WriteRoundRunner
 /// <summary>The terminal outcome of every item passed to <see cref="WriteRoundRunner.RunAsync{TItem}"/>.</summary>
 internal sealed class WriteRunResult<TItem> where TItem : IWriteItem
 {
-    public WriteRunResult(IReadOnlyList<WriteItemOutcome<TItem>> items, int rounds, int otherSucceeded = 0, int otherMissing = 0)
+    public WriteRunResult(IReadOnlyList<WriteItemOutcome<TItem>> items, int rounds)
     {
         Items = items;
         Rounds = rounds;
-        OtherSucceeded = otherSucceeded;
-        OtherMissing = otherMissing;
     }
 
     public IReadOnlyList<WriteItemOutcome<TItem>> Items { get; }
     public int Rounds { get; }
-
-    /// <summary>Items that succeeded in earlier batches and were dropped by <see cref="Accumulate"/> to bound memory.</summary>
-    public int OtherSucceeded { get; }
-
-    /// <summary>Items that no longer existed in earlier batches and were dropped by <see cref="Accumulate"/>; they are not failures when missing documents are skipped.</summary>
-    public int OtherMissing { get; }
-
-    /// <summary>
-    /// Adds a batch to a running total, keeping only the items that still need reporting (so a long <c>PatchAllAsync</c>
-    /// does not hold every patched document) and counting the rest.
-    /// </summary>
-    public static WriteRunResult<TItem> Accumulate(WriteRunResult<TItem>? total, WriteRunResult<TItem> batch)
-    {
-        var kept = (total?.Items ?? []).Concat(batch.Items.Where(i => i.Result.Outcome is not (WriteOutcome.Succeeded or WriteOutcome.Noop or WriteOutcome.Missing))).ToList();
-        int droppedSucceeded = batch.Items.Count(i => i.Result.Outcome is WriteOutcome.Succeeded or WriteOutcome.Noop);
-        int droppedMissing = batch.Items.Count(i => i.Result.Outcome is WriteOutcome.Missing);
-        return new WriteRunResult<TItem>(kept, Math.Max(total?.Rounds ?? 0, batch.Rounds),
-            (total?.OtherSucceeded ?? 0) + batch.OtherSucceeded + droppedSucceeded,
-            (total?.OtherMissing ?? 0) + batch.OtherMissing + droppedMissing);
-    }
 
     public IEnumerable<WriteItemOutcome<TItem>> With(params WriteOutcome[] outcomes) => Items.Where(i => outcomes.Contains(i.Result.Outcome));
     public int Count(WriteOutcome outcome) => Items.Count(i => i.Result.Outcome == outcome);
@@ -277,6 +255,6 @@ internal sealed class WriteRunResult<TItem> where TItem : IWriteItem
     /// <summary>Combines outcomes decided before writing (for example a patch that made no change) with a run's outcomes.</summary>
     public static WriteRunResult<TItem> Merge(IReadOnlyCollection<WriteItemOutcome<TItem>> decided, WriteRunResult<TItem> run)
     {
-        return decided.Count is 0 ? run : new WriteRunResult<TItem>([.. decided, .. run.Items], run.Rounds, run.OtherSucceeded, run.OtherMissing);
+        return decided.Count is 0 ? run : new WriteRunResult<TItem>([.. decided, .. run.Items], run.Rounds);
     }
 }

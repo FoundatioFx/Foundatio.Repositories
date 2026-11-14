@@ -36,47 +36,53 @@ internal enum MissingDocumentPolicy
 /// </remarks>
 internal static class WriteExceptionMapper
 {
-    private const int MaxIds = 10;
-
     /// <summary>Returns the exception for the failed items, or <c>null</c> when every item succeeded (or was a no-op or skipped).</summary>
     public static Exception? CreateException<TItem>(WriteRunResult<TItem> run, string operationLabel, MissingDocumentPolicy missing, Func<TItem, bool>? isCreate = null)
         where TItem : IWriteItem
     {
-        var failed = run.Items.Where(i => IsFailure(i.Result.Outcome, missing)).ToList();
-        if (failed.Count is 0)
-            return null;
-
-        int succeeded = run.Count(WriteOutcome.Succeeded) + run.Count(WriteOutcome.Noop) + run.OtherSucceeded;
-        string summary = $"({failed.Count} failed, {succeeded} succeeded)";
-
-        var cancelled = failed.Where(i => i.Result.Outcome is WriteOutcome.Cancelled).ToList();
-        if (cancelled.Count > 0)
-            return new OperationCanceledException($"Error {operationLabel} documents: cancelled with {cancelled.Count} documents not confirmed {summary}. Ids: {FormatIds(cancelled)}");
-
-        var unsupported = failed.FirstOrDefault(i => i.Result.Outcome is WriteOutcome.VersioningNotSupported);
-        if (unsupported.Item is not null)
-            return new DocumentVersioningNotSupportedException(ElasticWriteErrors.VersioningNotSupportedMessage(unsupported.Item.Key.Index), unsupported.Result.Exception);
-
-        var missingIndex = failed.Where(i => i.Result.Outcome is WriteOutcome.Missing && missing is MissingDocumentPolicy.Conflict && ElasticWriteErrors.IsIndexNotFound(i.Result.ErrorType)).ToList();
-        if (missingIndex.Count > 0)
-            return new DocumentException($"Error {operationLabel} documents: index {missingIndex[0].Item.Key.Index} does not exist {summary}. Ids: {FormatIds(missingIndex)}", missingIndex[0].Result.Exception);
-
-        var conflicts = failed.Where(i => i.Result.Outcome is WriteOutcome.Conflict || (i.Result.Outcome is WriteOutcome.Missing && missing is MissingDocumentPolicy.Conflict)).ToList();
-        if (conflicts.Count > 0)
+        for (int index = 0; index < run.Items.Count; index++)
         {
-            if (isCreate is not null && conflicts.All(i => isCreate(i.Item)))
-                return new DuplicateDocumentException($"Error {operationLabel} documents: {conflicts.Count} already exist {summary}. Ids: {FormatIds(conflicts)}", conflicts[0].Result.Exception);
+            if (!IsFailure(run.Items[index].Result.Outcome, missing))
+                continue;
 
-            return new VersionConflictDocumentException($"Error {operationLabel} documents: {conflicts.Count} still conflicting after {run.Rounds} rounds {summary}. Ids: {FormatIds(conflicts)}", conflicts[0].Result.Exception);
+            var summary = new WriteFailureSummary(missing);
+            summary.Add(run, isCreate);
+            return CreateException(summary, operationLabel);
         }
 
-        var notFound = failed.FirstOrDefault(i => i.Result.Outcome is WriteOutcome.Missing);
-        if (notFound.Item is not null)
-            return new DocumentNotFoundException(notFound.Item.Key.Id);
+        return null;
+    }
 
-        string? reason = failed.Select(i => i.Result.Reason).FirstOrDefault(r => r is not null);
-        var inner = failed.Select(i => i.Result.Exception).FirstOrDefault(e => e is not null);
-        return new DocumentException($"Error {operationLabel} documents: {failed.Count} failures {summary}. Ids: {FormatIds(failed)}{(reason is null ? "" : $". First error: {reason}")}", inner);
+    /// <summary>Maps accumulated diagnostics without retaining or reconstructing the original document items.</summary>
+    public static Exception? CreateException(WriteFailureSummary failures, string operationLabel)
+    {
+        if (failures.FailedCount is 0)
+            return null;
+
+        string summary = $"({failures.FailedCount} failed, {failures.SucceededCount} succeeded)";
+
+        if (failures.CancelledCount > 0)
+            return new OperationCanceledException($"Error {operationLabel} documents: cancelled with {failures.CancelledCount} documents not confirmed {summary}. Ids: {FormatIds(failures.Cancelled, failures.CancelledCount)}");
+
+        if (failures.VersioningNotSupported is { } unsupported)
+            return new DocumentVersioningNotSupportedException(ElasticWriteErrors.VersioningNotSupportedMessage(unsupported.Key.Index), unsupported.Result.Exception);
+
+        if (failures.MissingIndexCount > 0)
+            return new DocumentException($"Error {operationLabel} documents: index {failures.MissingIndexes[0].Key.Index} does not exist {summary}. Ids: {FormatIds(failures.MissingIndexes, failures.MissingIndexCount)}", failures.MissingIndexes[0].Result.Exception);
+
+        if (failures.ConflictCount > 0)
+        {
+            if (failures.AllConflictsAreCreates)
+                return new DuplicateDocumentException($"Error {operationLabel} documents: {failures.ConflictCount} already exist {summary}. Ids: {FormatIds(failures.Conflicts, failures.ConflictCount)}", failures.Conflicts[0].Result.Exception);
+
+            return new VersionConflictDocumentException($"Error {operationLabel} documents: {failures.ConflictCount} still conflicting after {failures.Rounds} rounds {summary}. Ids: {FormatIds(failures.Conflicts, failures.ConflictCount)}", failures.Conflicts[0].Result.Exception);
+        }
+
+        if (failures.FirstMissing is { } notFound)
+            return new DocumentNotFoundException(notFound.Key.Id);
+
+        string? reason = failures.FirstReason;
+        return new DocumentException($"Error {operationLabel} documents: {failures.FailedCount} failures {summary}. Ids: {FormatIds(failures.Failures, failures.FailedCount)}{(reason is null ? "" : $". First error: {reason}")}", failures.FirstException);
     }
 
     public static void ThrowIfFailed<TItem>(WriteRunResult<TItem> run, string operationLabel, MissingDocumentPolicy missing, Func<TItem, bool>? isCreate = null)
@@ -86,7 +92,13 @@ internal static class WriteExceptionMapper
             throw exception;
     }
 
-    private static bool IsFailure(WriteOutcome outcome, MissingDocumentPolicy missing)
+    public static void ThrowIfFailed(WriteFailureSummary failures, string operationLabel)
+    {
+        if (CreateException(failures, operationLabel) is { } exception)
+            throw exception;
+    }
+
+    internal static bool IsFailure(WriteOutcome outcome, MissingDocumentPolicy missing)
     {
         return outcome switch
         {
@@ -96,9 +108,9 @@ internal static class WriteExceptionMapper
         };
     }
 
-    internal static string FormatIds<TItem>(IReadOnlyCollection<WriteItemOutcome<TItem>> items) where TItem : IWriteItem
+    private static string FormatIds(IReadOnlyList<WriteFailureSummary.Failure> samples, long count)
     {
-        var ids = items.Take(MaxIds).Select(i => i.Item.Key.Id);
-        return items.Count > MaxIds ? String.Join(", ", ids) + ", ..." : String.Join(", ", ids);
+        string ids = String.Join(", ", samples.Select(sample => sample.Key.Id));
+        return count > samples.Count ? ids + ", ..." : ids;
     }
 }

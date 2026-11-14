@@ -33,9 +33,12 @@ public abstract partial class ElasticRepositoryBase<T>
     /// (after backoff and a refresh) up to <c>Retry(n)</c> more times. The returned run ends as
     /// <see cref="WriteOutcome.Succeeded"/>, <see cref="WriteOutcome.Conflict"/> (conflicts left after the last pass),
     /// <see cref="WriteOutcome.Cancelled"/> or a failure. Documents deleted by earlier passes are always counted.
+    /// Repository query hooks and system filters run before the query and target indexes are prepared; retries reuse them.
     /// </summary>
     private async Task<(long Deleted, long Conflicts, WriteRunResult<QueryItem> Run)> DeleteByQueryAsync(IRepositoryQuery query, ICommandOptions options)
     {
+        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        query = ConfigureQuery(query.As<T>()).Unwrap();
         var esQuery = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext();
         string indexNames = String.Join(",", ElasticIndex.GetIndexesByQuery(query));
         var indices = Indices.Index(indexNames);
@@ -82,9 +85,12 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <summary>
     /// Starts a script patch as one asynchronous update-by-query task (<see cref="PatchStrategy.UpdateByQueryBulk"/>) and
     /// returns its task id. A failed response can leave the task's outcome unknown.
+    /// Repository query hooks and system filters run before preparing the request, as they do for batch selection.
     /// </summary>
     private async Task<string> StartPatchAllByQueryAsync(IRepositoryQuery query, ScriptPatch scriptOperation, ICommandOptions options)
     {
+        await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+        query = ConfigureQuery(query.As<T>()).Unwrap();
         string indexNames = String.Join(",", ElasticIndex.GetIndexesByQuery(query));
         var request = new UpdateByQueryRequest(Indices.Index(indexNames))
         {

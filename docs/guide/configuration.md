@@ -104,6 +104,8 @@ Elasticsearch ingest pipeline for document processing:
 DefaultPipeline = "my-ingest-pipeline";
 ```
 
+When this is set, successful `AddAsync` and `SaveAsync` calls skip cache population from the submitted model. `SaveAsync` still invalidates existing ID entries; `AddAsync` does not remove them. The pipeline may transform fields that are not returned in the write response. Read from Elasticsearch to obtain and cache the transformed source; versioned models receive the new version metadata without reloading those fields. See [Writes with a Default Ingest Pipeline](/guide/caching#writes-with-a-default-ingest-pipeline).
+
 Default: `null`
 
 ### AutoCreateCustomFields

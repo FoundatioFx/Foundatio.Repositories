@@ -25,6 +25,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="document">The document to add.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The added document with any generated fields populated (e.g., Id).</returns>
+    /// <remarks>When the Elasticsearch provider has a default ingest pipeline, the submitted model is not cached or
+    /// reloaded with pipeline-transformed fields. Read it again to obtain the stored source.</remarks>
     /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when a document with the same ID already exists.</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task<T> AddAsync(T document, CommandOptionsDescriptor<T>? options);
@@ -37,7 +39,9 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// </summary>
     /// <param name="documents">The documents to add.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
-    /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when any document ID already exists. Successfully added documents are still cached and notified.</exception>
+    /// <remarks>Successful additions have their cache handling and notifications processed before a failure is thrown.
+    /// A default ingest pipeline prevents cache population from the submitted models.</remarks>
+    /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when any document ID already exists.</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T>? options);
 
@@ -52,7 +56,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <returns>The saved document.</returns>
     /// <remarks>An <see cref="IVersioned"/> document with a version uses optimistic concurrency. A versioned document
     /// with no version is created and fails if its ID already exists. <c>SkipVersionCheck()</c> allows an unconditional overwrite.
-    /// <c>IfVersion</c> is supported only by single-document patches and is rejected here.</remarks>
+    /// <c>IfVersion</c> is supported only by single-document patches and is rejected here. With a default ingest pipeline,
+    /// cached entries are invalidated and the submitted model is not cached or reloaded with transformed fields.</remarks>
     /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when a versioned document with no version has an ID that already exists.</exception>
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts with the stored version (optimistic concurrency).</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
@@ -67,10 +72,11 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="documents">The documents to save.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <remarks>Each <see cref="IVersioned"/> document checks its version, or is created if it has no version, unless
-    /// <c>SkipVersionCheck()</c> is set. Successful documents are cached and notified before a failure is thrown.
+    /// <c>SkipVersionCheck()</c> is set. Successful documents have cache handling and notifications processed before a failure
+    /// is thrown. A default ingest pipeline prevents cache population from the submitted models.
     /// <c>IfVersion</c> is rejected.</remarks>
     /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when a versioned document with no version has an ID that already exists.</exception>
-    /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when any document has a version conflict. Successfully saved documents are still cached and notified.</exception>
+    /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when any document has a version conflict, after successful saves are processed.</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T>? options);
 

@@ -177,6 +177,8 @@ do
 
 Four patch types are available. All automatically set `UpdatedUtc` on models implementing `IHaveDates`.
 
+**Date serialization:** Default timestamp injection for single-document `JsonPatch`, `PartialPatch`, and `ScriptPatch` uses UTC ISO 8601. Source converters attached to the target model member do not control injected JSON or script values. For another stored date representation, use `ActionPatch<T>` (typed dates followed by native serialization), batch `JsonPatch`, or a `PartialPatch` with an explicit non-null timestamp in the stored format. Batch JSON means `PatchAllAsync` or a `PatchAsync(Ids)` input with more than one ID; exactly one ID uses the single-document path. For example, a target `updatedUtc` member that expects epoch milliseconds needs `new PartialPatch(new { name = "Updated", updatedUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() })`. A member converter on the target type is not inherited by an anonymous partial object's `DateTime` property. For scripts, supply a correctly formatted parameter and assign it explicitly; supplying the timestamp parameter suppresses the automatic assignment. Automatic injection does not support arbitrary member date converters.
+
 | Patch Type | How It Works | When to Use |
 | --- | --- | --- |
 | `PartialPatch` | Server-side field update via ES Update API | Simple field value changes |
@@ -237,6 +239,8 @@ Models own their JSON representation. Use an explicit `string? IVersioned.Versio
 
 `PatchAllAsync` with `ScriptPatch` uses the bulk Update API. `o.UseUpdateByQuery()` opts into update-by-query (faster, but skips concurrently changed documents and throws unless `o.ProceedOnQueryConflicts()`).
 
+`PatchAllAsync` with `UseUpdateByQuery()` and `RemoveAllAsync` using delete-by-query apply `BeforeQuery`, `SystemFilter`, and `ConfigureQuery` before preparing their requests, preserving repository selection filters. Retries reuse that prepared query. Batched patch failures accumulate counts and at most 10 sampled IDs across processed batches; exception IDs are not a complete failure list.
+
 ## Remove and Fetch
 
 ```csharp
@@ -263,6 +267,7 @@ bool exists = await repository.ExistsAsync(id);
 | ------------------------------- | -------------------------------------------- |
 | `o => o.Cache()`                | Enable cache read/write                      |
 | `o => o.Cache("key")`           | Cache with specific key                      |
+| `o => o.ReadCache(false)`        | Disable cache reads without changing writes  |
 | `o => o.ImmediateConsistency()` | ES refresh after write (use in tests only)   |
 | `o => o.SearchAfterPaging()`    | Deep pagination with search_after            |
 | `o => o.PageLimit(N)`           | Page size                                    |
@@ -273,6 +278,10 @@ bool exists = await repository.ExistsAsync(id);
 | `o => o.IfVersion(version)`     | `PatchAsync(id)` only if still at `version`  |
 | `o => o.Retry(n)`               | n retries after the first attempt (default 10) |
 | `o => o.IncludeSoftDeletes()`   | Include soft-deleted docs in queries         |
+
+`ReadCache(bool)` overrides cache reads independently; use `.Cache(false).ReadCache(false)` to bypass both when options may already enable read-only caching. Caller include/exclude options and masks do not populate the shared document-ID cache, though an explicit projection key can store the filtered response. Repository default source filtering does not disable normal ID caching. `GetByIdsAsync` discovery bypasses inherited cache options so a partial custom-key result or cached parent route cannot suppress discovery of other locations.
+
+With `DefaultPipeline`, Add/Save skip cache population from submitted models because Elasticsearch may transform them. Save still invalidates ID entries; Add does not remove them. When write caching is requested, the provided custom key is evicted. Read from Elasticsearch for transformed field values. Successful cached writes without a pipeline retain response index, routing and version metadata.
 
 `SaveAsync` pairs originals with documents by concrete index, routing and ID. `Originals()` loads exact locations for routed and multi-index repositories; supplied originals suppress only the corresponding reads. Successful locations retain their own original values and notifications when other items fail.
 

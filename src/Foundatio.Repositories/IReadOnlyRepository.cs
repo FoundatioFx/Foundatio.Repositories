@@ -21,6 +21,8 @@ public interface IReadOnlyRepository<T> where T : class, new()
     /// </summary>
     /// <param name="id">The document identifier.</param>
     /// <param name="options">Options to control caching, soft delete filtering, and other behaviors.</param>
+    /// <remarks>The Elasticsearch provider does not populate the shared ID cache from reads with caller source
+    /// include/exclude options or masks. An explicit cache key can store that projected response separately.</remarks>
     Task<T?> GetByIdAsync(Id id, CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="GetByIdAsync(Id, CommandOptionsDescriptor{T})"/>
@@ -31,6 +33,8 @@ public interface IReadOnlyRepository<T> where T : class, new()
     /// </summary>
     /// <param name="ids">The document identifiers.</param>
     /// <param name="options">Options to control caching, soft delete filtering, and other behaviors.</param>
+    /// <remarks>For Elasticsearch parent routing, a cached match on one route does not satisfy an unresolved unrouted ID.
+    /// Any search needed to discover remaining locations bypasses inherited cache-read and cache-write options.</remarks>
     Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="GetByIdsAsync(Ids, CommandOptionsDescriptor{T})"/>
@@ -91,6 +95,8 @@ public interface IReadOnlyRepository<T> where T : class, new()
     /// <summary>
     /// Event raised before a query is executed, allowing modification of query parameters.
     /// </summary>
+    /// <remarks>The Elasticsearch provider also invokes this event before preparing server-side <c>PatchAllAsync</c>
+    /// and <c>RemoveAllAsync</c> requests, so selection filters apply to both query-write strategies.</remarks>
     AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }
 
     /// <summary>

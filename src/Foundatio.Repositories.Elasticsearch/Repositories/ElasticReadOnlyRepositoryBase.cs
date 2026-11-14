@@ -52,6 +52,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicy _resiliencePolicy;
 
     internal const string FullDocumentSourceKey = "@FullDocumentSource";
+    private const string SkipIdCacheKey = "@SkipIdCache";
     private ScopedCacheClient _scopedCacheClient = null!;
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
     private int _disposed;
@@ -172,7 +173,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var cachedIds = new HashSet<Id>(hits.Count);
             foreach (var hit in hits)
             {
-                cachedIds.Add(new Id(hit.Id!));
+                if (!HasParent)
+                    cachedIds.Add(new Id(hit.Id!));
                 if (hit.Routing is not null)
                     cachedIds.Add(new Id(hit.Id!, hit.Routing));
             }
@@ -217,7 +219,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             var requestedIds = itemsToFind.ToHashSet();
             var foundLocations = hits.Select(hit => (hit.GetIndex(), hit.Id, hit.Routing)).ToHashSet();
-            var findOptions = options.Clone();
+            var findOptions = options.Clone().Cache(false).ReadCache(false);
             findOptions.PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
             do
@@ -615,7 +617,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
         searchDescriptor.Size(1);
-        var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+        SearchRequest searchRequest = searchDescriptor;
+        var response = await _client.SearchAsync<T>(searchRequest).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
         if (!response.IsValidResponse)
@@ -629,7 +632,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         result = response.Hits.Select(h => h.ToFindHit()).ToList();
 
         if (IsCacheEnabled && options.ShouldUseCache())
-            await AddDocumentsToCacheAsync(result, options, options.GetConsistency(DefaultConsistency) == Consistency.Eventual).AnyContext();
+        {
+            var cacheOptions = HasSourceProjection(searchRequest, options) ? options.Clone().BuildOption(SkipIdCacheKey, true) : options;
+            await AddDocumentsToCacheAsync(result, cacheOptions, options.GetConsistency(DefaultConsistency) == Consistency.Eventual).AnyContext();
+        }
 
         return result.FirstOrDefault() ?? FindHit<T>.Empty;
     }
@@ -1287,17 +1293,41 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return AddDocumentsToCacheAsync(new[] { findHit }, options, isDirtyRead);
     }
 
+    private bool HasSourceProjection(SearchRequest request, ICommandOptions options)
+    {
+        if (request.SourceIncludes?.Any() is true || request.SourceExcludes?.Any() is true)
+            return true;
+
+        if (request.Source is null)
+            return request.StoredFields?.Any() is true;
+        if (request.Source.TryGetBool(out bool? enabled))
+            return enabled is false;
+        if (!request.Source.TryGetSourceFilter(out var filter))
+            return true;
+        if (filter.Includes?.Any() is true || filter.ExcludeVectors is not null)
+            return true;
+        if (filter.Excludes?.Any() is not true)
+            return false;
+
+        // Compare the effective request, including replacement query hooks, with the repository's normal ID-read shape.
+        var (_, defaultExcludes) = GetResolvedIncludesAndExcludes(options);
+        return !filter.Excludes.Select(Infer.Field).ToHashSet(StringComparer.Ordinal).SetEquals(defaultExcludes.Select(Infer.Field));
+    }
+
+    /// <summary>Caches hits under an explicit cache key and, for complete non-dirty reads, under their document IDs.</summary>
+    /// <remarks>Caller source include/exclude options and masks prevent ID-cache population, even without an explicit key.
+    /// Repository default source filtering defines the normal document shape and does not itself disable ID caching.</remarks>
     protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options, bool isDirtyRead)
     {
         if (options.HasCacheKey())
         {
             await Cache.SetAsync(options.GetCacheKey()!, findHits, options.GetExpiresIn()).AnyContext();
-
-            // NOTE: Custom cache keys store the complete filtered result, but ID-based caching is skipped when includes/excludes are present to avoid incomplete data.
-            // This method also doesn't take into account any query includes or excludes but GetById(s) requests don't specify a query.
-            if (options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0)
-                return;
         }
+
+        // Caller projections belong only to their explicit query cache key, never the full-document ID cache.
+        if (options.SafeGetOption<bool>(SkipIdCacheKey) || options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0
+            || !String.IsNullOrEmpty(options.GetIncludeMask()) || !String.IsNullOrEmpty(options.GetExcludeMask()))
+            return;
 
         // don't add dirty read documents by id as they may be out of sync due to eventual consistency
         if (isDirtyRead)

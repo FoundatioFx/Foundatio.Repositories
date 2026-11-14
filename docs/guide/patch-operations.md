@@ -20,7 +20,7 @@ For models implementing `IHaveDates`, all patch operations automatically set `Up
 
 ### Caller-provided UpdatedUtc
 
-For `ScriptPatch` and `PartialPatch`, if you explicitly provide `updatedUtc` in your script parameters or partial document, the repository respects your value and skips auto-injection. This is logged at `Debug` level.
+For `PartialPatch`, an explicitly supplied, non-null `updatedUtc` value skips automatic injection. For `ScriptPatch`, supplying the `updatedUtc` parameter skips the automatic timestamp assignment; your script must assign that parameter to the source field itself. This is logged at `Debug` level.
 
 For `JsonPatch` and `ActionPatch`, `UpdatedUtc` is always set by the framework after applying your changes — matching `SaveAsync` semantics. If you need explicit control over the timestamp, use `ScriptPatch` or `PartialPatch`.
 
@@ -29,6 +29,33 @@ For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured onc
 
 This matches `SaveAsync` behavior, where `SetDates` is called once before the Elasticsearch request. In most scenarios the retry window is milliseconds, but callers relying on `UpdatedUtc` for strict ordering or audit trails should be aware of this.
 :::
+
+### Custom Serialized Dates
+
+The default automatic timestamp injected by single-document `JsonPatch`, `PartialPatch`, and `ScriptPatch` is a UTC ISO 8601 value. These values are added to a JSON node or script parameter separately from the target model member. A source converter on `UpdatedUtc` does not automatically control their representation. For example, a converter that requires epoch-millisecond numbers cannot read an automatically injected ISO string. Single JSON and pipeline partial patches can fail during deserialization; server-side patches can store a representation the model's converter cannot read.
+
+Use one of these supported paths when the model requires another date representation:
+
+- **`ActionPatch<T>`** sets dates on the typed model before native source serialization, so global and member-level date converters apply.
+- **Batch `JsonPatch`** also sets typed model dates. This includes `PatchAllAsync` and `PatchAsync(Ids)` with more than one input ID. An input containing exactly one ID delegates to the single-document path. Values supplied in the JSON patch must still conform to the model's JSON contract.
+- **`PartialPatch` with an explicit timestamp** uses the value you supply. Use the stored field name and the JSON representation the target member expects. An anonymous partial object's `DateTime` property does not inherit a converter attached to the target model's property.
+
+```csharp
+// Typed dates are serialized through Employee's configured member converters.
+await repository.PatchAsync(id, new ActionPatch<Employee>(document =>
+{
+    document.Name = "Updated";
+}));
+
+// For an UpdatedUtc member whose stored representation is epoch milliseconds:
+await repository.PatchAsync(id, new PartialPatch(new
+{
+    name = "Updated",
+    updatedUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+}));
+```
+
+For scripts, supply a parameter in the required stored representation and assign it explicitly in the script. Source member converters do not transform script assignments or parameters. These are existing representation boundaries; automatic injection does not support arbitrary target-member date converters.
 
 ### Custom Date Fields
 
@@ -140,7 +167,7 @@ await repository.PatchAsync(id, new ScriptPatch("ctx._source.tags.remove(ctx._so
 RFC 6902 JSON Patch operations:
 
 ```csharp
-using Foundatio.Repositories.JsonPatch;
+using Foundatio.Repositories.Utility;
 
 // Replace operation
 var patch = new PatchDocument(

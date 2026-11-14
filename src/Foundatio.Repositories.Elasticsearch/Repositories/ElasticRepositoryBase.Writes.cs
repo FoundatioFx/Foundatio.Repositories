@@ -109,7 +109,7 @@ public abstract partial class ElasticRepositoryBase<T>
 
                 var response = await WriteClient.IndexAsync(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                results = [ToWriteResult(response, response.IsValidResponse ? response.GetElasticVersion() : ElasticDocumentVersion.Empty)];
+                results = [ToWriteResult(response, response.IsValidResponse ? response.GetElasticVersion() : ElasticDocumentVersion.Empty, response.Index)];
             }
             else
             {
@@ -142,6 +142,31 @@ public abstract partial class ElasticRepositoryBase<T>
         }
 
         return operation;
+    }
+
+    private Task CacheWrittenDocumentsAsync(WriteRunResult<IndexItem> run, ICommandOptions options)
+    {
+        if (!String.IsNullOrEmpty(DefaultPipeline))
+            return options.HasCacheKey() ? Cache.RemoveAsync(options.GetCacheKey()!) : Task.CompletedTask;
+
+        var hits = new List<FindHit<T>>(run.Count(WriteOutcome.Succeeded));
+        foreach (var outcome in run.Items)
+        {
+            if (outcome.Result.Outcome is not WriteOutcome.Succeeded)
+                continue;
+
+            var item = outcome.Item;
+            string? version = outcome.Result.Version.ToVersionString();
+            // An async lifecycle handler can save this same model again before cache population.
+            if (item.Document is IVersioned versioned && !String.Equals(versioned.Version, version, StringComparison.Ordinal))
+                return options.HasCacheKey() ? Cache.RemoveAsync(options.GetCacheKey()!) : Task.CompletedTask;
+
+            var hit = new FindHit<T>(item.Key.Id, item.Document, 0, version, item.Routing);
+            hit.Data[ElasticDataKeys.Index] = outcome.Result.Index ?? item.Key.Index;
+            hits.Add(hit);
+        }
+
+        return AddDocumentsToCacheAsync(hits, options, false);
     }
 
     /// <summary>
@@ -207,10 +232,10 @@ public abstract partial class ElasticRepositoryBase<T>
     private static Routing? ToRouting(string? routing) => routing is null ? null : new Routing(routing);
 
     /// <summary>Classifies a single-document response the same way bulk items are classified.</summary>
-    private static WriteItemResult ToWriteResult(ElasticsearchResponse response, ElasticDocumentVersion version)
+    private static WriteItemResult ToWriteResult(ElasticsearchResponse response, ElasticDocumentVersion version, string? index = null)
     {
         if (response.IsValidResponse)
-            return new WriteItemResult(response.ApiCallDetails?.HttpStatusCode is 404 ? WriteOutcome.Missing : WriteOutcome.Succeeded, response.ApiCallDetails?.HttpStatusCode, Version: version);
+            return new WriteItemResult(response.ApiCallDetails?.HttpStatusCode is 404 ? WriteOutcome.Missing : WriteOutcome.Succeeded, response.ApiCallDetails?.HttpStatusCode, Version: version, Index: index);
 
         int? status = response.ApiCallDetails?.HttpStatusCode;
         var error = response.ElasticsearchServerError?.Error;

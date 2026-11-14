@@ -30,6 +30,9 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// Server-side patches provide no document values and invalidate by ID.</para>
     /// <para>Documents deleted while the operation runs are skipped. Successful documents are invalidated and notified
     /// per batch before remaining write failures are thrown. <c>IfVersion</c> is rejected.</para>
+    /// <para>The Elasticsearch provider applies <c>BeforeQuery</c>, system filters and <c>ConfigureQuery</c> to server-side
+    /// query writes as well as batch selection. Batch conflict and general failure diagnostics contain aggregate counts
+    /// and at most 10 sampled IDs; the IDs are not a complete failure list.</para>
     /// </remarks>
     Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T>? options = null);
 
@@ -55,6 +58,8 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <para>If conflicts persist after the retry budget is exhausted, a
     /// <see cref="Exceptions.VersionConflictDocumentException"/> is thrown. <c>ProceedOnQueryConflicts()</c> logs a warning
     /// and returns the partial count instead. <c>IfVersion</c> is rejected.</para>
+    /// <para>The Elasticsearch provider applies <c>BeforeQuery</c>, system filters and <c>ConfigureQuery</c> before
+    /// preparing delete-by-query, preserving repository selection filters on the server-side path.</para>
     /// </remarks>
     Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null);
 

@@ -154,25 +154,21 @@ public sealed class WriteRoundRunnerTests
     }
 
     [Fact]
-    public void AccumulateAndMerge_CarryDroppedCountsAndKeepOnlyItemsNeedingReport()
+    public void Merge_CombinesDecidedAndWrittenOutcomes()
     {
         // Arrange
         static WriteRunResult<Item> Run(params WriteOutcome[] outcomes) => new(outcomes.Select((o, i) => new WriteItemOutcome<Item>(new Item(new DocumentKey("i", i.ToString())), new WriteItemResult(o, 404))).ToList(), 1);
-        var decided = new[] { new WriteItemOutcome<Item>(new Item(new DocumentKey("i", "noop")), new WriteItemResult(WriteOutcome.Noop)) };
+        var decided = Run(WriteOutcome.Noop, WriteOutcome.Missing).Items.ToArray();
+        var run = Run(WriteOutcome.Succeeded, WriteOutcome.Fatal);
 
         // Act
-        var total = WriteRunResult<Item>.Accumulate(null, Run(WriteOutcome.Succeeded, WriteOutcome.Noop, WriteOutcome.Missing, WriteOutcome.Fatal));
-        total = WriteRunResult<Item>.Accumulate(total, Run(WriteOutcome.Succeeded, WriteOutcome.Missing));
-        var merged = WriteRunResult<Item>.Merge(decided, total);
+        var merged = WriteRunResult<Item>.Merge(decided, run);
 
         // Assert
-        Assert.Equal(3, total.OtherSucceeded);
-        Assert.Equal(2, total.OtherMissing);
-        Assert.Equal([WriteOutcome.Fatal], total.Items.Select(i => i.Result.Outcome));
-        Assert.Equal(3, merged.OtherSucceeded);
-        Assert.Equal(2, merged.OtherMissing);
-        Assert.Equal(2, merged.Items.Count);
-        Assert.Contains("(1 failed, 4 succeeded)", WriteExceptionMapper.CreateException(merged, "testing", MissingDocumentPolicy.Skip)!.Message);
+        Assert.Equal([WriteOutcome.Noop, WriteOutcome.Missing, WriteOutcome.Succeeded, WriteOutcome.Fatal], merged.Items.Select(item => item.Result.Outcome));
+        Assert.Equal(run.Rounds, merged.Rounds);
+        Assert.Contains("(1 failed, 2 succeeded)", WriteExceptionMapper.CreateException(merged, "testing", MissingDocumentPolicy.Skip)!.Message);
+        Assert.Same(run, WriteRunResult<Item>.Merge([], run));
     }
 
     [Fact]

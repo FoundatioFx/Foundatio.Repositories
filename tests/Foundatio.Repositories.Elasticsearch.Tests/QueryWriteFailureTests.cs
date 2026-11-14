@@ -8,9 +8,11 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
 using Xunit;
 
@@ -18,6 +20,65 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class QueryWriteFailureTests
 {
+    [Theory]
+    [InlineData(false, "BeforeQuery")]
+    [InlineData(false, "SystemFilter")]
+    [InlineData(false, "ConfigureQuery")]
+    [InlineData(true, "BeforeQuery")]
+    [InlineData(true, "SystemFilter")]
+    [InlineData(true, "ConfigureQuery")]
+    public async Task QueryWrite_WithRepositoryFilter_PreservesSelection(bool patch, string filterSource)
+    {
+        // Arrange
+        const string completedTask = """
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{"total":1,"updated":1,"created":0,"deleted":0,"version_conflicts":0}},"response":{"took":1,"timed_out":false,"total":1,"updated":1,"created":0,"deleted":0,"version_conflicts":0,"failures":[]}}
+            """;
+        using var configuration = patch
+            ? new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, completedTask))
+            : new TestConfiguration(("_delete_by_query", 200, QueryResponse(deleted: 1, timedOut: false, itemFailure: false)));
+        using var repository = new TestRepository(configuration) { ConfigureSelectionFilter = filterSource is "ConfigureQuery" };
+        var query = new RepositoryQuery<TestDocument>();
+        int beforeQueries = 0;
+        if (filterSource is "SystemFilter")
+        {
+            var filter = new RepositoryQuery<TestDocument>();
+            filter.FieldEquals(document => document.Count, 42);
+            query.SystemFilter(filter);
+        }
+        repository.BeforeQuery.AddHandler((_, args) =>
+        {
+            beforeQueries++;
+            if (filterSource is "BeforeQuery")
+                args.Query.FieldEquals("count", 42);
+            return Task.CompletedTask;
+        });
+
+        // Act
+        long changed = patch
+            ? await repository.PatchAllAsync(query, new ScriptPatch("ctx._source.count++"), new CommandOptions().UseUpdateByQuery().Retry(0))
+            : await repository.RemoveAllAsync(query, new CommandOptions().Retry(0));
+
+        // Assert
+        Assert.Equal(1, changed);
+        Assert.Equal(1, beforeQueries);
+        using var request = JsonDocument.Parse(configuration.Invoker.RequestBodies[0]);
+        Assert.Contains("\"count\"", request.RootElement.GetProperty("query").GetRawText());
+        Assert.Contains("42", request.RootElement.GetProperty("query").GetRawText());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("parent-route")]
+    public async Task PatchAsync_WithPipeline_TargetsTheRequestedRoutingShard(string? routing)
+    {
+        using var configuration = new TestConfiguration(("_update_by_query", 200, QueryResponse(0, false, false, updated: 1)));
+        using var repository = new TestRepository(configuration, usePipeline: true);
+
+        Assert.True(await repository.PatchAsync(new Id("one", routing), new ScriptPatch("ctx._source.count++"), options => options.Retry(0)));
+
+        Assert.Contains($"routing={routing ?? "one"}", Assert.Single(configuration.Invoker.RequestPaths));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -326,6 +387,15 @@ public sealed class QueryWriteFailureTests
         }
 
         public int QueryNotifications { get; private set; }
+        public bool ConfigureSelectionFilter { get; init; }
+
+        protected override IRepositoryQuery ConfigureQuery(IRepositoryQuery<TestDocument> query)
+        {
+            var configured = base.ConfigureQuery(query);
+            if (ConfigureSelectionFilter)
+                configured.FieldEquals("count", 42);
+            return configured;
+        }
 
         protected override Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery query, ICommandOptions options)
         {
@@ -361,6 +431,7 @@ public sealed class QueryWriteFailureTests
         public ResponseFactory ResponseFactory => _responseFactoryOwner.ResponseFactory;
         public int Requests { get; private set; }
         public List<string> RequestBodies { get; } = [];
+        public List<string> RequestPaths { get; } = [];
 
         public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
             where TResponse : TransportResponse, new()
@@ -375,6 +446,7 @@ public sealed class QueryWriteFailureTests
             else
             {
                 Requests++;
+                RequestPaths.Add(endpoint.PathAndQuery);
                 using var requestStream = new MemoryStream();
                 postData?.Write(requestStream, boundConfiguration.ConnectionSettings, false);
                 RequestBodies.Add(Encoding.UTF8.GetString(requestStream.ToArray()));
