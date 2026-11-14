@@ -25,7 +25,7 @@ For `ScriptPatch` and `PartialPatch`, if you explicitly provide `updatedUtc` in 
 For `JsonPatch` and `ActionPatch`, `UpdatedUtc` is always set by the framework after applying your changes — matching `SaveAsync` semantics. If you need explicit control over the timestamp, use `ScriptPatch` or `PartialPatch`.
 
 ::: warning Stale timestamps on server-side retries
-For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured once when the request is built and is fixed for any server-side retries (Elasticsearch `retry_on_conflict`, controlled by `o.Retry(n)`). If a version conflict causes Elasticsearch to retry the update, the retried write carries the **original timestamp**, not a fresh one. This means a document updated after several retries will have an `UpdatedUtc` that is slightly older than the actual commit time. For `JsonPatch` and `ActionPatch`, the timestamp is refreshed on each client-side retry since the entire operation (fetch + mutate + index) re-executes.
+For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured once when the request is built and is fixed for retries. If a version conflict causes Elasticsearch to retry the update, the retried write carries the **original timestamp**, not a fresh one. This means a document updated after several retries will have an `UpdatedUtc` that is slightly older than the actual commit time. For `JsonPatch` and `ActionPatch`, the timestamp is refreshed when a conflict causes the document to be re-read and the patch re-applied. Transient failures re-send the prepared document without changing its timestamp.
 
 This matches `SaveAsync` behavior, where `SetDates` is called once before the Elasticsearch request. In most scenarios the retry window is milliseconds, but callers relying on `UpdatedUtc` for strict ordering or audit trails should be aware of this.
 :::
@@ -193,7 +193,7 @@ bool modified = await repository.PatchAsync(id, new ActionPatch<Employee>(e =>
 ```
 
 ::: tip
-`ActionPatch` fetches the document, applies the lambda, and saves it. For true partial updates without fetching, use `PartialPatch` or `ScriptPatch`.
+`ActionPatch` fetches the document, applies the lambda, and saves it. Without a default ingest pipeline, `PartialPatch` and `ScriptPatch` use the server-side Update API.
 :::
 
 ## Return Values
@@ -201,8 +201,8 @@ bool modified = await repository.PatchAsync(id, new ActionPatch<Employee>(e =>
 All `PatchAsync` overloads return status information:
 
 - **`PatchAsync(Id, ...)`** returns `Task<bool>` -- `true` if the document was modified, `false` if the operation was treated as a no-op.
-  - For `PartialPatch`, Elasticsearch's automatic noop detection reports `false` when the update does not change any field values (e.g., setting a field to its current value). However, models implementing `IHaveDates` have `UpdatedUtc` injected automatically on partial updates, so most `PartialPatch` calls will return `true` unless date tracking is disabled or the caller explicitly supplies an `UpdatedUtc` value that does not change.
-  - For `ScriptPatch`, the operation is only a no-op when the script explicitly sets `ctx.op = 'none'`; simply reassigning the same value in a script is treated as a modification by Elasticsearch. The automatic date tracking script is appended after your script, but Elasticsearch evaluates `ctx.op` at the end of execution — so `ctx.op = 'none'` correctly prevents the write even with the appended timestamp assignment.
+  - For `PartialPatch` without a default ingest pipeline, Elasticsearch's automatic noop detection reports `false` when the update does not change any field values (e.g., setting a field to its current value). However, models implementing `IHaveDates` have `UpdatedUtc` injected automatically on partial updates, so most `PartialPatch` calls will return `true` unless date tracking is disabled or the caller explicitly supplies an `UpdatedUtc` value that does not change. With a default pipeline, the document is reindexed and a successful patch returns `true` even when the supplied values were unchanged.
+  - For `ScriptPatch`, explicitly set `ctx.op = 'noop'` to signal a no-op; simply reassigning the same value in a script is treated as a modification by Elasticsearch. The automatic date tracking script is appended after your script, but Elasticsearch evaluates `ctx.op` at the end of execution — so `ctx.op = 'noop'` correctly prevents the write even with the appended timestamp assignment.
   - For `ActionPatch`, noop detection depends on the overload used. The `Func<T, bool>` overload respects the return value — `false` skips the Elasticsearch write entirely (no Index API call, no date tracking, no cache invalidation). The document is still fetched and the delegate executes, but the reindex step is avoided. The `Action<T>` overload always assumes the document was modified. Empty actions (no callbacks) return `false`.
   - For `JsonPatch`, operations always return `true` (the get-modify-reindex pattern always writes). Empty operations (no patches) return `false`.
 - **`PatchAsync(Ids, ...)`** returns `Task<long>` -- the number of documents actually modified (excludes no-ops as reported by the backend).
@@ -212,14 +212,14 @@ Errors (document not found, version conflicts) throw exceptions rather than retu
 
 ::: warning Noop Detection Limitations
 - **Date tracking**: Models implementing `IHaveDates` have `UpdatedUtc` set automatically on partial updates. This injected timestamp change means `PartialPatch` will almost always report `true` even when no other field values changed.
-- **Script patches**: Elasticsearch does not detect noops for script-based updates automatically. Your script must explicitly set `ctx.op = 'none'` to signal a no-op. See [Script Noop Example](#script-noop-example) below.
+- **Script patches**: Elasticsearch does not detect noops for script-based updates automatically. Your script must explicitly set `ctx.op = 'noop'` to signal a no-op. See [Script Noop Example](#script-noop-example) below.
 - **JsonPatch**: Uses a get-modify-reindex pattern (Index API), so a write always occurs and `true` is always returned.
 - **ActionPatch (`Action<T>`)**: The `Action<T>` overload always assumes the document was modified. Use the `Func<T, bool>` overload and return `false` from your function to skip the reindex step for unchanged documents.
 :::
 
 ### Script Noop Example
 
-Use `ctx.op = 'none'` in your Painless script to conditionally skip the update. Elasticsearch evaluates `ctx.op` after the entire script executes, so placing it anywhere in the script works — even when automatic date tracking appends a timestamp assignment.
+Use `ctx.op = 'noop'` in your Painless script to conditionally skip the update. This works for both the Update API and update-by-query; the Update API also accepts `none`, but update-by-query does not. Elasticsearch evaluates `ctx.op` after the entire script executes, so placing it anywhere in the script works — even when automatic date tracking appends a timestamp assignment.
 
 > **Note:** Painless uses `==` for equality comparison (Java-style), not `===` (JavaScript-style). The `===` operator is not valid in Painless.
 
@@ -228,7 +228,7 @@ Use `ctx.op = 'none'` in your Painless script to conditionally skip the update. 
 bool modified = await repository.PatchAsync(id, new ScriptPatch(
     """
     if (ctx._source.status == params.newStatus) {
-        ctx.op = 'none';
+        ctx.op = 'noop';
     } else {
         ctx._source.status = params.newStatus;
     }
@@ -248,7 +248,7 @@ long modifiedCount = await repository.PatchAsync(
     new ScriptPatch(
         """
         if (ctx._source.status == params.newStatus) {
-            ctx.op = 'none';
+            ctx.op = 'noop';
         } else {
             ctx._source.status = params.newStatus;
         }
@@ -301,9 +301,9 @@ await repository.PatchAsync(ids, new PartialPatch(new { Department = "Engineerin
 await repository.PatchAsync(ids, new ScriptPatch("ctx._source.reviewCount++"));
 ```
 
-For multi-ID batches with a default ingest pipeline, `PartialPatch` reads known index and routing locations with a real-time multi-get. This includes ObjectId-based daily and monthly indexes, so an acknowledged write can be patched before a search refresh. IDs whose locations require discovery, such as custom time-series IDs or parent documents without routing, use search. A mixed batch keeps real-time reads for the resolvable IDs; only discovery depends on refreshed search data. The single-ID overload still requires a resolvable location.
+For multi-ID batches with a default ingest pipeline, `PartialPatch` reads known index and routing locations with a real-time multi-get. This includes ObjectId-based daily and monthly indexes, so an acknowledged write can be patched before a search refresh. IDs whose locations require discovery, such as custom time-series IDs or documents whose parent routing was not supplied, use search. A mixed batch keeps real-time reads for the resolvable IDs; only discovery depends on refreshed search data. The single-ID overload still requires a resolvable location.
 
-JSON and action patches across multiple indexes use search, including its normal soft-delete filtering and matches in different indexes. `PatchAllAsync` also uses search. These operations retain their search visibility semantics.
+For inputs containing multiple IDs, JSON and action patches use search even on a single index, including repository query and soft-delete filters. IDs missing or excluded from that initial selection are skipped. A selected document that disappears before a conflict re-read still causes `DocumentNotFoundException`, after successful patches are processed. A single-ID input and pipeline `PartialPatch` report missing documents. `PatchAllAsync` also uses search, but skips documents deleted while it runs.
 
 ### Patch by Query (PatchAllAsync)
 
@@ -478,7 +478,7 @@ await repository.PatchAsync(id, new PartialPatch(new
 ## Cache Behavior
 
 ::: warning Important
-Patch operations invalidate cache by document ID, but **custom cache keys are NOT automatically invalidated**.
+Server-side patches invalidate cache by document ID. Client-side JSON, action and pipeline partial patches also pass the patched document to custom invalidation overrides. The repository does not infer arbitrary custom cache keys or supply the document's previous field values to those overrides.
 :::
 
 ```csharp
@@ -496,7 +496,7 @@ await repository.PatchAsync(id, new PartialPatch(new { Email = "new@example.com"
 // The cache key "employee:email:old@example.com" is NOT invalidated
 ```
 
-**Solution:** Override `InvalidateCacheAsync` or manually invalidate:
+**Solution:** Use a document-based `InvalidateCacheAsync` override for client-side patches, or manually invalidate keys that depend on previous values:
 
 ```csharp
 await repository.PatchAsync(id, patch);
@@ -505,7 +505,7 @@ await repository.InvalidateCacheAsync($"employee:email:{oldEmail}");
 
 ## Soft Delete Behavior
 
-Patch operations work on documents regardless of soft delete status:
+Single-ID patches work regardless of soft delete status. Query-based patches and multi-ID reads that locate documents through search apply the configured soft-delete filtering:
 
 ```csharp
 // This will patch even if document is soft-deleted
@@ -549,12 +549,12 @@ All patch types can throw `DocumentNotFoundException` (HTTP 404) or `VersionConf
 | Patch Type | 404 (Not Found) | 409 (Version Conflict) | Notes |
 |------------|-----------------|------------------------|-------|
 | `PartialPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Update API with `retry_on_conflict` (with a default pipeline: get, merge, index) |
-| `ScriptPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Update API with `retry_on_conflict`; thrown only after the server-side retries run out |
+| `ScriptPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Update API with `retry_on_conflict`, or update-by-query with a default pipeline; `IfVersion` fails on a conflict without retrying it |
 | `JsonPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Fetches document, applies patch, then indexes |
 | `ActionPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Fetches document, applies lambda, then indexes |
 
 ::: tip
-`ScriptPatch` and `PartialPatch` execute on the Elasticsearch node via the Update API. On a conflict, Elasticsearch re-applies them to the latest document up to `o.Retry(n)` times (default 10) without a round trip. `JsonPatch` and `ActionPatch` perform a client-side fetch-mutate-index cycle. On a conflict the document is re-read and the patch re-applied (see [Automatic Retry Behavior](#automatic-retry-behavior)). With `o.IfVersion(version)`, a changed document throws `VersionConflictDocumentException` instead.
+Without a default pipeline, `ScriptPatch` and `PartialPatch` execute on the Elasticsearch node via the Update API. On a conflict, Elasticsearch re-applies them to the latest document up to `o.Retry(n)` times (default 10) without a round trip. `JsonPatch` and `ActionPatch` perform a client-side fetch-mutate-index cycle. On a conflict the document is re-read and the patch re-applied (see [Automatic Retry Behavior](#automatic-retry-behavior)). With `o.IfVersion(version)`, a changed document throws `VersionConflictDocumentException` instead.
 :::
 
 ### Concurrency semantics
@@ -563,12 +563,12 @@ For `IVersioned` entities, patches never lose a concurrent change: a patch that 
 
 - **Update API (Script/Partial):** Elasticsearch re-runs the update on the latest document (`retry_on_conflict`).
 - **JsonPatch/ActionPatch/pipeline PartialPatch:** for `IVersioned` entities, the write is checked against the version the patch read, so a concurrent change is detected and the patch is re-applied on a fresh read. `SkipVersionCheck()` writes without the check. For entities that don't implement `IVersioned` there is no check, and a change made between the read and the write is silently overwritten.
-- **Batch JsonPatch/ActionPatch/pipeline PartialPatch (`PatchAsync(ids)`, `PatchAllAsync`):** documents that conflict (or fail with 429/503) are re-read together with one multi-get, re-patched and re-written in one bulk request per round. Documents deleted in the meantime are skipped.
+- **Batch JsonPatch/ActionPatch/pipeline PartialPatch (`PatchAsync(ids)`, `PatchAllAsync`):** conflicting documents are re-read together with one multi-get, re-patched and re-written in one bulk request per round. Transient failures are re-sent unchanged. `PatchAllAsync` skips documents deleted in the meantime. `PatchAsync(ids)` reports selected documents that disappear during a retry; its initial JSON/action search skips unmatched or filtered IDs, as described in [Patch by IDs](#patch-by-ids).
 - **`PatchAllAsync` ScriptPatch:** uses the bulk Update API per batch by default. `o.UseUpdateByQuery()` (cache disabled) uses update-by-query instead, which skips documents changed after its snapshot and throws unless `o.ProceedOnQueryConflicts()`. With a default pipeline, each document is patched by update-by-query on its id so the pipeline runs.
-- **Expected version (`IfVersion`):** supported only by `PatchAsync(id)`, for any entity. Every attempt (including transient retries) sends `if_seq_no`/`if_primary_term` from the expected version (script and partial patches leave out `retry_on_conflict`); JSON and action patches compare the version they read and never re-read. It's rejected with `SkipVersionCheck()`, by `PatchAsync(ids)` for any number of ids, and by `AddAsync`/`SaveAsync`/`RemoveAsync`/`RemoveAllAsync`.
-- **Pipeline ScriptPatch batches** (`PatchAsync(ids)`/`PatchAllAsync` with a default pipeline) send one update-by-query request per document, because the Update API can't run ingest pipelines. They aren't batched; no request refreshes, and the written indexes are refreshed once after the last document (also when a document failed) instead of after each document, unless the consistency is eventual. Prefer a PartialPatch, JSON or action patch (which are batched) when the pipeline must run on many documents.
+- **Expected version (`IfVersion`):** supported only by `PatchAsync(id)`, for any entity. Every attempt (including transient retries) sends `if_seq_no`/`if_primary_term` from the expected version (script and partial patches leave out `retry_on_conflict`); JSON and action patches compare the version they read and never re-read. It's rejected with `SkipVersionCheck()`, for script patches with a default pipeline, by `PatchAsync(ids)` for any number of ids, and by `AddAsync`/`SaveAsync`/`RemoveAsync`/`RemoveAllAsync`.
+- **Pipeline ScriptPatch batches** (`PatchAsync(ids)`/`PatchAllAsync` with a default pipeline) send one update-by-query request per document, because the Update API can't run ingest pipelines. Each request disables its own refresh. Before retrying conflicts, the repository refreshes the affected indexes so the next snapshot sees current versions, even with eventual consistency. The final refresh follows the requested consistency, including after per-document write failures. Prefer a PartialPatch, JSON or action patch (which are batched) when the pipeline must run on many documents.
 
-Successful documents are invalidated in the cache and notified as each batch completes. Documents still failing after the retry budget are reported at the end in a `VersionConflictDocumentException` (or `DocumentException`) with counts and ids. Make scripts idempotent when an operation may be retried or run in parallel.
+Successful documents are invalidated in the cache and notified as each batch completes. Documents still failing after the retry budget are reported at the end; see [Failure handling](/guide/versioning#failure-handling) for exception types and diagnostics. Make scripts idempotent when an operation may be retried or run in parallel.
 
 `PatchAllAsync` reads its batches from a point-in-time snapshot, or a scroll snapshot when `SnapshotPaging()` is supplied. A refresh between batches cannot move an already-patched document past the cursor and patch it again. Multi-ID client-side patches that locate documents by search also use snapshot paging, so large ID sets do not exceed the offset result window. Daily and monthly indexes can locate caller-assigned IDs through this multi-ID search path; the single-ID overload still requires an ID from which the index can be resolved.
 
@@ -578,7 +578,7 @@ See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full
 
 ### Automatic Retry Behavior
 
-Client-side patches always read the complete source, including when the query or command options specify included or excluded fields. This preserves fields outside the patch when the modified document is written back. The caller's query and options are not changed.
+Client-side patch reads request the complete `_source`, overriding included or excluded fields on the query or command options so projections do not discard unpatched model properties. The read and write still use `T` and its configured source serializer contract. Unmodeled fields survive only when that contract retains them, for example through native extension data such as `[JsonExtensionData]`. The caller's query and options are not changed.
 
 For `PatchAsync(Ids, ...)`, repeated `(ID, routing)` pairs are patched once. The same ID with different routing values can identify different documents, so both requests are retained. When the repository searches to locate documents, explicit routing still limits which matching documents are patched.
 
@@ -586,7 +586,7 @@ For `PatchAsync(Ids, ...)`, repeated `(ID, routing)` pairs are patched once. The
 - Transient errors (HTTP 429, 503 responses containing an Elasticsearch error type, and requests that were never sent) are retried within the same budget with exponential backoff and jitter. HTTP 502/504, unstructured gateway 503 responses and timeouts are reported. `DocumentNotFoundException` is not retried.
 - With `IfVersion`, every attempt (including transient retries) is sent with the expected version and the document is never re-read.
 - Models retain their configured JSON contracts, including explicit `IVersioned.Version` implementations and `[JsonIgnore]`. After a client-side patch, the repository restores the token captured with the read, so a JSON field cannot replace the concurrency token used for the write. Independent business properties named `Version`, such as `MigrationState.Version`, and nested version fields can be patched normally.
-- Conflicts and retries are logged at Warning level with the expected and current versions; an exhausted budget is logged at Error level.
+- Conflicts are logged at Warning level with the expected and current versions; retry rounds at Information level; an exhausted budget at Error level.
 ## Performance Considerations
 
 ### Use ScriptPatch for Atomic Operations
@@ -622,14 +622,13 @@ foreach (var emp in employees.Documents)
 Patch operations handle cache invalidation differently depending on whether the full document is available:
 
 **Document-based invalidation** (supports custom `InvalidateCacheAsync` overrides):
-- Client-side patches (`JsonPatch`, `ActionPatch` and `PartialPatch` with a default pipeline) in `PatchAsync(Ids)` and `PatchAllAsync`: the patched `T` is passed to `InvalidateCacheAsync(IEnumerable<T>)` and `OnDocumentsChangedAsync`, enabling custom cache key strategies based on document properties.
+- Client-side patches (`JsonPatch`, `ActionPatch` and `PartialPatch` with a default pipeline) in `PatchAsync(id)`, `PatchAsync(Ids)` and `PatchAllAsync`: the change hook passes patched documents to `InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>>)` before raising `DocumentsChanged`, enabling custom cache key strategies based on document properties. Original documents are not supplied.
 
 **ID-based invalidation** (removes cache entries by document ID only):
-- `ScriptPatch` and `PartialPatch` without a default pipeline — all paths: executes server-side on Elasticsearch; the modified document is never returned to the client.
-- `PatchAsync(id)` — all patch types: the cache entry is removed by document ID.
+- `ScriptPatch`, and `PartialPatch` without a default pipeline — all paths: execute server-side on Elasticsearch; the modified document is never returned to the client.
 
 ::: warning ID-Based Invalidation Limitation
-If your repository overrides `InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>>)` to compute custom cache keys from document properties (e.g., composite keys, secondary lookups), those overrides will **not** fire for server-side patches or for `PatchAsync(id)`. Only the standard ID-based cache key is removed.
+For server-side patches, `InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>>)` receives an empty collection, so overrides cannot compute cache keys from document properties. The built-in invalidation removes standard ID-based cache entries.
 :::
 
 ## Notifications
@@ -645,7 +644,7 @@ await repository.PatchAsync(id, new ScriptPatch("ctx._source.name = 'Changed';")
 // EntityChanged { Type = "Employee", Id = "<id>", ChangeType = Saved }
 ```
 
-No-op patches (e.g., `ScriptPatch` with `ctx.op = 'none'`, `ActionPatch` returning `false`, or empty operations) do **not** send notifications.
+No-op patches (e.g., `ScriptPatch` with `ctx.op = 'noop'`, `ActionPatch` returning `false`, or empty operations) do **not** send notifications.
 
 ::: warning DocumentsChanged fires with an empty document list for server-side patches
 `ScriptPatch` and `PartialPatch` without a default pipeline are applied by Elasticsearch, so the modified document is not available client-side: `DocumentsChanged` fires but `args.Documents` is **empty**, as it is for `PatchAllAsync` with `UseUpdateByQuery()`. Patches applied client-side (`JsonPatch`, `ActionPatch` and `PartialPatch` with a default pipeline) pass the patched documents in `args.Documents` for `PatchAsync(id)`, `PatchAsync(Ids)` and each `PatchAllAsync` batch.
@@ -655,7 +654,7 @@ No-op patches (e.g., `ScriptPatch` with `ctx.op = 'none'`, `ActionPatch` returni
 
 `PatchAsync(Ids, ...)` behavior depends on the patch type:
 
-- **`ScriptPatch` / `PartialPatch`**: Sends one `EntityChanged` message **per modified ID**. IDs that result in a noop (e.g., `ScriptPatch` with `ctx.op = 'none'`) are excluded from notifications:
+- **`ScriptPatch` / `PartialPatch`**: Sends one `EntityChanged` message **per modified ID**. IDs that result in a noop (e.g., `ScriptPatch` with `ctx.op = 'noop'`) are excluded from notifications:
 
 ```csharp
 await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source.name = 'Changed';"));
@@ -666,7 +665,7 @@ await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source
 
 - **`JsonPatch` / `ActionPatch<T>`**: Same as above. Patches are applied in memory and written in grouped rounds; noop and missing IDs are excluded from notifications, and documents that were patched are notified before the exception for the failed ones is thrown.
 
-A single distinct ID behaves like `PatchAsync(id, ...)`.
+An input containing exactly one ID behaves like `PatchAsync(id, ...)`.
 
 ### PatchAllAsync (Query-Based)
 

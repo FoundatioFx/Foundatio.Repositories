@@ -194,8 +194,8 @@ This permanently deletes ALL documents in the index.
 :::
 
 ```csharp
-long deleted = await repository.RemoveAllAsync();
-Console.WriteLine($"Deleted {deleted} documents");
+long processed = await repository.RemoveAllAsync();
+Console.WriteLine($"Processed {processed} matching documents");
 ```
 
 ### Remove with Query
@@ -204,9 +204,11 @@ For `ISearchableRepository<T>`:
 
 ```csharp
 // Remove all employees in a department
-long deleted = await repository.RemoveAllAsync(
+long processed = await repository.RemoveAllAsync(
     q => q.FieldEquals(e => e.Department, "Sales"));
 ```
+
+With caching or remove event listeners, `RemoveAllAsync` loads and removes documents in batches. Its returned count is the number of matching documents processed, including any that another writer deleted before the remove request. Those missing documents are not reported in removal events or notifications. A failed batch stops the operation after notifying its successful removals; later batches are not processed. The server-side delete-by-query path returns the actual number deleted instead.
 
 ::: tip Version Conflicts and Retries
 When no event listeners are registered and caching is disabled, `RemoveAllAsync` uses Elasticsearch's `delete_by_query`. This API snapshots document versions when it begins and skips any document modified before the delete executes, counting it as a version conflict. Because `delete_by_query` does not support `retry_on_conflict`, the repository re-runs the query up to `Retry(n)` more times (default `10`, so up to 11 passes), with exponential backoff and a refresh between passes, until no conflicts remain.
@@ -231,7 +233,7 @@ See [Soft Deletes](/guide/soft-deletes) for more details.
 
 ## Patch Operations
 
-Patch operations allow partial updates without fetching the full document.
+Server-side patch operations update selected fields without fetching the document. JSON, action and pipeline partial patches read the document before applying the change.
 
 ### Partial Patch
 

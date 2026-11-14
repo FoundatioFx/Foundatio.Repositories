@@ -22,6 +22,97 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class PatchReadConsistencyTests
 {
+    [Theory]
+    [InlineData(false, SoftDeleteQueryMode.ActiveOnly)]
+    [InlineData(true, SoftDeleteQueryMode.ActiveOnly)]
+    [InlineData(false, SoftDeleteQueryMode.DeletedOnly)]
+    [InlineData(true, SoftDeleteQueryMode.DeletedOnly)]
+    [InlineData(false, SoftDeleteQueryMode.All)]
+    [InlineData(true, SoftDeleteQueryMode.All)]
+    public async Task JsonAndActionPatch_WithMixedSoftDeleteStates_PatchesOnlyEligibleDocuments(bool action, SoftDeleteQueryMode mode)
+    {
+        var active = StoredDocument.CreateSingleIndex("active");
+        var deleted = StoredDocument.CreateSingleIndex("deleted", isDeleted: true);
+        using var configuration = new TestConfiguration([active, deleted]);
+        using var repository = new TestRepository(configuration, [active, deleted], singleIndex: true);
+        var updatedIds = new List<string>();
+
+        long patched = await repository.PatchAsync(new Ids(active.Document.Id, deleted.Document.Id), CreateValuePatch(action),
+            o => o.Retry(0).Notifications(false).SoftDeleteMode(mode).UpdateCallback(updatedIds.AddRange));
+
+        string[] expectedIds = mode switch
+        {
+            SoftDeleteQueryMode.ActiveOnly => [active.Document.Id],
+            SoftDeleteQueryMode.DeletedOnly => [deleted.Document.Id],
+            _ => [active.Document.Id, deleted.Document.Id]
+        };
+        Assert.Equal(expectedIds.Length, patched);
+        Assert.Equal(expectedIds.Order(), configuration.Invoker.Writes.Select(w => w.Id).Order());
+        Assert.Equal(expectedIds.Order(), updatedIds.Order());
+        Assert.All(configuration.Invoker.Writes, write => Assert.Equal("patched", write.Source.GetProperty("value").GetString()));
+    }
+
+    [Theory]
+    [InlineData(false, SoftDeleteQueryMode.ActiveOnly)]
+    [InlineData(true, SoftDeleteQueryMode.ActiveOnly)]
+    [InlineData(false, SoftDeleteQueryMode.DeletedOnly)]
+    [InlineData(true, SoftDeleteQueryMode.DeletedOnly)]
+    public async Task JsonAndActionPatch_WhenEveryDocumentIsFiltered_ReturnsZeroWithoutWritesOrNotifications(bool action, SoftDeleteQueryMode mode)
+    {
+        bool isDeleted = mode is SoftDeleteQueryMode.ActiveOnly;
+        var first = StoredDocument.CreateSingleIndex("first", isDeleted);
+        var second = StoredDocument.CreateSingleIndex("second", isDeleted);
+        using var configuration = new TestConfiguration([first, second]);
+        using var repository = new TestRepository(configuration, [first, second], singleIndex: true);
+        int notifications = 0;
+        repository.DocumentsChanged.AddHandler((_, _) =>
+        {
+            notifications++;
+            return Task.CompletedTask;
+        });
+        var updatedIds = new List<string>();
+
+        long patched = await repository.PatchAsync(new Ids(first.Document.Id, second.Document.Id), CreateValuePatch(action),
+            o => o.Retry(0).Notifications(false).SoftDeleteMode(mode).UpdateCallback(updatedIds.AddRange));
+
+        Assert.Equal(0, patched);
+        Assert.Empty(configuration.Invoker.Writes);
+        Assert.Empty(updatedIds);
+        Assert.Equal(0, notifications);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task JsonAndActionPatch_WithRepositoryQueryFilter_DoesNotPatchExcludedDocuments(bool action)
+    {
+        var included = StoredDocument.CreateSingleIndex("included");
+        var excluded = StoredDocument.CreateSingleIndex("excluded");
+        using var configuration = new TestConfiguration([included, excluded]);
+        using var repository = new TestRepository(configuration, [included, excluded], singleIndex: true);
+        repository.BeforeQuery.AddHandler((_, args) =>
+        {
+            args.Query.ExcludedId(excluded.Document.Id);
+            return Task.CompletedTask;
+        });
+
+        long patched = await repository.PatchAsync(new Ids(included.Document.Id, excluded.Document.Id), CreateValuePatch(action),
+            o => o.Retry(0).Notifications(false));
+
+        Assert.Equal(1, patched);
+        var write = Assert.Single(configuration.Invoker.Writes);
+        Assert.Equal(included.Document.Id, write.Id);
+        Assert.Equal("patched", write.Source.GetProperty("value").GetString());
+    }
+
+    private static IPatchOperation CreateValuePatch(bool action) => action
+        ? new ActionPatch<TestDocument>(document =>
+        {
+            document.Value = "patched";
+            return true;
+        })
+        : new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/value", Value = "patched" }));
+
     [Fact]
     public async Task JsonPatch_WithPublicVersion_PreservesReadTokenForConditionalWrites()
     {
@@ -169,16 +260,20 @@ public sealed class PatchReadConsistencyTests
         Assert.Equal(new[] { first.Index, duplicate.Index }, configuration.Invoker.Writes.Where(w => w.Id == first.Document.Id).Select(w => w.Index).Order());
     }
 
-    private sealed class TestDocument : IIdentity, IVersioned
+    private sealed class TestDocument : IIdentity, IVersioned, ISupportSoftDeletes
     {
         public string Id { get; set; } = null!;
         public string? Version { get; set; }
         public string Keep { get; set; } = "preserved";
         public string Value { get; set; } = "before";
+        public bool IsDeleted { get; set; }
     }
 
     private sealed record StoredDocument(string Index, string ReadIndex, TestDocument Document, string? Routing)
     {
+        public static StoredDocument CreateSingleIndex(string id, bool isDeleted = false) =>
+            new("patch-reads", "patch-reads", new TestDocument { Id = id, IsDeleted = isDeleted, Version = "1:7" }, null);
+
         public static StoredDocument Create(int month, string? id = null, string? routing = null)
         {
             id ??= ObjectId.GenerateNewId(new DateTime(2026, month, 15, 0, 0, 0, DateTimeKind.Utc)).ToString();
@@ -191,8 +286,8 @@ public sealed class PatchReadConsistencyTests
         private readonly IReadOnlyList<StoredDocument> _visible;
         public List<string> SearchedIds { get; } = [];
 
-        public TestRepository(TestConfiguration configuration, IReadOnlyList<StoredDocument> visible, bool hasParent = false)
-            : base(new TestIndex(configuration))
+        public TestRepository(TestConfiguration configuration, IReadOnlyList<StoredDocument> visible, bool hasParent = false, bool singleIndex = false)
+            : base(singleIndex ? new SingleTestIndex(configuration) : new TestIndex(configuration))
         {
             _visible = visible;
             HasParent = hasParent;
@@ -200,17 +295,23 @@ public sealed class PatchReadConsistencyTests
             DisableCache();
         }
 
-        public override Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null)
+        public override async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null)
         {
             var ids = query.GetIds();
             SearchedIds.AddRange(ids);
             Assert.NotNull(options);
             Assert.True(options.SafeGetOption<bool>(FullDocumentSourceKey));
-            var hits = _visible.Where(d => ids.Contains(d.Document.Id))
+            await OnBeforeQueryAsync(query, options, typeof(TResult));
+            var hits = _visible.Where(d => ids.Contains(d.Document.Id) && !query.GetExcludedIds().Contains(d.Document.Id) && ShouldReturnDocument(d.Document, options))
                 .Select(d => new FindHit<TResult>(d.Document.Id, (TResult)(object)d.Document, 0, "1:7", d.Routing,
                     new DataDictionary { [ElasticDataKeys.Index] = d.Index })).ToList();
-            return Task.FromResult(new FindResults<TResult>(hits, hits.Count));
+            return new FindResults<TResult>(hits, hits.Count);
         }
+    }
+
+    private sealed class SingleTestIndex(TestConfiguration configuration) : Index<TestDocument>(configuration, "patch-reads")
+    {
+        public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
     }
 
     private sealed class TestIndex(TestConfiguration configuration) : MonthlyIndex<TestDocument>(configuration, "patch-reads")
@@ -265,7 +366,7 @@ public sealed class PatchReadConsistencyTests
                         found = document is not null,
                         _seq_no = 7,
                         _primary_term = 1,
-                        _source = document is null ? null : new { id, keep = document.Document.Keep, value = document.Document.Value }
+                        _source = document is null ? null : new { id, keep = document.Document.Keep, value = document.Document.Value, isDeleted = document.Document.IsDeleted }
                     });
                 }
                 body = JsonSerializer.Serialize(new { docs });

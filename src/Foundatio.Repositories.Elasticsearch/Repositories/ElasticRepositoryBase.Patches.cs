@@ -48,41 +48,41 @@ public abstract partial class ElasticRepositoryBase<T>
     /// is set: then the write is always checked against that version, a mismatch ends as
     /// <see cref="WriteOutcome.Conflict"/>, and the document is never re-read.
     /// </remarks>
-    private async Task<WriteRunResult<IndexItem>> PatchClientSideAsync(IReadOnlyCollection<(string Id, FindHit<T> Hit)> hits, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, ICommandOptions options, Refresh refresh, string operationName)
+    private async Task<WriteRunResult<IndexItem>> PatchClientSideAsync(IReadOnlyCollection<(string Id, FindHit<T> Hit)> hits, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, ICommandOptions options, Refresh refresh, string operationName, bool useDocumentDates = false)
     {
         bool checkVersion = expectedVersion is not null || (HasVersion && !options.ShouldSkipVersionCheck());
         var decided = new List<WriteItemOutcome<IndexItem>>();
         var items = new List<IndexItem>();
         foreach (var (id, hit) in hits)
         {
-            var (item, terminal) = PrepareClientPatch(id, hit, operation, expectedVersion, checkVersion);
+            var (item, terminal) = PrepareClientPatch(id, hit, operation, expectedVersion, checkVersion, useDocumentDates);
             if (terminal is not null)
                 decided.Add(new WriteItemOutcome<IndexItem>(item, terminal));
             else
                 items.Add(item);
         }
 
-        var prepareRetry = expectedVersion is null ? RepatchConflicts(operation, checkVersion, options) : null;
+        var prepareRetry = expectedVersion is null ? RepatchConflicts(operation, checkVersion, useDocumentDates, options) : null;
         var run = await WriteRunner.RunAsync(operationName, items, options.GetRetryCount(), SendIndexRound(options, refresh, allowSingleRequest: false), prepareRetry, DisposedCancellationToken).AnyContext();
         return WriteRunResult<IndexItem>.Merge(decided, run);
     }
 
-    private (IndexItem Item, WriteItemResult? Terminal) PrepareClientPatch(string id, FindHit<T> hit, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, bool checkVersion)
+    private (IndexItem Item, WriteItemResult? Terminal) PrepareClientPatch(string id, FindHit<T> hit, IPatchOperation operation, ElasticDocumentVersion? expectedVersion, bool checkVersion, bool useDocumentDates)
     {
         var key = new DocumentKey(hit.GetIndex() ?? ElasticIndex.GetIndex(id), id);
         var version = hit.GetElasticVersion();
         IndexItem Unwritten() => new(key, hit.Document ?? new T(), hit.Routing, version, false);
 
-        if (expectedVersion is { } expected && version != expected)
-            return (Unwritten(), new WriteItemResult(WriteOutcome.Conflict, 409, Reason: $"expected version {expected} but the document has version {version.ToVersionString() ?? "none"}"));
-
         if (checkVersion && version.IsEmpty)
             return (Unwritten(), new WriteItemResult(WriteOutcome.VersioningNotSupported, Reason: "The document was read without a version."));
+
+        if (expectedVersion is { } expected && version != expected)
+            return (Unwritten(), new WriteItemResult(WriteOutcome.Conflict, 409, Reason: $"expected version {expected} but the document has version {version.ToVersionString() ?? "none"}"));
 
         T? patched;
         try
         {
-            patched = ClientPatches.Apply(hit, operation);
+            patched = ClientPatches.Apply(hit, operation, useDocumentDates);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -100,7 +100,7 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <see cref="WriteOutcome.Missing"/> and an item error as <see cref="WriteOutcome.Fatal"/> (never as missing). When
     /// the multi-get itself fails with a transient error the stale items are sent again; the next conflict re-reads them.
     /// </summary>
-    private PrepareConflictRetry<IndexItem> RepatchConflicts(IPatchOperation operation, bool checkVersion, ICommandOptions options)
+    private PrepareConflictRetry<IndexItem> RepatchConflicts(IPatchOperation operation, bool checkVersion, bool useDocumentDates, ICommandOptions options)
     {
         return async (conflicts, ct) =>
         {
@@ -123,7 +123,7 @@ public abstract partial class ElasticRepositoryBase<T>
                 if (item.Hit is not { } hit)
                     return ((IndexItem?)null, (WriteItemResult?)new WriteItemResult(WriteOutcome.Missing, 404));
 
-                var (retry, terminal) = PrepareClientPatch(conflict.Key.Id, hit, operation, null, checkVersion);
+                var (retry, terminal) = PrepareClientPatch(conflict.Key.Id, hit, operation, null, checkVersion, useDocumentDates);
                 return terminal is null ? (retry, null) : (null, terminal);
             }).ToList();
         };
@@ -131,13 +131,13 @@ public abstract partial class ElasticRepositoryBase<T>
 
     /// <summary>
     /// Reads documents by id for a client-side patch. Pipeline partial patches prefer real-time multi-get for each known
-    /// index and routing, discovering only unresolved locations with a search. Other multi-id client patches retain their
-    /// search semantics when multiple indexes or unknown parent routing require discovery.
-    /// Documents that don't exist are returned as <see cref="WriteOutcome.Missing"/> failures.
+    /// index and routing, discovering only unresolved locations with a search. Multi-id JSON and action patches use the
+    /// repository query to select eligible documents; filtered or missing ids are not part of that selection.
+    /// Single-id and pipeline partial patches report nonexistent documents as <see cref="WriteOutcome.Missing"/> failures.
     /// </summary>
     private async Task<(List<(string Id, FindHit<T> Hit)> Hits, List<WriteItemOutcome<IndexItem>> Failures)> ReadForPatchAsync(IReadOnlyCollection<Id> ids, ICommandOptions options, bool allowSearch = false, bool preferRealtime = false)
     {
-        bool searchAll = allowSearch && !preferRealtime && (ElasticIndex.HasMultipleIndexes || (HasParent && ids.Any(i => i.Routing is null)));
+        bool searchAll = allowSearch && !preferRealtime;
         var discoveryIds = new List<Id>();
         var reads = new List<UpdateItem>();
         foreach (var id in ids)
@@ -211,10 +211,13 @@ public abstract partial class ElasticRepositoryBase<T>
                 && !unresolvedFailures.Contains(new Id(h.Id, h.Hit.Routing))));
             found = found.DistinctBy(h => (h.Hit.GetIndex(), h.Id, h.Hit.Routing)).ToList();
 
-            var foundIds = found.Select(h => h.Id).ToHashSet(StringComparer.Ordinal);
-            var foundRoutedIds = found.Select(h => new Id(h.Id, h.Hit.Routing)).ToHashSet();
-            failures.AddRange(discoveryIds.Where(i => i.Routing is null ? !foundIds.Contains(i.Value) : !foundRoutedIds.Contains(i))
-                .Select(i => new WriteItemOutcome<IndexItem>(new IndexItem(new DocumentKey(ElasticIndex.Name, i.Value), new T(), i.Routing, ElasticDocumentVersion.Empty, false), new WriteItemResult(WriteOutcome.Missing, 404))));
+            if (!searchAll)
+            {
+                var foundIds = found.Select(h => h.Id).ToHashSet(StringComparer.Ordinal);
+                var foundRoutedIds = found.Select(h => new Id(h.Id, h.Hit.Routing)).ToHashSet();
+                failures.AddRange(discoveryIds.Where(i => i.Routing is null ? !foundIds.Contains(i.Value) : !foundRoutedIds.Contains(i))
+                    .Select(i => new WriteItemOutcome<IndexItem>(new IndexItem(new DocumentKey(ElasticIndex.Name, i.Value), new T(), i.Routing, ElasticDocumentVersion.Empty, false), new WriteItemResult(WriteOutcome.Missing, 404))));
+            }
         }
 
         return (found, failures);
@@ -250,7 +253,8 @@ public abstract partial class ElasticRepositoryBase<T>
     private async Task<(MultiGetResponse<T> Response, IReadOnlyList<MultiGetItem<T>>? Items)> MultiGetAsync(IReadOnlyList<(DocumentKey Key, string? Routing)> documents, ICommandOptions options, CancellationToken cancellationToken)
     {
         var operations = documents.Select(d => new MultiGetOperation(d.Key.Id) { Index = d.Key.Index, Routing = ToRouting(d.Routing) }).ToList();
-        var response = await _client.MultiGetAsync<T>(new MultiGetRequestDescriptor().Docs(operations), cancellationToken).AnyContext();
+        var request = new MultiGetRequestDescriptor().Docs(operations).RequestConfiguration(r => r.ThrowExceptions(false));
+        var response = await _client.MultiGetAsync<T>(request, cancellationToken).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
         if (!response.IsValidResponse || response.Docs.Count != documents.Count)
             return (response, null);
@@ -298,9 +302,9 @@ public abstract partial class ElasticRepositoryBase<T>
     }
 
     /// <summary>
-    /// Runs the update-by-query per id requests without refreshing, then refreshes the indexes that were written once, so a
-    /// batch costs one refresh instead of one per document. The refresh also runs when the run ends in an exception after
-    /// some documents were patched.
+    /// Runs update-by-query per id with request-level refresh disabled. Conflict retries refresh the involved indexes
+    /// so the next search snapshot sees current versions. When consistency requires it, written indexes share one final
+    /// refresh, including when later writes fail.
     /// </summary>
     private async Task<WriteRunResult<UpdateItem>> PatchByIdQueryAsync(IReadOnlyList<UpdateItem> items, ScriptPatch script, Refresh refresh, int budget, string operationName, ICommandOptions options)
     {
@@ -340,12 +344,16 @@ public abstract partial class ElasticRepositoryBase<T>
                 }
 
                 return results;
-            }, static (conflicts, _) => Task.FromResult<IReadOnlyList<(UpdateItem?, WriteItemResult?)>>(conflicts.Select(c => ((UpdateItem?)c, (WriteItemResult?)null)).ToList()), DisposedCancellationToken).AnyContext();
+            }, async (conflicts, ct) =>
+            {
+                await RefreshPatchIndexesAsync(conflicts.Select(c => c.Key.Index).Distinct().ToArray(), ct).AnyContext();
+                return conflicts.Select(c => ((UpdateItem?)c, (WriteItemResult?)null)).ToList();
+            }, DisposedCancellationToken).AnyContext();
         }
         finally
         {
             if (refresh != Refresh.False && !patchedIndexes.IsEmpty)
-                await RefreshPatchedIndexesAsync(patchedIndexes.Keys.ToArray()).AnyContext();
+                await RefreshPatchIndexesAsync(patchedIndexes.Keys.ToArray()).AnyContext();
         }
 
         if (partiallyPatchedIds.Count > 0)
@@ -363,17 +371,21 @@ public abstract partial class ElasticRepositoryBase<T>
         return run;
     }
 
-    private async Task RefreshPatchedIndexesAsync(string[] indexes)
+    private async Task RefreshPatchIndexesAsync(string[] indexes, CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await _client.Indices.RefreshAsync(indexes).AnyContext();
+            var response = await _client.Indices.RefreshAsync(indexes, cancellationToken: cancellationToken).AnyContext();
             if (!response.IsValidResponse)
-                _logger.LogErrorRequest(response, "Failed to refresh indices after patching");
+                _logger.LogErrorRequest(response, "Failed to refresh indices for patching");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error refreshing indices after patching: {Message}", ex.Message);
+            _logger.LogError(ex, "Error refreshing indices for patching: {Message}", ex.Message);
         }
     }
 

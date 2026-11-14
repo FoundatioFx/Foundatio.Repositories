@@ -204,13 +204,14 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAsyncIds_WithMultiGetItemError_ReportsErrorNotMissing()
+    public async Task PatchAsyncIds_WithMultiGetItemErrorDuringConflictRetry_ReportsErrorNotMissing()
     {
         // Arrange
         var employees = EmployeeGenerator.GenerateEmployees(3);
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
         var (repository, invoker, configuration) = CreateFaultInjectingRepository();
         using var _ = configuration;
+        invoker.BeforeNextBulk(() => ChangeNameOutsideRepositoryAsync(employees[0].Id, "concurrent"));
         invoker.FailFirstDocOfNextMultiGet("no_shard_available_action_exception", "shard unavailable");
 
         // Act
@@ -219,6 +220,7 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
         // Assert
         Assert.IsNotType<DocumentNotFoundException>(exception);
         Assert.Contains("shard unavailable", exception.Message);
+        Assert.Equal(1, invoker.CountRequests(HttpMethod.POST, "_mget"));
         var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
         Assert.Equal(2, results.Count(e => e.CompanyName == "Patched"));
     }
@@ -544,6 +546,32 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
     }
 
     private const string DeleteByQueryWithConflicts = """{"took":1,"timed_out":false,"total":5,"deleted":3,"batches":1,"version_conflicts":2,"noops":0,"retries":{"bulk":0,"search":0},"throttled_millis":0,"requests_per_second":-1.0,"throttled_until_millis":0,"failures":[]}""";
+
+    [Fact]
+    public async Task RemoveAllAsync_WhenMatchedDocumentDisappears_CountsProcessedDocumentsButNotifiesOnlyDeletes()
+    {
+        var employees = EmployeeGenerator.GenerateEmployees(2, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        using var repository = new PlainEmployeeRepository(_configuration);
+        var removedIds = new List<string>();
+        repository.DocumentsRemoving.AddHandler(async (_, args) =>
+        {
+            Assert.Equal(2, args.Documents.Count);
+            var response = await _client.DeleteAsync(_configuration.Employees.Name, employees[0].Id, cancellationToken: TestCancellationToken);
+            Assert.True(response.IsValidResponse, response.DebugInformation);
+        });
+        repository.DocumentsRemoved.AddHandler((_, args) =>
+        {
+            removedIds.AddRange(args.Documents.Select(document => document.Id));
+            return Task.CompletedTask;
+        });
+
+        long processed = await repository.RemoveAllAsync(q => q.Company("1"), o => o.ImmediateConsistency().PageLimit(10));
+
+        Assert.Equal(2, processed);
+        Assert.Equal(employees[1].Id, Assert.Single(removedIds));
+        Assert.Equal(0, await repository.CountAsync());
+    }
 
     [Fact]
     public async Task RemoveAllAsync_WhenLaterPassFails_NotifiesRemovedAndThrows()

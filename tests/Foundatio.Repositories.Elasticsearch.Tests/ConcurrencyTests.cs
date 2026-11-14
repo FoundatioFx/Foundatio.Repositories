@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Transport;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
@@ -576,6 +578,136 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task PatchAsync_WithPipelineAndStaleSearchVersion_RefreshesBeforeConflictRetry()
+    {
+        // Arrange
+        const string pipelineId = "concurrency-stale-search-pipeline";
+        var pipeline = await _client.Ingest.PutPipelineAsync(pipelineId, p => p.Processors(pr => pr.Lowercase(l => l.Field("name"))), TestCancellationToken);
+        Assert.True(pipeline.IsValidResponse, pipeline.DebugInformation);
+        try
+        {
+            var invoker = new FaultInjectingRequestInvoker(new HttpRequestInvoker());
+            using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+            using var repository = new EmployeeWithPipelineRepository(configuration.Employees, pipelineId);
+            var settings = await _client.Indices.PutSettingsAsync(configuration.Employees.Name,
+                s => s.Settings(i => i.RefreshInterval(Elastic.Clients.Elasticsearch.Duration.MinusOne)), TestCancellationToken);
+            Assert.True(settings.IsValidResponse, settings.DebugInformation);
+            var employee = await repository.AddAsync(EmployeeGenerator.Generate(name: "ORIGINAL", yearsEmployed: 0), o => o.ImmediateConsistency());
+            var concurrentWrite = await _client.UpdateAsync<Employee, object>(configuration.Employees.Name, employee.Id,
+                u => u.Doc(new { name = "CONCURRENT", yearsEmployed = 5 }).Refresh(Elastic.Clients.Elasticsearch.Refresh.False), TestCancellationToken);
+            Assert.True(concurrentWrite.IsValidResponse, concurrentWrite.DebugInformation);
+            var searchable = await _client.SearchAsync<Employee>(s => s.Indices(configuration.Employees.Name)
+                .Query(q => q.Ids(i => i.Values(new Elastic.Clients.Elasticsearch.Ids([new Elastic.Clients.Elasticsearch.Id(employee.Id)])))), TestCancellationToken);
+            Assert.True(searchable.IsValidResponse, searchable.DebugInformation);
+            Assert.Equal(0, Assert.Single(searchable.Documents).YearsEmployed);
+
+            // Act
+            bool patched = await repository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.yearsEmployed += 1;"),
+                o => o.Consistency(Consistency.Eventual).Retry(1));
+
+            // Assert
+            Assert.True(patched);
+            Assert.Equal(2, invoker.CountRequests(HttpMethod.POST, "_update_by_query"));
+            Assert.Equal(1, invoker.CountRequests(HttpMethod.POST, "_refresh"));
+            var current = await _client.GetAsync<Employee>(new Elastic.Clients.Elasticsearch.GetRequest(configuration.Employees.Name, employee.Id), TestCancellationToken);
+            Assert.True(current.Found, current.DebugInformation);
+            Assert.Equal("concurrent", current.Source?.Name);
+            Assert.Equal(6, current.Source?.YearsEmployed);
+        }
+        finally
+        {
+            await _configuration.Employees.DeleteAsync();
+            await _client.Ingest.DeletePipelineAsync(pipelineId, cancellationToken: TestCancellationToken);
+        }
+    }
+
+    [Theory]
+    [InlineData("Single", false)]
+    [InlineData("OneId", false)]
+    [InlineData("Ids", false)]
+    [InlineData("All", false)]
+    [InlineData("Ids", true)]
+    public async Task JsonPatchAsync_WithDateHooks_PreservesOperationSpecificBehavior(string operation, bool conflict)
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(2);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        using var repository = new DateHookEmployeeRepository(configuration.Employees);
+        if (conflict)
+        {
+            invoker.BeforeNextBulk(async () =>
+            {
+                var response = await _client.UpdateAsync<Employee, object>(_configuration.Employees.Name, employees[0].Id,
+                    u => u.Doc(new { name = "concurrent" }), TestCancellationToken);
+                Assert.True(response.IsValidResponse, response.DebugInformation);
+            });
+        }
+
+        var futureCreatedUtc = DateTime.UtcNow.AddDays(1);
+        var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/createdUtc", Value = futureCreatedUtc }));
+        var patchStartedUtc = DateTime.UtcNow;
+
+        // Act
+        long affected;
+        if (operation is "Single")
+            affected = await repository.PatchAsync(employees[0].Id, patch, o => o.Retry(1)) ? 1 : 0;
+        else if (operation is "OneId")
+            affected = await repository.PatchAsync(new Ids(employees[0].Id), patch, o => o.Retry(1));
+        else if (operation is "Ids")
+            affected = await repository.PatchAsync(new Ids(employees.Select(e => e.Id)), patch, o => o.Retry(1));
+        else
+            affected = await repository.PatchAllAsync(q => q.Id(employees[0].Id), patch, o => o.Retry(1));
+
+        // Assert
+        bool usesTypedDates = operation is "Ids" or "All";
+        int expectedDocuments = operation is "Ids" ? 2 : 1;
+        Assert.Equal(expectedDocuments, affected);
+        Assert.Equal(usesTypedDates ? expectedDocuments + (conflict ? 1 : 0) : 0, repository.DocumentDateCalls);
+        Assert.Equal(usesTypedDates ? 0 : 1, repository.JsonDateCalls);
+        if (conflict)
+            Assert.Equal(2, invoker.CountRequests(HttpMethod.POST, "_bulk"));
+
+        foreach (var employee in employees.Take(expectedDocuments))
+        {
+            var response = await _client.GetAsync<Employee>(new Elastic.Clients.Elasticsearch.GetRequest(_configuration.Employees.Name, employee.Id), TestCancellationToken);
+            Assert.True(response.Found, response.DebugInformation);
+            Assert.NotNull(response.Source);
+            if (usesTypedDates)
+            {
+                Assert.InRange(response.Source.CreatedUtc, patchStartedUtc, DateTime.UtcNow);
+                Assert.Equal(response.Source.CreatedUtc, response.Source.UpdatedUtc);
+            }
+            else
+            {
+                Assert.Equal(futureCreatedUtc, response.Source.CreatedUtc);
+            }
+
+            if (conflict && employee.Id == employees[0].Id)
+                Assert.Equal("concurrent", response.Source.Name);
+        }
+    }
+
+    private sealed class DateHookEmployeeRepository(IIndex index) : EmployeeRepository(index)
+    {
+        public int DocumentDateCalls { get; private set; }
+        public int JsonDateCalls { get; private set; }
+
+        protected override void SetDocumentDates(Employee document, TimeProvider timeProvider)
+        {
+            DocumentDateCalls++;
+            base.SetDocumentDates(document, timeProvider);
+        }
+
+        protected override void ApplyDateTracking(JsonNode target)
+        {
+            JsonDateCalls++;
+            base.ApplyDateTracking(target);
+        }
+    }
+
+    [Fact]
     public async Task PatchAsync_JsonPatchWithConcurrentWritersAndRetryZero_FailsFast()
     {
         // Arrange
@@ -773,6 +905,8 @@ public sealed class ConcurrencyTests : ElasticRepositoryTestBase
             await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'x';")));
             await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "x" }))));
             await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(new[] { employee.Id, "missing" }, new ActionPatch<Employee>(e => e.Name = "x")));
+            await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "x"), o => o.IfVersion("1:0")));
+            await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() => repository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "x" })), o => o.IfVersion("1:0")));
             Assert.True(await repository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "name", Value = "skip" })), o => o.SkipVersionCheck().ImmediateConsistency()));
 
             var current = await repository.GetByIdAsync(employee.Id, o => o.Cache(false));

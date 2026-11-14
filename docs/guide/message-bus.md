@@ -95,13 +95,15 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 `PatchAllAsync` sends notifications incrementally per batch as documents are processed. Subscribers may receive messages while the operation is still running. Design handlers to be idempotent.
 :::
 
+If an opt-in update-by-query task has an unknown outcome (for example, its status disappears or submission times out), the repository sends query-level notifications before throwing. These notifications tell subscribers to refresh; they do not confirm that any particular document changed.
+
 ::: warning
 Only `PatchAllAsync` with the opt-in `o.UseUpdateByQuery()` and a filter-only query (no explicit IDs) sends an `EntityChanged` message with `Id = null`. Every other `PatchAllAsync` path sends per-ID notifications for each modified document. Subscribers that depend on `msg.Id` should handle the `null` case if your code opts into update-by-query, for example by re-querying the affected documents.
 :::
 
 **In-process events:** The `DocumentsChanged` event fires for every patch that modified at least one document. `args.Documents` holds the patched documents for patches applied client-side (`JsonPatch`, `ActionPatch` and `PartialPatch` with a default pipeline) in `PatchAsync(id)`, `PatchAsync(Ids)` and each `PatchAllAsync` batch. It is **empty** for patches Elasticsearch applies server-side (`ScriptPatch`, and `PartialPatch` without a default pipeline), because the modified document is not available client-side, and for `PatchAllAsync` with `UseUpdateByQuery()`. The `DocumentsSaving` and `DocumentsSaved` events do **not** fire for patch operations.
 
-**`UpdateCallback`:** The `UpdateCallback` command option receives the modified IDs once per multi-ID `PatchAsync(Ids)` call and once per `PatchAllAsync` batch, before an exception for failed documents is thrown. It is not called by `PatchAsync(id)`, by the one-ID input overload, by `PatchAllAsync` with `UseUpdateByQuery()`, or when nothing was modified.
+**`UpdateCallback`:** The `UpdateCallback` command option receives successful IDs together after each multi-ID `PatchAsync(Ids)` call or `PatchAllAsync` batch, before an exception for failed documents is thrown. If a pipeline script response reports changes together with a failure, those IDs are reported separately, including on single-ID calls. Ordinary successful `PatchAsync(id)` calls and inputs containing exactly one ID do not invoke the callback. Neither does `PatchAllAsync` with `UseUpdateByQuery()`, or a call that modified nothing.
 
 **Custom publishing:** Multi-ID patches and patch batches use the virtual `PublishChangeTypeMessageAsync` hooks. Client-side patches pass the patched document; server-side patches pass its ID. Overrides that enrich or suppress messages continue to apply, together with `Notifications(false)` and the configured notification delay.
 

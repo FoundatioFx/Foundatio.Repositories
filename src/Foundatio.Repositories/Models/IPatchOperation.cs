@@ -22,8 +22,11 @@ public interface IPatchOperation { }
 /// Elasticsearch's <c>detect_noop</c> (enabled by default) automatically returns a no-op when
 /// the partial document does not change any field values. However, automatic date tracking
 /// injects <c>UpdatedUtc</c>, which typically prevents noop detection for <see cref="Models.IHaveDates"/> models.
-/// <para><b>Cache invalidation:</b> Uses ID-based invalidation only. The Update API executes
-/// server-side and does not return the modified document to the client.</para>
+/// With a default ingest pipeline, the repository reads, merges and reindexes the document instead,
+/// so the write does not use automatic noop detection.
+/// <para><b>Cache invalidation:</b> The Update API uses ID-based invalidation because it does not return
+/// the modified document. With a default ingest pipeline, the modified document is passed to the
+/// document-based invalidation hook.</para>
 /// </remarks>
 public class PartialPatch : IPatchOperation
 {
@@ -116,9 +119,9 @@ public class ActionPatch<T> : IPatchOperation where T : class
 /// <remarks>
 /// Uses a get-modify-reindex pattern, so a write always occurs and <c>PatchAsync</c> always
 /// returns <c>true</c>. Empty patch documents (no operations) return <c>false</c>.
-/// <para><b>Cache invalidation:</b> Bulk operations (<c>PatchAllAsync</c>) use document-based
-/// invalidation. Single-document <c>PatchAsync</c> uses ID-based invalidation because it
-/// operates on raw JSON rather than a typed document.</para>
+/// <para><b>Cache invalidation:</b> Single-document and batch patches pass the modified document
+/// to the document-based invalidation hook. The read and write use the model's configured source
+/// serializer contract.</para>
 /// </remarks>
 public class JsonPatch : IPatchOperation
 {
@@ -142,7 +145,7 @@ public class JsonPatch : IPatchOperation
 /// </summary>
 /// <remarks>
 /// Elasticsearch does not automatically detect noops for script updates.
-/// To signal a no-op, the script must explicitly set <c>ctx.op = 'none'</c>.
+/// To signal a no-op, the script must explicitly set <c>ctx.op = 'noop'</c>, which works with both the Update API and update-by-query.
 /// Painless uses <c>==</c> for equality (Java-style); <c>===</c> is not valid.
 /// <para><b>Cache invalidation:</b> Uses ID-based invalidation only. Scripts execute
 /// server-side and do not return the modified document to the client.</para>

@@ -30,8 +30,10 @@ namespace Foundatio.Repositories
         /// a single document with <c>PatchAsync(Id)</c>. Every write attempt, including retries of transient failures, is
         /// sent with that version as <c>if_seq_no</c>/<c>if_primary_term</c>, and the document is never re-read, so the
         /// patch fails with a version conflict when the document has changed. It works for entities that don't implement
-        /// <c>IVersioned</c>. It can't be combined with <see cref="SkipVersionCheck{T}"/>, and <c>PatchAsync(Ids)</c> and
-        /// <c>PatchAllAsync</c> reject it. Passing <c>null</c> or an empty string clears the expectation.
+        /// <c>IVersioned</c>. It can't be combined with <see cref="SkipVersionCheck{T}"/> or used with a script patch and
+        /// a default ingest pipeline. <c>PatchAsync(Ids)</c>, <c>PatchAllAsync</c>, <c>AddAsync</c>, <c>SaveAsync</c>,
+        /// <c>RemoveAsync</c> and <c>RemoveAllAsync</c> reject it. A nonempty malformed or unassigned token throws
+        /// <see cref="ArgumentException"/> when the patch is executed. Passing <c>null</c> or an empty string clears the expectation.
         /// </summary>
         public static T IfVersion<T>(this T options, string? version) where T : ICommandOptions
         {

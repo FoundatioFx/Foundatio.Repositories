@@ -27,7 +27,7 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
 
     /// <param name="serializer">The Elasticsearch source serializer.</param>
     /// <param name="applyJsonDates">Sets the updated date on a JSON-patched document (<c>ApplyDateTracking(JsonNode)</c>).</param>
-    /// <param name="setDocumentDates">Sets dates on an action-patched document (<c>SetDocumentDates</c>).</param>
+    /// <param name="setDocumentDates">Sets dates on action patches and bulk JSON patches (<c>SetDocumentDates</c>).</param>
     public ClientPatchApplier(Elastic.Transport.Serializer serializer, Action<JsonNode> applyJsonDates, Action<T> setDocumentDates)
     {
         _serializer = serializer;
@@ -38,12 +38,12 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
     /// <summary>
     /// Returns a patched copy of <paramref name="hit"/>'s document, or <c>null</c> when an action patch made no change.
     /// </summary>
-    public T? Apply(FindHit<T> hit, IPatchOperation operation)
+    public T? Apply(FindHit<T> hit, IPatchOperation operation, bool useDocumentDates = false)
     {
         var source = hit.Document ?? throw new DocumentException($"Document {hit.GetIndex()}/{hit.Id} returned no source");
         T? patched = operation switch
         {
-            JsonPatch jsonPatch => ApplyJsonPatch(source, jsonPatch),
+            JsonPatch jsonPatch => ApplyJsonPatch(source, jsonPatch, useDocumentDates),
             ActionPatch<T> actionPatch => ApplyActionPatch(source, actionPatch),
             PartialPatch partialPatch => ApplyPartialPatch(source, partialPatch),
             _ => throw new ArgumentException("Unknown operation type", nameof(operation))
@@ -53,7 +53,7 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
         return patched;
     }
 
-    private T ApplyJsonPatch(T source, JsonPatch operation)
+    private T ApplyJsonPatch(T source, JsonPatch operation, bool useDocumentDates)
     {
         JsonNode? target = SerializeToNode(source)
             ?? throw new DocumentException("Document JSON parsed to null; cannot apply JSON patch.");
@@ -61,8 +61,14 @@ internal sealed class ClientPatchApplier<T> where T : class, new()
         if (target is null)
             throw new DocumentException("JSON patch produced a null document.");
 
-        _applyJsonDates(target);
-        return Deserialize(target, "JSON patch produced a null document.");
+        if (!useDocumentDates)
+            _applyJsonDates(target);
+
+        var patched = Deserialize(target, "JSON patch produced a null document.");
+        if (useDocumentDates)
+            _setDocumentDates(patched);
+
+        return patched;
     }
 
     private T? ApplyActionPatch(T source, ActionPatch<T> operation)

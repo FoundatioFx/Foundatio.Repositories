@@ -5,24 +5,28 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Utility;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class QueryWriteFailureTests
 {
-    [Fact]
-    public async Task PatchAsync_WithUnstructuredServiceUnavailableWhileReading_RetriesReadBeforeWriting()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAsync_WithUnstructuredServiceUnavailableWhileReading_RetriesReadBeforeWriting(bool throwOnErrors)
     {
         // Arrange
         const string document = """{"docs":[{"_index":"query-tests","_id":"one","found":true,"_source":{"id":"one","count":0}}]}""";
         const string saved = """{"took":1,"errors":false,"items":[{"index":{"_index":"query-tests","_id":"one","status":200,"result":"updated","_seq_no":1,"_primary_term":1}}]}""";
-        using var configuration = new TestConfiguration(("_mget", 503, "upstream connection terminated"), ("_mget", 200, document), ("_bulk", 200, saved));
+        using var configuration = new TestConfiguration(("_mget", 503, "upstream connection terminated"), ("_mget", 200, document), ("_bulk", 200, saved)) { ThrowOnErrors = throwOnErrors };
         using var repository = new TestRepository(configuration);
 
         // Act
@@ -30,6 +34,36 @@ public sealed class QueryWriteFailureTests
 
         // Assert
         Assert.Equal(3, configuration.Invoker.Requests);
+    }
+
+    [Theory]
+    [InlineData("ActionPatch", false)]
+    [InlineData("ActionPatch", true)]
+    [InlineData("JsonPatch", false)]
+    [InlineData("JsonPatch", true)]
+    [InlineData("PartialPatch", false)]
+    [InlineData("PartialPatch", true)]
+    public async Task PatchAsync_WithIfVersionAndUnavailableReadVersion_ThrowsVersioningNotSupportedBeforeWriting(string patchType, bool sentinelMetadata)
+    {
+        // Arrange
+        string metadata = sentinelMetadata ? "\"_seq_no\":-2,\"_primary_term\":0," : String.Empty;
+        string document = $$$"""{"docs":[{"_index":"query-tests","_id":"one",{{{metadata}}}"found":true,"_source":{"id":"one","count":0}}]}""";
+        using var configuration = new TestConfiguration(("_mget", 200, document));
+        using var repository = new TestRepository(configuration, usePipeline: patchType is "PartialPatch");
+        IPatchOperation operation = patchType switch
+        {
+            "ActionPatch" => new ActionPatch<TestDocument>(document => document.Count++),
+            "JsonPatch" => new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "count", Value = 1 })),
+            _ => new PartialPatch(new { Count = 1 })
+        };
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentVersioningNotSupportedException>(() =>
+            repository.PatchAsync("one", operation, o => o.IfVersion("1:0").Retry(1)));
+
+        // Assert
+        Assert.Contains("query-tests", exception.Message);
+        Assert.Equal(1, configuration.Invoker.Requests);
     }
 
     [Theory]
@@ -119,19 +153,39 @@ public sealed class QueryWriteFailureTests
     {
         // Arrange
         const string conflict = """{"took":1,"timed_out":false,"total":1,"updated":0,"deleted":0,"version_conflicts":1,"failures":[]}""";
-        using var configuration = new TestConfiguration(("_update_by_query", 200, conflict), ("_update_by_query", 200, QueryResponse(0, false, false, updated: 1)));
+        using var configuration = new TestConfiguration(
+            ("_update_by_query", 200, conflict),
+            ("_refresh", 200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
+            ("_update_by_query", 200, QueryResponse(0, false, false, updated: 1)));
         using var repository = new TestRepository(configuration, usePipeline: true);
 
         // Act
         Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Retry(1)));
 
         // Assert
-        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Equal(3, configuration.Invoker.Requests);
         Assert.All(configuration.Invoker.RequestBodies, body =>
         {
+            if (String.IsNullOrEmpty(body))
+                return;
+
             using var document = JsonDocument.Parse(body);
             Assert.Equal("proceed", document.RootElement.GetProperty("conflicts").GetString());
         });
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPipelineAndNoConflict_DoesNotRefreshWithEventualConsistency()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(("_update_by_query", 200, QueryResponse(0, false, false, updated: 1)));
+        using var repository = new TestRepository(configuration, usePipeline: true);
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Consistency(Consistency.Eventual).Retry(1)));
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.Requests);
     }
 
     [Theory]
@@ -168,6 +222,50 @@ public sealed class QueryWriteFailureTests
         await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(0)));
 
         // Assert
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WithThrowExceptionsEnabledAndTransientTaskRead_RetriesPollingWithoutResubmitting()
+    {
+        // Arrange
+        const string completedTask = """
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{"total":1,"updated":1,"created":0,"deleted":0,"version_conflicts":0}},"response":{"took":1,"timed_out":false,"total":1,"updated":1,"created":0,"deleted":0,"version_conflicts":0,"failures":[]}}
+            """;
+        using var configuration = new TestConfiguration(
+            ("_update_by_query", 200, """{"task":"node:1"}"""),
+            ("_tasks", 503, """{"error":{"type":"unavailable_shards_exception","reason":"temporary outage"},"status":503}"""),
+            ("_tasks", 200, completedTask)) { ThrowOnErrors = true };
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        long patched = await repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(0));
+
+        // Assert
+        Assert.Equal(1, patched);
+        Assert.Equal(3, configuration.Invoker.Requests);
+        Assert.Equal(1, repository.QueryNotifications);
+        Assert.True(configuration.Client.ElasticsearchClientSettings.ThrowExceptions);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAllAsync_WithMissingTask_NotifiesUnknownOutcomeAndThrows(bool throwOnErrors)
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(
+            ("_update_by_query", 200, """{"task":"node:1"}"""),
+            ("_tasks", 404, """{"error":{"type":"resource_not_found_exception","reason":"task is no longer available"},"status":404}""")) { ThrowOnErrors = throwOnErrors };
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1)));
+
+        // Assert
+        Assert.Contains("unknown", exception.Message);
         Assert.Equal(2, configuration.Invoker.Requests);
         Assert.Equal(1, repository.QueryNotifications);
     }
@@ -242,8 +340,15 @@ public sealed class QueryWriteFailureTests
     private sealed class TestConfiguration(params (string Path, int Status, string Body)[] responses) : ElasticConfiguration
     {
         public CannedResponseInvoker Invoker { get; } = new(responses);
+        public bool ThrowOnErrors { get; init; }
 
         protected override IRequestInvoker CreateRequestInvoker() => Invoker;
+
+        protected override void ConfigureSettings(ElasticsearchClientSettings settings)
+        {
+            base.ConfigureSettings(settings);
+            settings.ThrowExceptions(ThrowOnErrors);
+        }
     }
 
     private sealed class CannedResponseInvoker(params (string Path, int Status, string Body)[] responses) : IRequestInvoker

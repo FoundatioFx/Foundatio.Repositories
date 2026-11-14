@@ -233,7 +233,7 @@ await repository.PatchAsync(id, new PartialPatch(new { Name = "New" }), o => o.I
 
 Models own their JSON representation. Use an explicit `string? IVersioned.Version { get; set; }` or `[JsonIgnore]` to omit the token, or keep an existing public property. GET/search/mget metadata and the cached `FindHit.Version` envelope are authoritative, including null; a separate public business `Version` can coexist with explicit concurrency metadata. Client-side patches preserve that metadata after applying the configured serializer contract. They do not infer reserved JSON paths from CLR property names.
 
-`PatchAllAsync` reads batches from a point-in-time snapshot (or explicit scroll snapshot), so patches that modify sort fields do not revisit documents after refreshes. Patch reads that discover locations by search use snapshot paging too. Multi-ID pipeline `PartialPatch` uses real-time multi-get for known index/routing locations, including daily/monthly ObjectIds, and searches only unresolved locations; a mixed batch preserves real-time visibility for known locations. The single-ID overload requires a resolvable location. JSON/action patches across multiple indexes retain search visibility and filtering. Pipeline `PartialPatch` recursively merges objects, retaining unspecified nested fields.
+`PatchAllAsync` reads batches from a point-in-time snapshot (or explicit scroll snapshot), so patches that modify sort fields do not revisit documents after refreshes. Patch reads that discover locations by search use snapshot paging too. Multi-ID pipeline `PartialPatch` uses real-time multi-get for known index/routing locations, including daily/monthly ObjectIds, and searches only unresolved locations; a mixed batch preserves real-time visibility for known locations. The single-ID overload requires a resolvable location. Multi-ID JSON/action patches always use search and skip initially unmatched or filtered IDs, even on a single index. Pipeline `PartialPatch` recursively merges objects, retaining unspecified nested fields.
 
 `PatchAllAsync` with `ScriptPatch` uses the bulk Update API. `o.UseUpdateByQuery()` opts into update-by-query (faster, but skips concurrently changed documents and throws unless `o.ProceedOnQueryConflicts()`).
 
@@ -254,6 +254,8 @@ bool exists = await repository.ExistsAsync(id);
 **Gotcha:** When caching is disabled and no event listeners are registered, `RemoveAllAsync` uses Elasticsearch `delete_by_query`, which counts (and skips) version conflicts when concurrent writes modify matching documents. Since `delete_by_query` has no `retry_on_conflict`, the repository re-runs the query up to `o.Retry(n)` more times (default 10, so up to 11 passes) with backoff and a refresh between passes. The returned count is the cumulative number deleted; if conflicts persist after the budget, `VersionConflictDocumentException` is thrown with the counts unless `o.ProceedOnQueryConflicts()` is set (then a warning is logged and the partial count returned).
 
 **Gotcha:** `RemoveAsync(T)`/`RemoveAsync(IEnumerable<T>)` check the version of `IVersioned` documents (like `SaveAsync`). Use `RemoveAsync(id)` or `o.SkipVersionCheck()` to delete regardless.
+
+**Gotcha:** Cached/listener `RemoveAllAsync` batches return the number processed, including documents concurrently deleted before their remove request; only actual deletions are notified. A failed batch stops later batches. The delete-by-query path returns the actual deleted count.
 
 ## Command Options
 
@@ -310,7 +312,7 @@ All index configurations use `.Dynamic(false)`, which disables Elasticsearch's a
 After adding a mapping for a previously unmapped field, only **newly saved/indexed documents** will be searchable on that field. To make existing documents searchable:
 
 - **Foundatio migration** -- create a `MigrationBase` subclass that uses `PatchAllAsync` or `BatchProcessAsync` to touch all affected documents (recommended for production).
-- **`PatchAllAsync`** with a no-op `ScriptPatch` (e.g., `ctx.op = 'none'` -- still triggers re-index of `_source`).
+- **`PatchAllAsync`** with a script that leaves field values unchanged but still writes (for example, `ctx._source.id = ctx._source.id`). Do not set `ctx.op = 'noop'`, which skips reindexing.
 - **Elasticsearch Update By Query API** with no script: `POST /{index}/_update_by_query` re-indexes every document in place.
 
 For `DailyIndex`/`MonthlyIndex`, you must also apply the mapping to existing physical indexes before the update-by-query will help.

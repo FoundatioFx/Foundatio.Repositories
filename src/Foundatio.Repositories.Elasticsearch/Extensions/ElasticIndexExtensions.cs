@@ -348,7 +348,7 @@ public static class ElasticIndexExtensions
     /// when either value is missing, when the primary term is not positive or when the sequence number is negative
     /// (for example the <c>-2</c>/<c>0</c> sentinel returned by indexes with sequence numbers disabled).
     /// </summary>
-    public static ElasticDocumentVersion ToElasticVersion(long? primaryTerm, long? sequenceNumber)
+    internal static ElasticDocumentVersion ToElasticVersion(long? primaryTerm, long? sequenceNumber)
     {
         if (primaryTerm is not { } term || sequenceNumber is not { } seqNo)
             return ElasticDocumentVersion.Empty;

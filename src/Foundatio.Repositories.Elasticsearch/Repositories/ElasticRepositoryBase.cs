@@ -243,7 +243,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             {
                 await OnDocumentsChangedAsync(ChangeType.Saved, patched, options).AnyContext();
                 if (IsCacheEnabled)
-                    await InvalidateCacheAsync(id).AnyContext();
+                    await InvalidateCacheAsync(id.Value).AnyContext();
 
                 if (options.ShouldNotify())
                     await PublishChangeTypeMessageAsync(ChangeType.Saved, patched[0]).AnyContext();
@@ -261,10 +261,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             // Server-side patches don't return the document.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
-                await InvalidateCacheAsync(id).AnyContext();
+                await InvalidateCacheAsync(id.Value).AnyContext();
 
             if (options.ShouldNotify())
-                await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+                await PublishChangeTypeMessageAsync(ChangeType.Saved, id.Value).AnyContext();
         }
 
         WriteExceptionMapper.ThrowIfFailed(serverRun, "patching", MissingDocumentPolicy.NotFound);
@@ -320,7 +320,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// <remarks>
     /// <para>Script and partial patches use one bulk Update API request per round. JSON, action and pipeline partial patches
     /// read the documents, write them with one bulk request, and re-read conflicting documents together in grouped rounds,
-    /// up to <c>Retry(n)</c>. JSON and action patches search when multiple indexes or unknown routing require discovery.
+    /// up to <c>Retry(n)</c>. JSON and action patches search to preserve repository query and soft-delete filters;
+    /// ids excluded from that initial selection are skipped.
     /// Pipeline partial patches use real-time multi-get for known index and routing locations, searching only unresolved
     /// locations. Script patches with a default pipeline run update-by-query per id.</para>
     /// <para>Repeated id and routing inputs are deduplicated. Search-discovered documents in different indexes remain separate matches;
@@ -354,7 +355,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (strategy is PatchStrategy.ClientSide)
         {
             var (hits, readFailures) = await ReadForPatchAsync(ids, options, allowSearch: true, preferRealtime: operation is PartialPatch).AnyContext();
-            var run = WriteRunResult<IndexItem>.Merge(readFailures, await PatchClientSideAsync(hits, operation, null, options, refresh, operationName).AnyContext());
+            var run = WriteRunResult<IndexItem>.Merge(readFailures, await PatchClientSideAsync(hits, operation, null, options, refresh, operationName, useDocumentDates: true).AnyContext());
             var patched = run.Succeeded;
             await OnPatchedAsync(patched.Select(i => i.Key.Id).ToList(), patched.Select(i => i.Document).ToList(), options).AnyContext();
             WriteExceptionMapper.ThrowIfFailed(run, "patching", MissingDocumentPolicy.NotFound);
@@ -531,8 +532,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// instead of <c>ctx._source.count++</c>) when the operation can be retried or run concurrently.</para>
     /// <para><b>Script and partial patches</b> use the bulk Update API per batch, re-run by Elasticsearch on the latest
     /// document up to <c>Retry(n)</c> times (<c>retry_on_conflict</c>, default 10). With a default pipeline, script patches
-    /// run update-by-query on each document id (re-run on a conflict, never refreshing per document; the indexes are refreshed
-    /// once when the operation ends unless the consistency is eventual). Update-by-query over the
+    /// run update-by-query on each document id, refreshing conflicted indexes before a retry. Written indexes share a
+    /// final refresh unless consistency is eventual. Update-by-query over the
     /// whole query is used only with <c>UseUpdateByQuery()</c> and the cache disabled; it skips documents changed after its
     /// snapshot and throws a <see cref="VersionConflictDocumentException"/> with the count unless
     /// <c>ProceedOnQueryConflicts()</c> is set.</para>
@@ -583,7 +584,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         {
             await BatchProcessAsync(query, async results =>
             {
-                var run = await PatchClientSideAsync(WithIds(results.Hits).ToList(), operation, null, options, Refresh.False, operationName).AnyContext();
+                var run = await PatchClientSideAsync(WithIds(results.Hits).ToList(), operation, null, options, Refresh.False, operationName, useDocumentDates: true).AnyContext();
                 var patched = run.Succeeded;
                 affectedRecords += patched.Count;
                 skippedMissing += run.Count(WriteOutcome.Missing);
@@ -689,6 +690,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// <c>ProceedOnQueryConflicts()</c> is set. Documents that start matching after the last pass are not removed.</para>
     /// <para>Documents removed by completed passes are always invalidated and notified before a failure is thrown; a failed
     /// pass throws a <see cref="DocumentException"/> and disposal throws an <see cref="OperationCanceledException"/>.</para>
+    /// <para>The batched path returns the number of matching documents processed for removal, including documents that
+    /// disappear before their delete runs. It stops at the first failed batch. Delete-by-query returns actual deletes.</para>
     /// </remarks>
     public virtual async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {

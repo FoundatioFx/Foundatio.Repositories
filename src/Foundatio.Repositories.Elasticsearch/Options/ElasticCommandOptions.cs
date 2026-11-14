@@ -32,9 +32,10 @@ namespace Foundatio.Repositories
         }
 
         /// <summary>
-        /// When update-by-query (<see cref="UseUpdateByQuery{T}(T, bool)"/>) or delete-by-query finishes with version
-        /// conflicts left over after the retry budget, log a warning and return the processed count instead of throwing a
-        /// <see cref="Exceptions.VersionConflictDocumentException"/>.
+        /// When update-by-query (<see cref="UseUpdateByQuery{T}(T, bool)"/>) skips documents due to version conflicts, or
+        /// delete-by-query still has conflicts after its retry budget, log a warning and return the processed count
+        /// instead of throwing a <see cref="Exceptions.VersionConflictDocumentException"/>. Update-by-query conflicts
+        /// are not retried because replaying the whole query could apply the script twice to successful documents.
         /// </summary>
         public static T ProceedOnQueryConflicts<T>(this T options, bool proceed = true) where T : ICommandOptions
         {

@@ -293,7 +293,7 @@ await repository.PatchAsync(id, new ActionPatch<Employee>(e => e.Status = "Activ
 
 5. **`RemoveAsync(T)` throws a conflict.** Removing a versioned document checks its version since this release. Re-read it, use `RemoveAsync(id)`, or pass `o.SkipVersionCheck()`.
 
-6. **`PatchAllAsync` or `RemoveAllAsync` throws a conflict with counts.** Documents were still conflicting after `Retry(n)` rounds (for example a writer that never stops). The message lists the counts and up to 10 ids. Successful documents were already written, invalidated and notified. Retry the operation (scripts should be idempotent) or raise `Retry(n)`. For update-by-query and delete-by-query, `o.ProceedOnQueryConflicts()` logs instead of throwing.
+6. **`PatchAllAsync` or `RemoveAllAsync` throws a conflict with counts.** Documents were still conflicting after the configured retries (for example a writer that never stops), or opt-in update-by-query skipped documents changed after its snapshot. Per-document write failures list counts and up to 10 ids; query APIs report counts without identifying skipped documents. Successful documents were already written, invalidated and notified. Retry the operation (scripts should be idempotent) or raise `Retry(n)` for paths that retry conflicts. For update-by-query and delete-by-query, `o.ProceedOnQueryConflicts()` logs instead of throwing.
 
 The Warning-level log entries `Version conflict during {Operation} on {Index}/{DocumentId}` include the expected and current versions, the attempt and the outcome, which shows which writer is winning.
 
@@ -570,7 +570,7 @@ All writes (`AddAsync`, `SaveAsync`, `RemoveAsync`, patches, single and bulk) re
 
 - **HTTP 429**, **503 with an Elasticsearch error type**, and connection failures where the request was never sent (refused connection, DNS or TLS failure) are retried. Bulk requests retry only the failed items.
 - **HTTP 502, 504, unstructured gateway 503 responses, timeouts** and failures without a status after the request was sent are **not** retried, because the write may already have been applied. They're reported as `DocumentException`; re-read without the cache before retrying.
-- **HTTP 409** (Version Conflict) on `AddAsync`/`SaveAsync`/`RemoveAsync` — **not** retried; the caller must handle conflict resolution. Patches re-apply themselves to the latest document instead.
+- **HTTP 409** (Version Conflict) on `AddAsync`/`SaveAsync`/`RemoveAsync` — **not** retried; the caller must handle conflict resolution. Patches can re-apply themselves to the latest document within their retry budget, except `IfVersion` patches and opt-in update-by-query, which report conflicts without replaying them.
 - `DuplicateDocumentException` — **not** retried
 
 `o.Retry(0)` makes a single attempt. Writes use these rules instead of the repository's `IResiliencePolicy`. See [Versioning: Retry options](/guide/versioning#retry-options).

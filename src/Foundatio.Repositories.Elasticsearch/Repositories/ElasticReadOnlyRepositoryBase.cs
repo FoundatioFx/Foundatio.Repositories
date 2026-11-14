@@ -138,7 +138,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var findHit = response.Found ? response.ToFindHit() : null;
 
         if (IsCacheEnabled && options.ShouldUseCache())
-            await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options, false).AnyContext();
+            await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id.Value, null, 0, routing: id.Routing), options, false).AnyContext();
 
         var doc = findHit?.Document;
         return ShouldReturnDocument(doc, options) ? doc : null;
@@ -162,11 +162,23 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await OnBeforeGetAsync(new Ids(idList), options, typeof(T)).AnyContext();
 
-        var hits = new List<FindHit<T>>();
-        if (IsCacheEnabled && options.ShouldReadCache())
-            hits.AddRange(await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext());
+        var hits = IsCacheEnabled && options.ShouldReadCache()
+            ? await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext()
+            : new List<FindHit<T>>();
 
-        var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id!)).ToList();
+        var itemsToFind = idList;
+        if (hits.Count > 0)
+        {
+            var cachedIds = new HashSet<Id>(hits.Count);
+            foreach (var hit in hits)
+            {
+                cachedIds.Add(new Id(hit.Id!));
+                if (hit.Routing is not null)
+                    cachedIds.Add(new Id(hit.Id!, hit.Routing));
+            }
+
+            itemsToFind.RemoveAll(cachedIds.Contains);
+        }
         if (itemsToFind.Count == 0)
             return hits.Where(h => ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
 
@@ -203,6 +215,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         // fallback to doing a find
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
+            var requestedIds = itemsToFind.ToHashSet();
+            var foundLocations = hits.Select(hit => (hit.GetIndex(), hit.Id, hit.Routing)).ToHashSet();
             var findOptions = options.Clone();
             findOptions.PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
@@ -210,10 +224,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             {
                 if (response.Hits.Count > 0)
                 {
-                    foreach (var hit in response.Hits.Where(h => h.Document != null))
+                    foreach (var hit in response.Hits.Where(h => h.Document is not null && MatchesRequestedId(h, requestedIds)))
                     {
-                        hits.Add(hit);
+                        if (foundLocations.Add((hit.GetIndex(), hit.Id, hit.Routing)))
+                            hits.Add(hit);
                         itemsToFind.Remove(new Id(hit.Id!, hit.Routing));
+                        itemsToFind.Remove(new Id(hit.Id!));
                     }
                 }
             } while (await response.NextPageAsync().AnyContext());
@@ -223,7 +239,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             // Add null markers for IDs that were not found (to cache the "not found" result)
             foreach (var id in itemsToFind)
-                hits.Add(new FindHit<T>(id, null, 0));
+                hits.Add(new FindHit<T>(id.Value, null, 0, routing: id.Routing));
 
             await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
         }
@@ -1156,22 +1172,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected async Task<FindHit<T>?> GetCachedFindHit(Id id, string? cacheKey = null)
     {
+        cacheKey ??= id.Value;
         try
         {
-            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey ?? id).AnyContext();
+            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
 
             var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document != null && String.Equals(v.Id, id))
+                ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document is not null && String.Equals(v.Id, id.Value, StringComparison.Ordinal)
+                    && (id.Routing is null || String.Equals(v.Routing, id.Routing, StringComparison.Ordinal)))
                 : null;
             if (result is not null)
                 SyncDocumentVersion(result);
 
-            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
+            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? id);
+            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey);
 
             return null;
         }
@@ -1179,41 +1197,52 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICollection<Id> ids, string? cacheKey = null)
     {
-        var idList = ids.Select(id => id.Value).ToList();
+        var requestedIds = ids.ToHashSet();
         IEnumerable<FindHit<T>> result;
 
         try
         {
             if (String.IsNullOrEmpty(cacheKey))
             {
-                var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(idList).AnyContext();
+                var cacheKeys = ids.Select(id => id.Value).ToArray();
+                var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(cacheKeys).AnyContext();
                 result = cacheHitsById
                     .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
                     .SelectMany(kvp => kvp.Value.Value)
-                    .Where(v => v is not null && v.Document is not null && v.Id is not null && idList.Contains(v.Id));
+                    .Where(v => v is not null && v.Document is not null && MatchesRequestedId(v, requestedIds));
             }
             else
             {
                 var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
                 result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                    ? cacheKeyHits.Value.Where(v => v is not null && v.Document is not null && v.Id is not null && idList.Contains(v.Id))
+                    ? cacheKeyHits.Value.Where(v => v is not null && v.Document is not null && MatchesRequestedId(v, requestedIds))
                     : Enumerable.Empty<FindHit<T>>();
             }
 
-            // Note: the distinct by is an extra safety check just in case we ever get into a weird state.
-            var distinctResults = result.DistinctBy(v => v.Id).ToList();
+            var distinctResults = result.ToList();
+            if (distinctResults.Count > 1)
+            {
+                var locations = new HashSet<(string? Index, string? Id, string? Routing)>(distinctResults.Count);
+                distinctResults.RemoveAll(hit => !locations.Add((hit.GetIndex(), hit.Id, hit.Routing)));
+            }
             SyncDocumentVersions(distinctResults);
 
-            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", idList));
+            if (_logger.IsEnabled(LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", ids.Select(id => id.Value)));
 
             return distinctResults;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? String.Join(", ", idList));
+            _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? String.Join(", ", ids.Select(id => id.Value)));
 
             return Enumerable.Empty<FindHit<T>>().ToList();
         }
+    }
+
+    private static bool MatchesRequestedId(FindHit<T> hit, HashSet<Id> requestedIds)
+    {
+        return hit.Id is not null && (requestedIds.Contains(new Id(hit.Id)) || requestedIds.Contains(new Id(hit.Id, hit.Routing)));
     }
 
     /// <summary>

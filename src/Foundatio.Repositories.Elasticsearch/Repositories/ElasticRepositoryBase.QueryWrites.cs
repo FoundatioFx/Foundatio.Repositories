@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
@@ -142,7 +143,12 @@ public abstract partial class ElasticRepositoryBase<T>
         for (int attempt = 1; ; attempt++)
         {
             DisposedCancellationToken.ThrowIfCancellationRequested();
-            var taskStatus = await _client.Tasks.GetAsync(new Tasks.GetTasksRequest(taskId) { WaitForCompletion = false }, DisposedCancellationToken).AnyContext();
+            var request = new Tasks.GetTasksRequest(taskId)
+            {
+                WaitForCompletion = false,
+                RequestConfiguration = new RequestConfiguration { ThrowExceptions = false }
+            };
+            var taskStatus = await _client.Tasks.GetAsync(request, DisposedCancellationToken).AnyContext();
             _logger.LogRequest(taskStatus, options.GetQueryLogLevel());
 
             if (!taskStatus.IsValidResponse)
