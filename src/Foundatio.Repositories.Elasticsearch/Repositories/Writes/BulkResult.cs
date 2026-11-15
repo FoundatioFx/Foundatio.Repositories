@@ -37,8 +37,8 @@ internal sealed class BulkResult
 
     internal static BulkResult From(BulkResponse response)
     {
-        // Items is null on a failed request even though it is annotated as non-null.
-        if (!response.IsValidResponse && response.Items is null or { Count: 0 })
+        // A transport response can be marked valid without any bulk results (for example, a failed ping returning 404).
+        if (response.Items is null or { Count: 0 })
         {
             int? status = response.ApiCallDetails?.HttpStatusCode;
             var exception = response.OriginalException();

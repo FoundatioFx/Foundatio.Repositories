@@ -145,7 +145,7 @@ o.Cache(false).ReadCache(false)
 
 ### Source Projections
 
-ID reads requested with caller `Include`, `Exclude`, `IncludeMask`, or `ExcludeMask` command options do not populate the shared document-ID cache. This applies even without a custom cache key, so a later unfiltered read does not receive an incomplete document. `FindOneAsync` also checks the effective search request, including projections introduced by repository query hooks. A projected response can still be cached under its own explicit cache key. Repository default exclusions define the normal document shape and do not, by themselves, disable ID caching.
+ID reads requested with caller `Include`, `Exclude`, `IncludeMask`, or `ExcludeMask` command options do not populate the shared document-ID cache. This applies even without a custom cache key, so a later unfiltered read does not receive an incomplete document. `FindOneAsync` and `GetByIdsAsync` discovery also check the effective search request, including projections introduced by repository query hooks. A projected response can still be cached under its own explicit cache key. Repository default exclusions define the normal document shape and do not, by themselves, disable ID caching.
 
 ## Automatic Cache Invalidation
 
@@ -170,15 +170,21 @@ await repository.SaveAsync(employee, o => o.Cache());
 // Internally:
 // 1. Document is indexed to Elasticsearch
 // 2. Cache is invalidated for the document ID
-// 3. EntityChanged notification is published
-// 4. Without a default ingest pipeline, the document is cached with its new version
+// 3. Eligible writes populate the cache with the persisted source and new version
+// 4. DocumentsSaved and DocumentsChanged handlers run, followed by EntityChanged notifications
 ```
 
 ### Writes with a Default Ingest Pipeline
 
 When `DefaultPipeline` is configured, `AddAsync` and `SaveAsync` do not populate the cache from the submitted model: Elasticsearch may have transformed that document. `SaveAsync` retains its normal ID-cache invalidation; `AddAsync` retains its existing behavior of not removing ID entries. When write caching is requested, the operation's explicit cache key is removed. A later read from Elasticsearch obtains the transformed source and can cache it normally. Versioned models receive the new version metadata, but submitted models are not reloaded with pipeline-transformed field values.
 
-Cache population is also skipped if an asynchronous write event saves the same versioned model again. The outer operation detects the newer version and removes its explicit cache key instead of pairing the changed model with its earlier write metadata.
+### Post-write Handlers
+
+Cache invalidation and eligible Add/Save cache population finish before post-write handlers or notifications run. A handler may save the same model or a fresh instance; the nested write performs its own cache handling, and the outer write does not overwrite that result afterward. The default cache snapshots values, so mutating a model in a post-write handler does not change the already-cached persisted source. Remove also invalidates its cache entries before `DocumentsRemoved`, so a throwing handler cannot leave the deleted source cached.
+
+Patches invalidate their actual write IDs before `DocumentsChanged`, including patches that change the source `Id`. Mixed deletes also evict already-missing documents before post-remove handlers. Missing documents do not produce removal notifications.
+
+When a write requests an explicit cache key and post-write handlers or notifications are enabled, that key is removed and cache population for the write is skipped. The key is removed again after callbacks, including when a callback throws, because a callback can refill it before performing a nested write. Nested writes cannot infer the dependencies of an arbitrary custom key. Ordinary ID-based cached writes still populate before callbacks, and writes without callbacks can populate an explicit key normally.
 
 ## Cache Behavior on Partial Failure
 

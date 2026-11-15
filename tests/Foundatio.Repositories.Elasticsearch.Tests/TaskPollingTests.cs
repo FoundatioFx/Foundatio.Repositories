@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using System.Text.Json;
 using Xunit;
 
@@ -88,6 +89,53 @@ public sealed class TaskPollingTests
         Assert.Equal(timedOut, TaskResponseFailures.IsTimedOut(response));
         Assert.Equal(timedOut, TaskResponseFailures.IsTimedOut(jsonResponse));
         Assert.False(TaskResponseFailures.IsTimedOut(null));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("by user request")]
+    public void GetCancellationReason_WithJsonAndDictionaryResponses_ReadsReason(string reason)
+    {
+        // Arrange
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new { canceled = reason }));
+        var response = new Dictionary<string, object> { ["canceled"] = reason };
+        var jsonResponse = new Dictionary<string, object> { ["canceled"] = document.RootElement.GetProperty("canceled").Clone() };
+
+        // Act & Assert
+        Assert.Equal(reason, TaskResponseFailures.GetCancellationReason(document.RootElement));
+        Assert.Equal(reason, TaskResponseFailures.GetCancellationReason(response));
+        Assert.Equal(reason, TaskResponseFailures.GetCancellationReason(jsonResponse));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("{}")]
+    [InlineData("""{"canceled":null}""")]
+    [InlineData("""{"canceled":true}""")]
+    public void GetCancellationReason_WithoutStringReason_ReturnsNull(string? json)
+    {
+        // Arrange
+        using var document = json is null ? null : JsonDocument.Parse(json);
+
+        // Act & Assert
+        Assert.Null(TaskResponseFailures.GetCancellationReason(document?.RootElement));
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("upstream request failed", null)]
+    [InlineData("""{"canceled":""}""", "")]
+    [InlineData("""{"canceled":null}""", null)]
+    [InlineData("""{"failures":[{"canceled":"nested"}],"updated":1}""", null)]
+    [InlineData("""{"failures":[{"canceled":"nested"}],"updated":1,"canceled":"by user request"}""", "by user request")]
+    public void GetCancellationReason_WithCapturedResponse_ReadsOnlyTopLevelReason(string? json, string? expected)
+    {
+        // Arrange
+        byte[]? response = json is null ? null : Encoding.UTF8.GetBytes(json);
+
+        // Act & Assert
+        Assert.Equal(expected, TaskResponseFailures.GetCancellationReason(response));
     }
 
     [Theory]

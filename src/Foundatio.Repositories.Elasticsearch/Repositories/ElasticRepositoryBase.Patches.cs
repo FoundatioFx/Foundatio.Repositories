@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -7,6 +6,7 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.MGet;
 using Elastic.Clients.Elasticsearch.QueryDsl;
+using Elastic.Transport;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -35,6 +35,138 @@ public abstract partial class ElasticRepositoryBase<T>
             if (HasDateTracking)
                 SetDocumentDates(document, ElasticIndex.Configuration.TimeProvider);
         });
+
+    private async Task<long> PatchClientSideByIdsAsync(IReadOnlyCollection<Id> ids, IPatchOperation operation, ICommandOptions options, string operationName)
+    {
+        var requestedIds = ids.ToHashSet();
+        var unroutedIds = ids.Where(id => id.Routing is null).Select(id => id.Value).ToHashSet(StringComparer.Ordinal);
+        var failures = new WriteFailureSummary(MissingDocumentPolicy.NotFound);
+        long modified = 0;
+        await BatchProcessAsync(NewQuery().Id(ids.Select(id => id.Value)), async results =>
+        {
+            var hits = WithIds(results.Hits.Where(hit => hit.Document is not null))
+                .Where(hit => unroutedIds.Contains(hit.Id) || requestedIds.Contains(new Id(hit.Id, hit.Hit.Routing)))
+                .ToList();
+            var run = await PatchClientSideAsync(hits, operation, null, options, Refresh.False, operationName, useDocumentDates: true).AnyContext();
+            var patched = run.Succeeded;
+            modified += patched.Count;
+            await OnPatchedAsync(patched.Select(item => item.Key.Id).ToList(), patched.Select(item => item.Document).ToList(), options).AnyContext();
+            failures.Add(run);
+            return run.Count(WriteOutcome.Cancelled) is 0;
+        }, CreatePatchPagingOptions(options, fullSource: true)).AnyContext();
+
+        WriteExceptionMapper.ThrowIfFailed(failures, "patching");
+        DisposedCancellationToken.ThrowIfCancellationRequested();
+        return modified;
+    }
+
+    /// <summary>
+    /// Pipeline partial patches read known locations in bounded real-time batches, then page through unresolved
+    /// locations. Location authority and found IDs span the operation; full documents live only in the current batches.
+    /// </summary>
+    private async Task<long> PatchPipelinePartialByIdsAsync(IReadOnlyCollection<Id> ids, IPatchOperation operation, ICommandOptions options, Refresh refresh, string operationName)
+    {
+        var discoveryIds = new List<Id>();
+        var reads = new List<UpdateItem>();
+        foreach (var id in ids)
+        {
+            if (HasParent && id.Routing is null)
+            {
+                discoveryIds.Add(id);
+                continue;
+            }
+
+            try
+            {
+                reads.Add(new UpdateItem(new DocumentKey(ElasticIndex.GetIndex(id), id.Value), id.Routing, ElasticDocumentVersion.Empty));
+            }
+            catch (ArgumentException ex) when (ElasticIndex is DailyIndex && ex.ParamName is "id" && !ObjectId.TryParse(id.Value, out _))
+            {
+                // Time-series custom ids do not encode the date needed to resolve their index.
+                discoveryIds.Add(id);
+            }
+        }
+
+        var findOptions = CreatePatchPagingOptions(options, fullSource: true);
+        if (!findOptions.HasPageLimit())
+            findOptions.PageLimit(500);
+        int batchSize = Math.Max(1, findOptions.GetLimit());
+        findOptions.PageLimit(batchSize);
+        var authoritativeLocations = new HashSet<(string Index, string Id, string? Routing)>();
+        var unresolvedFailures = new HashSet<Id>();
+        var foundLocations = new HashSet<(string Index, string Id, string? Routing)>();
+        var buffered = new List<(string Id, FindHit<T> Hit)>(batchSize);
+        var failures = new WriteFailureSummary(MissingDocumentPolicy.NotFound);
+        long modified = 0;
+
+        async Task<bool> FlushAsync()
+        {
+            if (buffered.Count is 0)
+                return true;
+
+            var run = await PatchClientSideAsync(buffered, operation, null, options, refresh, operationName, useDocumentDates: true).AnyContext();
+            buffered.Clear();
+            var patched = run.Succeeded;
+            modified += patched.Count;
+            await OnPatchedAsync(patched.Select(item => item.Key.Id).ToList(), patched.Select(item => item.Document).ToList(), options).AnyContext();
+            failures.Add(run);
+            return run.Count(WriteOutcome.Cancelled) is 0;
+        }
+
+        async Task<bool> BufferAsync(IEnumerable<(string Id, FindHit<T> Hit)> hits)
+        {
+            foreach (var hit in hits)
+            {
+                if (!foundLocations.Add((hit.Hit.GetIndex() ?? ElasticIndex.Name, hit.Id, hit.Hit.Routing)))
+                    continue;
+
+                buffered.Add(hit);
+                if (buffered.Count == batchSize && !await FlushAsync().AnyContext())
+                    return false;
+            }
+
+            return true;
+        }
+
+        foreach (var batch in reads.Chunk(batchSize))
+        {
+            var (hits, readFailures) = await ReadPatchBatchAsync(batch, options, authoritativeLocations, unresolvedFailures).AnyContext();
+            if (readFailures.Count > 0)
+                failures.Add(new WriteRunResult<IndexItem>(readFailures.ToArray(), 0));
+            if (!await BufferAsync(hits).AnyContext() || failures.CancelledCount > 0)
+                break;
+        }
+
+        if (discoveryIds.Count > 0 && failures.CancelledCount is 0)
+        {
+            DisposedCancellationToken.ThrowIfCancellationRequested();
+            var requestedIds = discoveryIds.ToHashSet();
+            var unroutedIds = discoveryIds.Where(id => id.Routing is null).Select(id => id.Value).ToHashSet(StringComparer.Ordinal);
+            // The snapshot starts after full known-location batches are written. Their real-time outcomes remain authoritative.
+            await BatchProcessAsync(NewQuery().Id(discoveryIds.Select(id => id.Value)), async results =>
+            {
+                var hits = WithIds(results.Hits.Where(hit => hit.Document is not null))
+                    .Where(hit => unroutedIds.Contains(hit.Id) || requestedIds.Contains(new Id(hit.Id, hit.Hit.Routing)))
+                    .Where(hit => !authoritativeLocations.Contains((hit.Hit.GetIndex() ?? ElasticIndex.Name, hit.Id, hit.Hit.Routing))
+                        && !unresolvedFailures.Contains(new Id(hit.Id, hit.Hit.Routing)));
+                return await BufferAsync(hits).AnyContext();
+            }, findOptions).AnyContext();
+
+            var foundIds = foundLocations.Select(location => location.Id).ToHashSet(StringComparer.Ordinal);
+            var foundRoutedIds = foundLocations.Select(location => new Id(location.Id, location.Routing)).ToHashSet();
+            foreach (var missing in discoveryIds.Where(id => id.Routing is null ? !foundIds.Contains(id.Value) : !foundRoutedIds.Contains(id)).Chunk(batchSize))
+            {
+                failures.Add(new WriteRunResult<UpdateItem>(missing.Select(id => new WriteItemOutcome<UpdateItem>(
+                    new UpdateItem(new DocumentKey(ElasticIndex.Name, id.Value), id.Routing, ElasticDocumentVersion.Empty),
+                    new WriteItemResult(WriteOutcome.Missing, 404))).ToArray(), 0));
+            }
+        }
+
+        await FlushAsync().AnyContext();
+        WriteExceptionMapper.ThrowIfFailed(failures, "patching");
+        DisposedCancellationToken.ThrowIfCancellationRequested();
+        return modified;
+    }
 
     /// <summary>
     /// Client-side patch (<see cref="PatchStrategy.ClientSide"/>): patches each hit in memory and indexes it with
@@ -130,39 +262,21 @@ public abstract partial class ElasticRepositoryBase<T>
     }
 
     /// <summary>
-    /// Reads documents by id for a client-side patch. Pipeline partial patches prefer real-time multi-get for each known
-    /// index and routing, discovering only unresolved locations with a search. Multi-id JSON and action patches use the
-    /// repository query to select eligible documents; filtered or missing ids are not part of that selection.
-    /// Single-id and pipeline partial patches report nonexistent documents as <see cref="WriteOutcome.Missing"/> failures.
+    /// Reads resolvable documents by id for a client-side patch, reporting nonexistent documents as
+    /// <see cref="WriteOutcome.Missing"/> failures.
     /// </summary>
-    private async Task<(List<(string Id, FindHit<T> Hit)> Hits, List<WriteItemOutcome<IndexItem>> Failures)> ReadForPatchAsync(IReadOnlyCollection<Id> ids, ICommandOptions options, bool allowSearch = false, bool preferRealtime = false)
+    private Task<(List<(string Id, FindHit<T> Hit)> Hits, List<WriteItemOutcome<IndexItem>> Failures)> ReadForPatchAsync(IReadOnlyCollection<Id> ids, ICommandOptions options)
     {
-        bool searchAll = allowSearch && !preferRealtime;
-        var discoveryIds = new List<Id>();
-        var reads = new List<UpdateItem>();
-        foreach (var id in ids)
-        {
-            if (searchAll || (allowSearch && preferRealtime && HasParent && id.Routing is null))
-            {
-                discoveryIds.Add(id);
-                continue;
-            }
+        var reads = ids.Select(id => new UpdateItem(new DocumentKey(ElasticIndex.GetIndex(id), id.Value), id.Routing, ElasticDocumentVersion.Empty)).ToList();
+        return ReadPatchBatchAsync(reads, options);
+    }
 
-            try
-            {
-                reads.Add(new UpdateItem(new DocumentKey(ElasticIndex.GetIndex(id), id.Value), id.Routing, ElasticDocumentVersion.Empty));
-            }
-            catch (ArgumentException ex) when (allowSearch && preferRealtime && ElasticIndex is DailyIndex && ex.ParamName is "id" && !ObjectId.TryParse(id.Value, out _))
-            {
-                // Time-series custom ids do not encode the date needed to resolve their index.
-                discoveryIds.Add(id);
-            }
-        }
-
+    private async Task<(List<(string Id, FindHit<T> Hit)> Hits, List<WriteItemOutcome<IndexItem>> Failures)> ReadPatchBatchAsync(
+        IReadOnlyList<UpdateItem> reads, ICommandOptions options,
+        HashSet<(string Index, string Id, string? Routing)>? authoritativeLocations = null, HashSet<Id>? unresolvedFailures = null)
+    {
         var found = new List<(string Id, FindHit<T> Hit)>();
         var failures = new List<WriteItemOutcome<IndexItem>>();
-        var authoritativeLocations = new HashSet<(string Index, string Id, string? Routing)>();
-        var unresolvedFailures = new HashSet<Id>();
         if (reads.Count > 0)
         {
             var hits = new Dictionary<UpdateItem, FindHit<T>>(ReferenceEqualityComparer.Instance);
@@ -181,7 +295,7 @@ public abstract partial class ElasticRepositoryBase<T>
                     var item = items[index];
                     if (item.Index is { Length: > 0 } physicalIndex)
                     {
-                        authoritativeLocations.Add((physicalIndex, read.Key.Id, item.Hit?.Routing ?? read.Routing));
+                        authoritativeLocations?.Add((physicalIndex, read.Key.Id, item.Hit?.Routing ?? read.Routing));
                         resolvedReads.Add(read);
                     }
                     if (item.IsError)
@@ -198,52 +312,12 @@ public abstract partial class ElasticRepositoryBase<T>
             foreach (var failure in run.Items.Where(i => i.Result.Outcome is not WriteOutcome.Succeeded))
             {
                 failures.Add(new WriteItemOutcome<IndexItem>(new IndexItem(failure.Item.Key, new T(), failure.Item.Routing, ElasticDocumentVersion.Empty, false), failure.Result));
-                if (!resolvedReads.Contains(failure.Item))
+                if (unresolvedFailures is not null && !resolvedReads.Contains(failure.Item))
                     unresolvedFailures.Add(new Id(failure.Item.Key.Id, failure.Item.Routing));
             }
         }
 
-        if (discoveryIds.Count > 0)
-        {
-            DisposedCancellationToken.ThrowIfCancellationRequested();
-            var searched = await SearchForPatchAsync(discoveryIds, options).AnyContext();
-            found.AddRange(searched.Where(h => !authoritativeLocations.Contains((h.Hit.GetIndex() ?? ElasticIndex.Name, h.Id, h.Hit.Routing))
-                && !unresolvedFailures.Contains(new Id(h.Id, h.Hit.Routing))));
-            found = found.DistinctBy(h => (h.Hit.GetIndex(), h.Id, h.Hit.Routing)).ToList();
-
-            if (!searchAll)
-            {
-                var foundIds = found.Select(h => h.Id).ToHashSet(StringComparer.Ordinal);
-                var foundRoutedIds = found.Select(h => new Id(h.Id, h.Hit.Routing)).ToHashSet();
-                failures.AddRange(discoveryIds.Where(i => i.Routing is null ? !foundIds.Contains(i.Value) : !foundRoutedIds.Contains(i))
-                    .Select(i => new WriteItemOutcome<IndexItem>(new IndexItem(new DocumentKey(ElasticIndex.Name, i.Value), new T(), i.Routing, ElasticDocumentVersion.Empty, false), new WriteItemResult(WriteOutcome.Missing, 404))));
-            }
-        }
-
         return (found, failures);
-    }
-
-    private async Task<List<(string Id, FindHit<T> Hit)>> SearchForPatchAsync(IReadOnlyCollection<Id> ids, ICommandOptions options)
-    {
-        var findOptions = CreatePatchPagingOptions(options, fullSource: true).PageLimit(1000);
-        var requestedIds = ids.ToHashSet();
-        var unroutedIds = ids.Where(i => i.Routing is null).Select(i => i.Value).ToHashSet(StringComparer.Ordinal);
-        var searched = new List<(string Id, FindHit<T> Hit)>();
-        var results = await FindAsync(NewQuery().Id(ids.Select(i => i.Value)), findOptions).AnyContext();
-        try
-        {
-            do
-            {
-                searched.AddRange(WithIds(results.Hits.Where(h => h.Document is not null))
-                    .Where(h => unroutedIds.Contains(h.Id) || requestedIds.Contains(new Id(h.Id, h.Hit.Routing))));
-            } while (await results.NextPageAsync().AnyContext());
-        }
-        finally
-        {
-            await CloseAbandonedPointInTimeAsync(results, findOptions).AnyContext();
-        }
-
-        return searched;
     }
 
     private static IEnumerable<(string Id, FindHit<T> Hit)> WithIds(IEnumerable<FindHit<T>> hits)
@@ -314,7 +388,7 @@ public abstract partial class ElasticRepositoryBase<T>
     /// </summary>
     private async Task<WriteRunResult<UpdateItem>> PatchByIdQueryAsync(IReadOnlyList<UpdateItem> items, ScriptPatch script, Refresh refresh, int budget, string operationName, ICommandOptions options)
     {
-        var patchedIndexes = new ConcurrentDictionary<string, byte>();
+        var patchedIndexes = new HashSet<string>(StringComparer.Ordinal);
         var partiallyPatchedIds = new List<string>();
         WriteRunResult<UpdateItem> run;
         try
@@ -329,7 +403,7 @@ public abstract partial class ElasticRepositoryBase<T>
                         var (result, applied) = await UpdateByIdQueryAsync(item, script, options, ct).AnyContext();
                         if (applied)
                         {
-                            patchedIndexes[item.Key.Index] = 0;
+                            patchedIndexes.Add(item.Key.Index);
                             if (result.Outcome is not WriteOutcome.Succeeded)
                                 partiallyPatchedIds.Add(item.Key.Id);
                         }
@@ -358,8 +432,8 @@ public abstract partial class ElasticRepositoryBase<T>
         }
         finally
         {
-            if (refresh != Refresh.False && !patchedIndexes.IsEmpty)
-                await RefreshPatchIndexesAsync(patchedIndexes.Keys.ToArray()).AnyContext();
+            if (refresh != Refresh.False && patchedIndexes.Count > 0)
+                await RefreshPatchIndexesAsync(patchedIndexes.ToArray()).AnyContext();
         }
 
         if (partiallyPatchedIds.Count > 0)
@@ -456,17 +530,18 @@ public abstract partial class ElasticRepositoryBase<T>
             Pipeline = DefaultPipeline,
             Conflicts = Conflicts.Proceed,
             Refresh = false,
-            WaitForCompletion = true
+            WaitForCompletion = true,
+            RequestConfiguration = new RequestConfiguration { DisableDirectStreaming = true }
         };
         request.Routing = new Routing(item.Routing ?? item.Key.Id);
 
         var response = await WriteClient.UpdateByQueryAsync(request, cancellationToken).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
         bool applied = (response.Updated ?? 0) > 0 || (response.Deleted ?? 0) > 0;
-        if (GetQueryFailureReason(response.TimedOut, response.Failures) is { } failure)
+        if (GetQueryFailureReason(response.TimedOut, response.Failures, response.ApiCallDetails?.ResponseBodyInBytes) is { } failure)
             return (new WriteItemResult(WriteOutcome.Fatal, response.ApiCallDetails?.HttpStatusCode, Reason: failure, Exception: response.OriginalException()), applied);
 
-        if (!response.IsValidResponse)
+        if (!response.IsValidResponse || response.ApiCallDetails?.HttpStatusCode is 404)
         {
             var result = ToWriteResult(response, ElasticDocumentVersion.Empty);
             return (applied ? result with { Outcome = WriteOutcome.Fatal } : result, applied);

@@ -236,6 +236,118 @@ public sealed class PatchReadConsistencyTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task PipelinePartialPatch_WithKnownLocations_WritesBoundedBatches(bool rejectFirst)
+    {
+        var documents = Enumerable.Range(1, 5).Select(month => StoredDocument.Create(month, routing: $"route-{month}")).ToArray();
+        using var configuration = new TestConfiguration(documents);
+        if (rejectFirst)
+            configuration.Invoker.RejectWriteId = documents[0].Document.Id;
+        using var repository = new TestRepository(configuration, [], hasParent: true);
+        var updatedIds = new List<string>();
+        var ids = new Ids(documents.Select(document => new Id(document.Document.Id, document.Routing)));
+
+        Func<Task<long>> patchAsync = async () => await repository.PatchAsync(ids, new PartialPatch(new { value = "patched" }),
+            options => options.PageLimit(2).Retry(0).Notifications(false).UpdateCallback(updatedIds.AddRange));
+
+        if (rejectFirst)
+        {
+            var exception = await Assert.ThrowsAsync<DocumentException>(patchAsync);
+            Assert.Contains("1 failed, 4 succeeded", exception.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal(documents.Length, await patchAsync());
+        }
+
+        Assert.Equal(new[] { 2, 2, 1 }, configuration.Invoker.MultiGetSizes);
+        Assert.Equal(new[] { 0, 2, 4 }, configuration.Invoker.WritesBeforeMultiGet);
+        Assert.Equal(new[] { 2, 2, 1 }, configuration.Invoker.BulkSizes);
+        Assert.Empty(repository.SearchedIds);
+        Assert.Equal(documents.Select(document => (document.Index, document.Document.Id, document.Routing)),
+            configuration.Invoker.Writes.Select(write => (write.Index, write.Id, write.Routing)));
+        Assert.Equal(documents.Skip(rejectFirst ? 1 : 0).Select(document => document.Document.Id), updatedIds);
+        Assert.All(configuration.Invoker.Writes, write =>
+        {
+            Assert.Equal("patched", write.Source.GetProperty("value").GetString());
+            Assert.Equal(7, write.SequenceNumber);
+            Assert.Equal(1, write.PrimaryTerm);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PipelinePartialPatch_WithRoutedAndUnroutedIdsAcrossBatches_PreservesRealtimeAuthority(bool missing)
+    {
+        var first = StoredDocument.Create(1, routing: "first");
+        var second = StoredDocument.Create(1, first.Document.Id, "second");
+        var other = StoredDocument.Create(2, routing: "other");
+        var last = StoredDocument.Create(3, routing: "last");
+        var stale = first with { Document = new TestDocument { Id = first.Document.Id, Keep = "stale", Version = "1:7" } };
+        using var configuration = new TestConfiguration(missing ? [second, other, last] : [first, second, other, last]);
+        using var repository = new TestRepository(configuration, [stale, second], hasParent: true) { SearchPageSize = 2 };
+        var ids = new Ids(new Id(first.Document.Id, first.Routing), new Id(other.Document.Id, other.Routing),
+            new Id(last.Document.Id, last.Routing), new Id(first.Document.Id));
+
+        Func<Task<long>> patchAsync = async () => await repository.PatchAsync(ids, new PartialPatch(new { value = "patched" }),
+            options => options.PageLimit(2).Retry(0).Notifications(false));
+
+        if (missing)
+            await Assert.ThrowsAsync<DocumentNotFoundException>(patchAsync);
+        else
+            Assert.Equal(4, await patchAsync());
+
+        Assert.Equal(new[] { 2, 1 }, configuration.Invoker.MultiGetSizes);
+        Assert.Equal(missing ? new[] { 2, 1 } : new[] { 2, 2 }, configuration.Invoker.BulkSizes);
+        Assert.Equal(first.Document.Id, Assert.Single(repository.SearchedIds));
+        Assert.Single(configuration.Invoker.Writes, write => write.Routing == "second");
+        Assert.Single(configuration.Invoker.Writes, write => write.Routing == "other");
+        Assert.Single(configuration.Invoker.Writes, write => write.Routing == "last");
+        if (missing)
+        {
+            Assert.DoesNotContain(configuration.Invoker.Writes, write => write.Routing == "first");
+        }
+        else
+        {
+            var write = Assert.Single(configuration.Invoker.Writes, write => write.Routing == "first");
+            Assert.Equal(first.Document.Keep, write.Source.GetProperty("keep").GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PipelinePartialPatch_WithMultipleDiscoveryPages_WritesEachPageBeforeReadingTheNext(bool includeMissing)
+    {
+        var documents = Enumerable.Range(1, 5).Select(month => StoredDocument.Create(month, $"custom-{month}", $"route-{month}")).ToArray();
+        using var configuration = new TestConfiguration(documents);
+        using var repository = new TestRepository(configuration, documents, hasParent: true) { SearchPageSize = 2 };
+        var writesBeforePage = new List<int>();
+        repository.BeforeSearchPage = () => writesBeforePage.Add(configuration.Invoker.Writes.Count);
+        var updatedIds = new List<string>();
+        var requestedIds = documents.Select(document => new Id(document.Document.Id, document.Routing));
+        var ids = new Ids(includeMissing ? requestedIds.Append(new Id("custom-missing", "missing")) : requestedIds);
+
+        Func<Task<long>> patchAsync = async () => await repository.PatchAsync(ids, new PartialPatch(new { value = "patched" }),
+            options => options.PageLimit(2).Retry(0).Notifications(false).UpdateCallback(updatedIds.AddRange));
+
+        if (includeMissing)
+            await Assert.ThrowsAsync<DocumentNotFoundException>(patchAsync);
+        else
+            Assert.Equal(documents.Length, await patchAsync());
+
+        Assert.Empty(configuration.Invoker.ReadLocations);
+        Assert.Equal(new[] { 2, 2, 1 }, configuration.Invoker.BulkSizes);
+        Assert.Equal(new[] { 0, 2, 4 }, writesBeforePage);
+        Assert.Equal(documents.Select(document => document.Document.Id), updatedIds);
+        Assert.Equal(documents.Select(document => (document.Index, document.Document.Id, document.Routing)),
+            configuration.Invoker.Writes.Select(write => (write.Index, write.Id, write.Routing)));
+        Assert.All(configuration.Invoker.Writes, write => Assert.Equal("patched", write.Source.GetProperty("value").GetString()));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task JsonAndActionPatch_WithResolvableIds_PreservesSearchAcrossIndexes(bool action)
     {
         var first = StoredDocument.Create(1);
@@ -258,6 +370,72 @@ public sealed class PatchReadConsistencyTests
         Assert.Equal(2, repository.SearchedIds.Count);
         Assert.Equal(3, configuration.Invoker.Writes.Count);
         Assert.Equal(new[] { first.Index, duplicate.Index }, configuration.Invoker.Writes.Where(w => w.Id == first.Document.Id).Select(w => w.Index).Order());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task JsonAndActionPatch_WithMultipleSearchPages_WritesEachPageBeforeReadingTheNext(bool action)
+    {
+        var documents = Enumerable.Range(1, 5).Select(month => StoredDocument.Create(month, routing: $"route-{month}")).ToArray();
+        using var configuration = new TestConfiguration(documents);
+        using var repository = new TestRepository(configuration, documents, hasParent: true) { SearchPageSize = 2 };
+        var writesBeforePage = new List<int>();
+        repository.BeforeSearchPage = () => writesBeforePage.Add(configuration.Invoker.Writes.Count);
+        var ids = new Ids(documents.Select(document => new Id(document.Document.Id, document.Routing)));
+
+        long patched = await repository.PatchAsync(ids, CreateValuePatch(action),
+            options => options.PageLimit(2).Retry(0).Notifications(false));
+
+        Assert.Equal(documents.Length, patched);
+        Assert.Equal(new[] { 2, 2, 1 }, configuration.Invoker.BulkSizes);
+        Assert.Equal(new[] { 0, 2, 4 }, writesBeforePage);
+        Assert.Equal(documents.Select(document => (document.Index, document.Document.Id, document.Routing)),
+            configuration.Invoker.Writes.Select(write => (write.Index, write.Id, write.Routing)));
+        Assert.All(configuration.Invoker.Writes, write => Assert.Equal("patched", write.Source.GetProperty("value").GetString()));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task JsonAndActionPatch_WithRoutedAndMissingIdsAcrossPages_PatchesOnlyRequestedLocations(bool action)
+    {
+        var firstRoute = StoredDocument.CreateSingleIndex("same") with { Routing = "first" };
+        var otherRoute = StoredDocument.CreateSingleIndex("same") with { Routing = "other" };
+        var other = StoredDocument.CreateSingleIndex("other");
+        var deleted = StoredDocument.CreateSingleIndex("deleted", isDeleted: true);
+        StoredDocument[] documents = [firstRoute, otherRoute, other, deleted];
+        using var configuration = new TestConfiguration(documents);
+        using var repository = new TestRepository(configuration, documents, hasParent: true, singleIndex: true) { SearchPageSize = 2 };
+        var updatedIds = new List<string>();
+        var ids = new Ids(new Id("same", "first"), new Id("other"), new Id("deleted"), new Id("missing"));
+
+        long patched = await repository.PatchAsync(ids, CreateValuePatch(action),
+            options => options.PageLimit(2).Retry(0).Notifications(false).UpdateCallback(updatedIds.AddRange));
+
+        Assert.Equal(2, patched);
+        Assert.Equal(new[] { 1, 1 }, configuration.Invoker.BulkSizes);
+        Assert.Equal(new[] { ("same", "first"), ("other", (string?)null) },
+            configuration.Invoker.Writes.Select(write => (write.Id, write.Routing)));
+        Assert.Equal(new[] { "same", "other" }, updatedIds);
+    }
+
+    [Fact]
+    public async Task ActionPatch_WithFailureInAnEarlyPage_NotifiesLaterSuccessesBeforeThrowing()
+    {
+        var documents = Enumerable.Range(1, 5).Select(month => StoredDocument.Create(month)).ToArray();
+        using var configuration = new TestConfiguration(documents);
+        configuration.Invoker.RejectWriteId = documents[0].Document.Id;
+        using var repository = new TestRepository(configuration, documents) { SearchPageSize = 2 };
+        var updatedIds = new List<string>();
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync(
+            new Ids(documents.Select(document => document.Document.Id)), CreateValuePatch(action: true),
+            options => options.PageLimit(2).Retry(0).Notifications(false).UpdateCallback(updatedIds.AddRange)));
+
+        Assert.Equal(new[] { 2, 2, 1 }, configuration.Invoker.BulkSizes);
+        Assert.Equal(documents.Skip(1).Select(document => document.Document.Id), updatedIds);
+        Assert.Contains("1 failed, 4 succeeded", exception.Message, StringComparison.Ordinal);
     }
 
     private sealed class TestDocument : IIdentity, IVersioned, ISupportSoftDeletes
@@ -285,6 +463,8 @@ public sealed class PatchReadConsistencyTests
     {
         private readonly IReadOnlyList<StoredDocument> _visible;
         public List<string> SearchedIds { get; } = [];
+        public int? SearchPageSize { get; init; }
+        public Action? BeforeSearchPage { get; set; }
 
         public TestRepository(TestConfiguration configuration, IReadOnlyList<StoredDocument> visible, bool hasParent = false, bool singleIndex = false)
             : base(singleIndex ? new SingleTestIndex(configuration) : new TestIndex(configuration))
@@ -305,7 +485,20 @@ public sealed class PatchReadConsistencyTests
             var hits = _visible.Where(d => ids.Contains(d.Document.Id) && !query.GetExcludedIds().Contains(d.Document.Id) && ShouldReturnDocument(d.Document, options))
                 .Select(d => new FindHit<TResult>(d.Document.Id, (TResult)(object)d.Document, 0, "1:7", d.Routing,
                     new DataDictionary { [ElasticDataKeys.Index] = d.Index })).ToList();
-            return new FindResults<TResult>(hits, hits.Count);
+            if (SearchPageSize is not { } pageSize)
+                return new FindResults<TResult>(hits, hits.Count);
+
+            FindResults<TResult> CreatePage(int offset)
+            {
+                BeforeSearchPage?.Invoke();
+                var results = new FindResults<TResult>(hits.Skip(offset).Take(pageSize), hits.Count,
+                    getNextPageFunc: previous => Task.FromResult(CreatePage(previous.Page * pageSize)));
+                ((IFindResults<TResult>)results).Page = offset / pageSize + 1;
+                ((IFindResults<TResult>)results).HasMore = offset + pageSize < hits.Count;
+                return results;
+            }
+
+            return CreatePage(0);
         }
     }
 
@@ -335,8 +528,12 @@ public sealed class PatchReadConsistencyTests
         public List<(string Index, string Id, string? Routing)> ReadLocations { get; } = [];
         public List<WrittenDocument> Writes { get; } = [];
         public int MultiGetRequests { get; private set; }
+        public List<int> MultiGetSizes { get; } = [];
+        public List<int> WritesBeforeMultiGet { get; } = [];
         public int BulkRequests { get; private set; }
+        public List<int> BulkSizes { get; } = [];
         public Action? AfterMultiGet { get; set; }
+        public string? RejectWriteId { get; set; }
 
         public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
             where TResponse : TransportResponse, new()
@@ -350,6 +547,8 @@ public sealed class PatchReadConsistencyTests
                 MultiGetRequests++;
                 using var request = JsonDocument.Parse(requestStream.ToArray());
                 Assert.False(request.RootElement.TryGetProperty("_source", out _));
+                MultiGetSizes.Add(request.RootElement.GetProperty("docs").GetArrayLength());
+                WritesBeforeMultiGet.Add(Writes.Count);
                 var docs = new List<object>();
                 foreach (var item in request.RootElement.GetProperty("docs").EnumerateArray())
                 {
@@ -377,7 +576,9 @@ public sealed class PatchReadConsistencyTests
                 Assert.Contains("_bulk", endpoint.PathAndQuery, StringComparison.Ordinal);
                 BulkRequests++;
                 string[] lines = Encoding.UTF8.GetString(requestStream.ToArray()).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                BulkSizes.Add(lines.Length / 2);
                 var items = new List<object>();
+                bool errors = false;
                 for (int i = 0; i < lines.Length; i += 2)
                 {
                     using var metadata = JsonDocument.Parse(lines[i]);
@@ -387,9 +588,15 @@ public sealed class PatchReadConsistencyTests
                     string id = item.GetProperty("_id").GetString()!;
                     string? routing = item.TryGetProperty("routing", out var route) ? route.GetString() : null;
                     Writes.Add(new WrittenDocument(index, id, routing, item.GetProperty("if_seq_no").GetInt64(), item.GetProperty("if_primary_term").GetInt64(), source.RootElement.Clone()));
-                    items.Add(new { index = new { _index = index, _id = id, status = 200, result = "updated", _seq_no = 8, _primary_term = 1 } });
+                    if (id == RejectWriteId)
+                    {
+                        errors = true;
+                        items.Add(new { index = new { _index = index, _id = id, status = 400, error = new { type = "mapper_parsing_exception", reason = "rejected test document" } } });
+                    }
+                    else
+                        items.Add(new { index = new { _index = index, _id = id, status = 200, result = "updated", _seq_no = 8, _primary_term = 1 } });
                 }
-                body = JsonSerializer.Serialize(new { took = 1, errors = false, items });
+                body = JsonSerializer.Serialize(new { took = 1, errors, items });
             }
 
             byte[] bytes = Encoding.UTF8.GetBytes(body);

@@ -237,9 +237,15 @@ Models own their JSON representation. Use an explicit `string? IVersioned.Versio
 
 `PatchAllAsync` reads batches from a point-in-time snapshot (or explicit scroll snapshot), so patches that modify sort fields do not revisit documents after refreshes. Patch reads that discover locations by search use snapshot paging too. Multi-ID pipeline `PartialPatch` uses real-time multi-get for known index/routing locations, including daily/monthly ObjectIds, and searches only unresolved locations; a mixed batch preserves real-time visibility for known locations. The single-ID overload requires a resolvable location. Multi-ID JSON/action patches always use search and skip initially unmatched or filtered IDs, even on a single index. Pipeline `PartialPatch` recursively merges objects, retaining unspecified nested fields.
 
+Multi-ID JSON/action patches write and notify each search page before reading the next (`PageLimit`, default 500); failures are accumulated in bounded summaries and thrown after the remaining batches are processed. Their `UpdateCallback` runs per successful batch. If a client-side patch changes the source `Id` property, notifications retain the original write target ID while document-based cache hooks receive the patched model.
+
+Multi-ID pipeline partial patches also bound real-time reads and bulk writes with `PageLimit` (default 500). They write full known-location batches before opening the discovery snapshot and retain only a bounded document buffer. Operation-wide location and ID sets keep real-time results authoritative, including missing/error results, and prevent duplicate writes when routed and unrouted inputs overlap. `UpdateCallback` and notifications run per written batch; small mixed known/discovered inputs can share one bulk request.
+
 `PatchAllAsync` with `ScriptPatch` uses the bulk Update API. `o.UseUpdateByQuery()` opts into update-by-query (faster, but skips concurrently changed documents and throws unless `o.ProceedOnQueryConflicts()`).
 
 `PatchAllAsync` with `UseUpdateByQuery()` and `RemoveAllAsync` using delete-by-query apply `BeforeQuery`, `SystemFilter`, and `ConfigureQuery` before preparing their requests, preserving repository selection filters. Retries reuse that prepared query. Batched patch failures accumulate counts and at most 10 sampled IDs across processed batches; exception IDs are not a complete failure list.
+
+By-query completion uses the effective configured query for invalidation and notifications. An externally canceled Elasticsearch operation throws after accounting for any applied changes; it must not return a success count or replay a partially applied request.
 
 ## Remove and Fetch
 
@@ -282,6 +288,8 @@ bool exists = await repository.ExistsAsync(id);
 `ReadCache(bool)` overrides cache reads independently; use `.Cache(false).ReadCache(false)` to bypass both when options may already enable read-only caching. Caller include/exclude options and masks do not populate the shared document-ID cache, though an explicit projection key can store the filtered response. Repository default source filtering does not disable normal ID caching. `GetByIdsAsync` discovery bypasses inherited cache options so a partial custom-key result or cached parent route cannot suppress discovery of other locations.
 
 With `DefaultPipeline`, Add/Save skip cache population from submitted models because Elasticsearch may transform them. Save still invalidates ID entries; Add does not remove them. When write caching is requested, the provided custom key is evicted. Read from Elasticsearch for transformed field values. Successful cached writes without a pipeline retain response index, routing and version metadata.
+
+Complete cache invalidation and eligible population before post-write handlers run; nested writes then own the final cache state. Explicit custom-key write caching is skipped when post-write handlers or notifications are enabled, because nested writes cannot infer that key's dependencies. Remove invalidates before `DocumentsRemoved`, including when the handler throws.
 
 `SaveAsync` pairs originals with documents by concrete index, routing and ID. `Originals()` loads exact locations for routed and multi-index repositories; supplied originals suppress only the corresponding reads. Successful locations retain their own original values and notifications when other items fail.
 

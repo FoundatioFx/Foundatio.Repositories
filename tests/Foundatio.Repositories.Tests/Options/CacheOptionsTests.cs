@@ -42,4 +42,28 @@ public sealed class CacheOptionsTests
         Assert.Equal(enabled, options.ShouldReadCache());
         Assert.Equal(enabled, options.ShouldUseCache());
     }
+
+    [Theory]
+    [InlineData(false, false, null)]
+    [InlineData(false, true, null)]
+    [InlineData(true, false, null)]
+    [InlineData(true, true, null)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public void ShouldReadCache_WithExplicitDefault_PreservesReadOverrideAndCacheSetting(bool cacheEnabled, bool defaultValue, bool? readOverride)
+    {
+        var options = new CommandOptions().Cache(cacheEnabled);
+        if (readOverride is { } enabled)
+            options.ReadCache(enabled);
+
+        Assert.Equal(readOverride ?? defaultValue, options.ShouldReadCache(defaultValue));
+        Assert.Equal(readOverride ?? cacheEnabled, options.ShouldReadCache());
+        Assert.Equal(cacheEnabled, options.ShouldUseCache());
+    }
 }

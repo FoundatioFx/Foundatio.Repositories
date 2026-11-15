@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
@@ -23,7 +24,10 @@ public class DefaultSortQueryBuilder : IElasticQueryBuilder
         sortFields ??= new List<SortOptions>();
 
         var resolver = ctx.GetMappingResolver();
-        string idField = resolver.GetResolvedField(Id) ?? "_id";
+        string idName = DocumentFields<T>.Id is { } identity && ctx.Options.GetElasticIndex() is { } index
+            ? index.Configuration.Client.Infer.Field(identity)
+            : Id;
+        string idField = resolver.GetResolvedField(idName) ?? "_id";
 
         // ensure id field is always present as a sort (default or tiebreaker)
         bool hasIdField = sortFields.Any(s =>

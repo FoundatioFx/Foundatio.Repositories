@@ -35,7 +35,7 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <see cref="WriteOutcome.Cancelled"/> or a failure. Documents deleted by earlier passes are always counted.
     /// Repository query hooks and system filters run before the query and target indexes are prepared; retries reuse them.
     /// </summary>
-    private async Task<(long Deleted, long Conflicts, WriteRunResult<QueryItem> Run)> DeleteByQueryAsync(IRepositoryQuery query, ICommandOptions options)
+    private async Task<(long Deleted, long Conflicts, WriteRunResult<QueryItem> Run, IRepositoryQuery Query)> DeleteByQueryAsync(IRepositoryQuery query, ICommandOptions options)
     {
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
         query = ConfigureQuery(query.As<T>()).Unwrap();
@@ -54,16 +54,17 @@ public abstract partial class ElasticRepositoryBase<T>
                 Refresh = pass > 1 || options.GetRefreshMode(DefaultConsistency) != Refresh.False,
                 Conflicts = Conflicts.Proceed,
                 IgnoreUnavailable = true,
-                Query = esQuery
+                Query = esQuery,
+                RequestConfiguration = new RequestConfiguration { DisableDirectStreaming = true }
             }, ct).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             deleted += response.Deleted ?? 0;
             conflicts = response.VersionConflicts ?? 0;
-            if (GetQueryFailureReason(response.TimedOut, response.Failures) is { } failure)
+            if (GetQueryFailureReason(response.TimedOut, response.Failures, response.ApiCallDetails?.ResponseBodyInBytes) is { } failure)
                 return [new WriteItemResult(WriteOutcome.Fatal, response.ApiCallDetails?.HttpStatusCode, Reason: failure, Exception: response.OriginalException())];
 
-            if (!response.IsValidResponse)
+            if (!response.IsValidResponse || response.ApiCallDetails?.HttpStatusCode is 404)
                 return [ToWriteResult(response, ElasticDocumentVersion.Empty) with { Reason = response.GetErrorMessage("Error removing documents") }];
 
             return [conflicts > 0
@@ -79,15 +80,15 @@ public abstract partial class ElasticRepositoryBase<T>
             return items.Select(i => ((QueryItem?)i, (WriteItemResult?)null)).ToList();
         }, DisposedCancellationToken).AnyContext();
 
-        return (deleted, conflicts, run);
+        return (deleted, conflicts, run, query);
     }
 
     /// <summary>
     /// Starts a script patch as one asynchronous update-by-query task (<see cref="PatchStrategy.UpdateByQueryBulk"/>) and
-    /// returns its task id. A failed response can leave the task's outcome unknown.
+    /// returns its task id and effective query for completion effects. A failed response can leave the task's outcome unknown.
     /// Repository query hooks and system filters run before preparing the request, as they do for batch selection.
     /// </summary>
-    private async Task<string> StartPatchAllByQueryAsync(IRepositoryQuery query, ScriptPatch scriptOperation, ICommandOptions options)
+    private async Task<(string TaskId, IRepositoryQuery Query)> StartPatchAllByQueryAsync(IRepositoryQuery query, ScriptPatch scriptOperation, ICommandOptions options)
     {
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
         query = ConfigureQuery(query.As<T>()).Unwrap();
@@ -110,7 +111,7 @@ public abstract partial class ElasticRepositoryBase<T>
         {
             var response = await WriteClient.UpdateByQueryAsync(request, ct).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValidResponse)
+            if (!response.IsValidResponse || response.ApiCallDetails?.HttpStatusCode is 404)
             {
                 var result = ToWriteResult(response, ElasticDocumentVersion.Empty);
                 int? status = response.ApiCallDetails?.HttpStatusCode;
@@ -132,7 +133,7 @@ public abstract partial class ElasticRepositoryBase<T>
             await NotifyPatchedByQuerySafelyAsync(query, options).AnyContext();
 
         WriteExceptionMapper.ThrowIfFailed(run, "starting query patch", MissingDocumentPolicy.NotFound);
-        return taskId ?? throw new DocumentException("Update by query did not return a task identifier.");
+        return (taskId ?? throw new DocumentException("Update by query did not return a task identifier."), query);
     }
 
     /// <summary>
@@ -175,6 +176,11 @@ public abstract partial class ElasticRepositoryBase<T>
                     if (taskStatus.Error is not null)
                         throw new DocumentException($"Script operation task ({taskId}) failed: {taskStatus.Error.Type} - {taskStatus.Error.Reason}", taskStatus.OriginalException());
 
+                    string? cancellationReason = TaskResponseFailures.GetCancellationReason(taskStatus.Response)
+                        ?? TaskResponseFailures.GetCancellationReason(taskStatus.Task.Status);
+                    if (cancellationReason is not null)
+                        throw new DocumentException($"Script operation task ({taskId}) was canceled after patching {status.Created + status.Updated + status.Deleted} documents: {cancellationReason}", taskStatus.OriginalException());
+
                     if (TaskResponseFailures.IsTimedOut(taskStatus.Response))
                         throw new DocumentException($"Script operation task ({taskId}) timed out after patching {status.Created + status.Updated + status.Deleted} documents.", taskStatus.OriginalException());
 
@@ -195,8 +201,11 @@ public abstract partial class ElasticRepositoryBase<T>
 
     private readonly record struct QueryTaskStatus(long Total, long Created, long Updated, long Deleted, long VersionConflicts);
 
-    private static string? GetQueryFailureReason(bool? timedOut, IReadOnlyCollection<BulkIndexByScrollFailure>? failures)
+    private static string? GetQueryFailureReason(bool? timedOut, IReadOnlyCollection<BulkIndexByScrollFailure>? failures, byte[]? responseBody)
     {
+        if (TaskResponseFailures.GetCancellationReason(responseBody) is { } cancellationReason)
+            return $"The query was canceled before all matching documents were processed: {cancellationReason}";
+
         if (timedOut is true)
             return "The query timed out before all matching documents were processed.";
 

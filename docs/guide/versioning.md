@@ -215,6 +215,7 @@ Update-by-query and delete-by-query take a snapshot of matching documents, then 
 - `PatchAllAsync` with `ScriptPatch` therefore uses the bulk Update API by default, which re-runs the script on the latest document per id. Update-by-query is an explicit opt-in (`o.UseUpdateByQuery()`, ignored when caching is enabled) for large data sets; it throws when any document was skipped unless you set `o.ProceedOnQueryConflicts()`. If its task can't be found while the repository waits for it, a `DocumentException` is thrown: the number of patched documents is unknown, so it is never reported as zero.
 - Re-running a whole query to pick up skipped documents is unsafe for non-idempotent scripts (`ctx._source.count++`), because documents that already succeeded get the script again. Prefer idempotent scripts (`ctx._source.count = params.count`) for any operation that may be retried or run in parallel.
 - Delete-by-query is idempotent, so `RemoveAllAsync` re-runs it up to `Retry(n)` more times with backoff and a refresh until no conflicts remain.
+- External Elasticsearch cancellation is reported as a failure even when the response has no item failures. Any completed changes retain their normal invalidation and notification handling. A canceled operation is not replayed or reported as a successful count.
 - Running two query-based writes in parallel on overlapping documents can cause each to skip documents the other changed. A single query task only considers its snapshot. Delete-by-query retry passes take fresh snapshots and can include documents that started matching after the first pass.
 
 ## Write State Machines
@@ -261,6 +262,8 @@ Automatic retries are limited to rejection responses and transport evidence that
 | --- | --- |
 | HTTP 429 (Too Many Requests), HTTP 503 with a parsed Elasticsearch error type, or an Elasticsearch bulk item reporting 503 | Retried |
 | Connection refused, DNS failure, TLS handshake failure, no node attempted (the request was never sent) | Retried |
+| Explicit preflight ping failure with a transient status (408/502/503/504) or no status; the write was not dispatched | Retried |
+| Authentication failure, including authentication failure during a ping | Reported |
 | HTTP 502, HTTP 504, or HTTP 503 without an Elasticsearch error type (a proxy or gateway may already have forwarded the write) | Reported |
 | Timeouts, connection reset, or any failure without a status after the request was sent | Reported |
 | HTTP 409 | Conflict (see above), never retried by the transport |

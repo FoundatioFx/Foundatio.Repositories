@@ -121,6 +121,21 @@ public sealed class BulkResultTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("{}")]
+    public async Task From_WithNotFoundAndNoItems_ClassifiesAsRequestFailure(string responseJson)
+    {
+        // Act
+        var result = await GetBulkResultAsync(responseJson, 404);
+
+        // Assert
+        Assert.NotNull(result.RequestFailure);
+        Assert.Equal(WriteOutcome.Fatal, result.RequestFailure.Outcome);
+        Assert.Equal(404, result.RequestFailure.Status);
+        Assert.All(result.ToWriteResults(2), item => Assert.Equal(WriteOutcome.Fatal, item.Outcome));
+    }
+
+    [Theory]
     [InlineData("[1]: version conflict, required seqNo [5], primary term [1]. current document has seqNo [6] and primary term [2]", "1:5", "2:6")]
     [InlineData("[1]: version conflict, required seqNo [0], primary term [1]. but no document was found", "1:0", null)]
     [InlineData("something else", null, null)]

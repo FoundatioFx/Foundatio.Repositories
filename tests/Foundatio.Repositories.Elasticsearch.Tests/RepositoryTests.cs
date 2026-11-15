@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.AsyncEx;
 using Foundatio.Caching;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
@@ -904,6 +906,37 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
         Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
         Assert.True(employee.UpdatedUtc > originalUpdatedUtc, $"UpdatedUtc should have advanced: original={originalUpdatedUtc} current={employee.UpdatedUtc}");
+    }
+
+    [Theory]
+    [InlineData("updated-at")]
+    [InlineData("updated'at")]
+    [InlineData("updated\\at")]
+    [InlineData("date-meta.updated-at")]
+    [InlineData("date'meta.updated'at")]
+    [InlineData("date\\meta.updated\\at")]
+    public async Task ScriptPatchAsync_WithPunctuationInTimestampPath_UpdatesStoredField(string fieldPath)
+    {
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero));
+        _configuration.TimeProvider = timeProvider;
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var originalCreated = employee.CreatedUtc;
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        using var repository = new TimestampPathRepository(_configuration.Employees, fieldPath);
+
+        Assert.True(await repository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';")));
+
+        var stored = await _client.GetAsync<Dictionary<string, JsonElement>>(
+            new Elastic.Clients.Elasticsearch.GetRequest(_configuration.Employees.Name, employee.Id), TestCancellationToken);
+        Assert.True(stored.IsValidResponse, stored.DebugInformation);
+        Assert.NotNull(stored.Source);
+        Assert.Equal("Patched", stored.Source["name"].GetString());
+        Assert.Equal(originalCreated, stored.Source["createdUtc"].GetDateTime());
+        var segments = fieldPath.Split('.');
+        var timestamp = stored.Source[segments[0]];
+        foreach (string segment in segments.Skip(1))
+            timestamp = timestamp.GetProperty(segment);
+        Assert.Equal(timeProvider.GetUtcNow().UtcDateTime, timestamp.GetDateTime());
     }
 
     [Fact]
@@ -3154,5 +3187,10 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         {
             Trace.WriteLine($"Writer cancellation expected during teardown: {ex.Message}");
         }
+    }
+
+    private sealed class TimestampPathRepository(IIndex index, string fieldPath) : ElasticRepositoryBase<Employee>(index)
+    {
+        protected override string GetUpdatedUtcFieldPath() => fieldPath;
     }
 }

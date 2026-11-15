@@ -223,7 +223,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 sortFields ??= new List<SortOptions>();
 
                 var resolver = ctx.GetMappingResolver();
-                string idField = resolver.GetResolvedField(Id) ?? "_id";
+                string idName = DocumentFields<T>.Id is { } identity && ctx.Options.GetElasticIndex() is { } index
+                    ? index.Configuration.Client.Infer.Field(identity)
+                    : Id;
+                string idField = resolver.GetResolvedField(idName) ?? "_id";
 
                 // Live search_after paging with an unstable sort key (e.g. _doc, _score) is only safe
                 // within a Point-In-Time: index refreshes and segment merges can invalidate the cursor,

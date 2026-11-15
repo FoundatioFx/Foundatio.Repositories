@@ -305,6 +305,106 @@ public sealed class WriteTransportTests
         Assert.True(Assert.Single(configuration.Client.ElasticsearchClientSettings.NodePool.Nodes).IsAlive);
     }
 
+    [Theory]
+    [InlineData(502)]
+    [InlineData(503)]
+    [InlineData(504)]
+    public async Task PatchAsync_WithTransientPingFailure_RetriesTheUnsentWrite(int status)
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, enablePings: true);
+        configuration.Invoker.FailNextPingWithStatus = status;
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        Assert.True(await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Retry(1)));
+
+        // Assert
+        Assert.Equal(2, configuration.Invoker.PingRequests);
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(1, configuration.Invoker.AppliedWrites);
+    }
+
+    [Theory]
+    [InlineData(false, 401)]
+    [InlineData(false, 403)]
+    [InlineData(false, 404)]
+    [InlineData(true, 401)]
+    [InlineData(true, 403)]
+    [InlineData(true, 404)]
+    public async Task WriteAsync_WithPermanentPingFailure_DoesNotRetryOrReportMissing(bool remove, int status)
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(200, enablePings: true);
+        configuration.Invoker.FailNextPingWithStatus = status;
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(async () =>
+        {
+            if (remove)
+                await repository.RemoveAsync(new TestDocument { Id = "one" }, o => o.Retry(1));
+            else
+                await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Retry(1));
+        });
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.PingRequests);
+        Assert.Equal(0, configuration.Invoker.WriteRequests);
+        Assert.Equal(0, configuration.Invoker.AppliedWrites);
+    }
+
+    [Theory]
+    [InlineData("Add")]
+    [InlineData("Save")]
+    [InlineData("BulkSave")]
+    [InlineData("Remove")]
+    [InlineData("BulkRemove")]
+    [InlineData("PartialPatch")]
+    [InlineData("BulkPatch")]
+    [InlineData("PipelinePatch")]
+    [InlineData("PatchAllByQuery")]
+    [InlineData("RemoveAllByQuery")]
+    public async Task WriteAsync_WithPingNotFoundAndAuditDisabled_RejectsTheUnsentWrite(string operation)
+    {
+        using var configuration = new TestConfiguration(200, enablePings: true, disableAuditTrail: true);
+        using var repository = new TestRepository(configuration, operation is "PipelinePatch");
+        int pingsBeforeWrite = 0;
+        void FailWritePing()
+        {
+            foreach (var node in configuration.Client.ElasticsearchClientSettings.NodePool.Nodes)
+                node.MarkDead(DateTimeOffset.MinValue);
+            pingsBeforeWrite = configuration.Invoker.PingRequests;
+            configuration.Invoker.FailNextPingWithStatus = 404;
+        }
+        if (operation is "PatchAllByQuery" or "RemoveAllByQuery")
+            configuration.BeforeQueryWrite = FailWritePing;
+        else
+            FailWritePing();
+
+        await Assert.ThrowsAsync<DocumentException>(() => WriteAsync(repository, operation, 1));
+
+        Assert.True(configuration.Invoker.LastDisableAuditTrail);
+        Assert.Equal(pingsBeforeWrite + 1, configuration.Invoker.PingRequests);
+        Assert.Equal(0, configuration.Invoker.WriteRequests);
+        Assert.Equal(0, configuration.Invoker.AppliedWrites);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemoveAsync_WithNotFoundDocumentResponse_RemainsSuccessful(bool disableAuditTrail)
+    {
+        using var configuration = new TestConfiguration(404, disableAuditTrail: disableAuditTrail);
+        configuration.Invoker.ReturnMissingDeleteResponse = true;
+        using var repository = new TestRepository(configuration);
+
+        await repository.RemoveAsync(new TestDocument { Id = "one" }, o => o.Retry(1));
+
+        Assert.Equal(1, configuration.Invoker.WriteRequests);
+        Assert.Equal(0, configuration.Invoker.AppliedWrites);
+    }
+
     [Fact]
     public async Task PatchAsync_WithExcludedSeedNodes_DiscoversEligibleNodeBeforeSelectingWriteTarget()
     {
@@ -403,6 +503,7 @@ public sealed class WriteTransportTests
             NotificationsEnabled = false;
             DefaultPipeline = usePipeline ? "test-pipeline" : null;
         }
+
     }
 
     private sealed class TestIndex(TestConfiguration configuration) : Index<TestDocument>(configuration, "transport-tests")
@@ -410,12 +511,13 @@ public sealed class WriteTransportTests
         public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
     }
 
-    private sealed class TestConfiguration(int failureStatus, bool applyBeforeFailure = false, bool customTransport = false, int? maxRetries = null, bool singleNode = false, bool includeExcludedNode = false, Exception? failureException = null, bool sniffOnConnectionFailure = false, bool enablePings = false, bool sniffOnStartup = false, bool copyRequestConfiguration = false) : ElasticConfiguration
+    private sealed class TestConfiguration(int failureStatus, bool applyBeforeFailure = false, bool customTransport = false, int? maxRetries = null, bool singleNode = false, bool includeExcludedNode = false, Exception? failureException = null, bool sniffOnConnectionFailure = false, bool enablePings = false, bool sniffOnStartup = false, bool copyRequestConfiguration = false, bool disableAuditTrail = false) : ElasticConfiguration
     {
         public RecordingInvoker Invoker { get; } = new(failureStatus, applyBeforeFailure, failureException);
         public AuthorizationHeader Authentication { get; } = new BasicAuthentication("test", "test");
         public RecordingTransport? CustomTransport { get; private set; }
         public int BeforeRequestCalls { get; private set; }
+        public Action? BeforeQueryWrite { get; set; }
 
         protected override NodePool CreateConnectionPool()
         {
@@ -438,11 +540,13 @@ public sealed class WriteTransportTests
         protected override void ConfigureSettings(ElasticsearchClientSettings settings)
         {
             base.ConfigureSettings(settings);
-            settings.DisablePing(!enablePings).DeadTimeout(TimeSpan.Zero).MaxDeadTimeout(TimeSpan.Zero)
+            settings.DisablePing(!enablePings).DisableAuditTrail(disableAuditTrail).DeadTimeout(TimeSpan.Zero).MaxDeadTimeout(TimeSpan.Zero)
                 .Authentication(Authentication).RequestTimeout(TimeSpan.FromSeconds(37));
             settings.OnBeforeRequest((ElasticsearchClient client, Elastic.Clients.Elasticsearch.Requests.Request request, EndpointPath path, ref PostData? data, ref IRequestConfiguration? configuration) =>
             {
                 BeforeRequestCalls++;
+                if (request is UpdateByQueryRequest or DeleteByQueryRequest)
+                    BeforeQueryWrite?.Invoke();
             });
             if (maxRetries is { } retries)
                 settings.MaximumRetries(retries);
@@ -503,6 +607,9 @@ public sealed class WriteTransportTests
         public bool UnstructuredFailure { get; set; }
         public bool JsonFailure { get; set; }
         public int PingRequests { get; private set; }
+        public int? FailNextPingWithStatus { get; set; }
+        public bool ReturnMissingDeleteResponse { get; set; }
+        public bool LastDisableAuditTrail { get; private set; }
         public int AppliedWrites { get; private set; }
         public bool FailNextRead { get; set; }
         public AuthorizationHeader? LastAuthentication { get; private set; }
@@ -516,6 +623,7 @@ public sealed class WriteTransportTests
         {
             LastAuthentication = boundConfiguration.AuthenticationHeader;
             LastRequestTimeout = boundConfiguration.RequestTimeout;
+            LastDisableAuditTrail = boundConfiguration.DisableAuditTrail;
             LastNode = endpoint.Node?.Uri.Host;
             string path = endpoint.PathAndQuery;
             int status = 200;
@@ -523,6 +631,11 @@ public sealed class WriteTransportTests
             if (endpoint.Method is HttpMethod.HEAD)
             {
                 PingRequests++;
+                if (FailNextPingWithStatus is { } failure)
+                {
+                    status = failure;
+                    FailNextPingWithStatus = null;
+                }
                 body = "{}";
             }
             else if (path.Contains("_nodes", StringComparison.Ordinal))
@@ -566,7 +679,11 @@ public sealed class WriteTransportTests
             }
 
             bool unstructured = status is not 200 && UnstructuredFailure;
-            if (status is not 200)
+            if (status is 404 && endpoint.Method is HttpMethod.DELETE && ReturnMissingDeleteResponse)
+            {
+                body = """{"_index":"transport-tests","_id":"one","_version":1,"result":"not_found","_seq_no":0,"_primary_term":1,"_shards":{"total":1,"successful":1,"failed":0}}""";
+            }
+            else if (status is not 200)
             {
                 string errorType = status is 503 ? "unavailable_shards_exception" : "injected_fault";
                 body = unstructured

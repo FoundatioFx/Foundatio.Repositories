@@ -77,13 +77,34 @@ internal static class WriteOutcomeClassifier
     /// error, and connection failures where the request was definitely not sent are <see cref="WriteOutcome.Transient"/>.
     /// A gateway can return 503 after an upstream reset even when the write was applied, so 503 without an Elasticsearch
     /// error type is <see cref="WriteOutcome.Fatal"/>, as are 502, 504, timeouts and other unknown write outcomes.
+    /// A transient ping failure is safe to retry because the write has not been dispatched.
     /// </summary>
     public static WriteOutcome ClassifyRequestFailure(int? status, Exception? exception, string? errorType = null)
     {
+        if (HasFailureReason(exception, PipelineFailure.BadAuthentication))
+            return WriteOutcome.Fatal;
+
+        if ((status is null or 408 or 502 or 503 or 504) && IsPingFailure(exception))
+            return WriteOutcome.Transient;
+
         if (status is not null)
             return status is 429 || (status is 503 && !String.IsNullOrEmpty(errorType)) ? WriteOutcome.Transient : WriteOutcome.Fatal;
 
         return IsNotSent(exception) ? WriteOutcome.Transient : WriteOutcome.Fatal;
+    }
+
+    public static bool IsPingFailure(Exception? exception) => HasFailureReason(exception, PipelineFailure.PingFailure);
+
+    private static bool HasFailureReason(Exception? exception, PipelineFailure reason)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if ((current is TransportException transport && transport.FailureReason == reason)
+                || (current is PipelineException pipeline && pipeline.FailureReason == reason))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Reads can safely retry HTTP 503 even when a gateway supplied the response.</summary>

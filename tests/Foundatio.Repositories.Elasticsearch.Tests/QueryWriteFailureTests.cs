@@ -67,6 +67,57 @@ public sealed class QueryWriteFailureTests
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task QueryWrite_WithReplacementQuery_UsesEffectiveQueryForCompletionEffects(bool patch, bool partialFailure)
+    {
+        // Arrange
+        string completedTask = $$$"""
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{"total":2,"updated":1,"created":0,"deleted":0,"version_conflicts":0}},"response":{"took":1,"timed_out":{{{partialFailure.ToString().ToLowerInvariant()}}},"total":2,"updated":1,"created":0,"deleted":0,"version_conflicts":0,"failures":[]}}
+            """;
+        using var configuration = patch
+            ? new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, completedTask))
+            : new TestConfiguration(("_delete_by_query", 200, QueryResponse(deleted: 1, timedOut: partialFailure, itemFailure: false)));
+        using var repository = new TestRepository(configuration, cacheEnabled: !patch)
+        {
+            ReplacementQuery = new RepositoryQuery<TestDocument>().Id("effective")
+        };
+        var query = new RepositoryQuery<TestDocument>().Id("original");
+        if (!patch)
+        {
+            await repository.CacheDocumentAsync("original");
+            await repository.CacheDocumentAsync("effective");
+            Assert.NotNull(await repository.GetCachedDocumentAsync("original"));
+            Assert.NotNull(await repository.GetCachedDocumentAsync("effective"));
+        }
+
+        // Act
+        async Task<long> WriteAsync() => patch
+            ? await repository.PatchAllAsync(query, new ScriptPatch("ctx._source.count++"), new CommandOptions().UseUpdateByQuery().Retry(0))
+            : await repository.RemoveAllAsync(query, new CommandOptions().Cache(false).Retry(0));
+        if (partialFailure)
+            await Assert.ThrowsAsync<DocumentException>(WriteAsync);
+        else
+            Assert.Equal(1, await WriteAsync());
+
+        // Assert
+        using var request = JsonDocument.Parse(configuration.Invoker.RequestBodies[0]);
+        string effectiveQuery = request.RootElement.GetProperty("query").GetRawText();
+        Assert.Contains("\"effective\"", effectiveQuery);
+        Assert.DoesNotContain("\"original\"", effectiveQuery);
+        Assert.Equal(new[] { "effective" }, repository.QueryNotificationIds);
+        Assert.Equal(1, repository.QueryNotifications);
+        if (!patch)
+        {
+            Assert.Null(await repository.GetCachedDocumentAsync("effective"));
+            Assert.NotNull(await repository.GetCachedDocumentAsync("original"));
+            Assert.Equal(new[] { "effective" }, repository.QueryInvalidationIds);
+        }
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("parent-route")]
     public async Task PatchAsync_WithPipeline_TargetsTheRequestedRoutingShard(string? routing)
@@ -209,6 +260,46 @@ public sealed class QueryWriteFailureTests
         Assert.Equal(1, changed);
     }
 
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    public async Task SynchronousQueryWrite_WhenExternallyCancelled_NotifiesAppliedChangesAndThrowsWithoutRetrying(bool patch, int affected)
+    {
+        // Arrange
+        string response = $$"""
+            {"took":1,"timed_out":false,"total":2,"updated":{{(patch ? affected : 0)}},"deleted":{{(patch ? 0 : affected)}},"version_conflicts":0,"noops":0,"canceled":"by user request","failures":[]}
+            """;
+        using var configuration = new TestConfiguration((patch ? "_update_by_query" : "_delete_by_query", 200, response));
+        using var repository = new TestRepository(configuration, usePipeline: patch);
+        int changed = 0;
+        if (patch)
+        {
+            repository.DocumentsChanged.AddHandler((_, _) =>
+            {
+                changed++;
+                return Task.CompletedTask;
+            });
+        }
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(async () =>
+        {
+            if (patch)
+                await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Retry(1));
+            else
+                await repository.RemoveAllAsync(q => q, o => o.Retry(1));
+        });
+
+        // Assert
+        Assert.Contains("cancel", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("by user request", exception.Message);
+        Assert.Equal(1, configuration.Invoker.Requests);
+        Assert.Equal(patch ? affected : 0, changed);
+        Assert.Equal(patch ? 0 : affected, repository.QueryNotifications);
+    }
+
     [Fact]
     public async Task PatchAsync_WithPipelineAndVersionConflict_RequestsConflictCountsAndRetries()
     {
@@ -283,6 +374,29 @@ public sealed class QueryWriteFailureTests
         await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(0)));
 
         // Assert
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task PatchAllAsync_WithExternallyCancelledTask_NotifiesAndThrowsWithoutResubmitting(int updated)
+    {
+        // Arrange
+        string completedTask = $$$"""
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{"total":2,"updated":{{{updated}}},"created":0,"deleted":0,"version_conflicts":0,"canceled":"by user request"}},"response":{"took":1,"timed_out":false,"total":2,"updated":{{{updated}}},"created":0,"deleted":0,"version_conflicts":0,"canceled":"by user request","failures":[]}}
+            """;
+        using var configuration = new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, completedTask));
+        using var repository = new TestRepository(configuration);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1)));
+
+        // Assert
+        Assert.Contains("cancel", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("by user request", exception.Message);
         Assert.Equal(2, configuration.Invoker.Requests);
         Assert.Equal(1, repository.QueryNotifications);
     }
@@ -380,18 +494,27 @@ public sealed class QueryWriteFailureTests
 
     private sealed class TestRepository : ElasticRepositoryBase<TestDocument>
     {
-        public TestRepository(TestConfiguration configuration, bool usePipeline = false) : base(new TestIndex(configuration))
+        public TestRepository(TestConfiguration configuration, bool usePipeline = false, bool cacheEnabled = false) : base(new TestIndex(configuration))
         {
-            DisableCache();
+            if (!cacheEnabled)
+                DisableCache();
             DefaultPipeline = usePipeline ? "test-pipeline" : null;
         }
 
         public int QueryNotifications { get; private set; }
+        public List<string> QueryNotificationIds { get; } = [];
+        public List<string> QueryInvalidationIds { get; } = [];
         public bool ConfigureSelectionFilter { get; init; }
+        public IRepositoryQuery<TestDocument>? ReplacementQuery { get; init; }
+
+        public Task CacheDocumentAsync(string id) =>
+            AddDocumentsToCacheAsync(new TestDocument { Id = id }, new CommandOptions().Cache(), false);
+
+        public Task<FindHit<TestDocument>?> GetCachedDocumentAsync(string id) => GetCachedFindHit(id);
 
         protected override IRepositoryQuery ConfigureQuery(IRepositoryQuery<TestDocument> query)
         {
-            var configured = base.ConfigureQuery(query);
+            var configured = base.ConfigureQuery(ReplacementQuery ?? query);
             if (ConfigureSelectionFilter)
                 configured.FieldEquals("count", 42);
             return configured;
@@ -400,7 +523,14 @@ public sealed class QueryWriteFailureTests
         protected override Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery query, ICommandOptions options)
         {
             QueryNotifications++;
+            QueryNotificationIds.AddRange(query.GetIds());
             return Task.CompletedTask;
+        }
+
+        protected override Task InvalidateCacheByQueryAsync(IRepositoryQuery<TestDocument> query)
+        {
+            QueryInvalidationIds.AddRange(query.GetIds());
+            return base.InvalidateCacheByQueryAsync(query);
         }
     }
 

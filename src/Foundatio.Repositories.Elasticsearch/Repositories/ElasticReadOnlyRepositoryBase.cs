@@ -53,6 +53,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     internal const string FullDocumentSourceKey = "@FullDocumentSource";
     private const string SkipIdCacheKey = "@SkipIdCache";
+    private const string TrackSourceProjectionKey = "@TrackSourceProjection";
+    private const string PointInTimeIndexesKey = "@PointInTimeIndexes";
     private ScopedCacheClient _scopedCacheClient = null!;
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
     private int _disposed;
@@ -62,11 +64,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         ElasticIndex = index;
         if (HasIdentity)
-            _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
+            _idField = new Lazy<string>(() => InferField(DocumentFields<T>.Id!) ?? "id");
         if (HasDates)
-            _updatedUtcField = new Lazy<string>(() => InferField(d => ((IHaveDates)d).UpdatedUtc));
+            _updatedUtcField = new Lazy<string>(() => InferField(DocumentFields<T>.UpdatedUtc!));
         if (SupportsSoftDeletes)
-            _isDeletedField = new Lazy<Field>(() => new Field(InferField(d => ((ISupportSoftDeletes)d).IsDeleted) ?? "isDeleted"));
+            _isDeletedField = new Lazy<Field>(() => new Field(InferField(DocumentFields<T>.IsDeleted!) ?? "isDeleted"));
         _lazyClient = new Lazy<ElasticsearchClient>(() => index.Configuration.Client);
 
         SetCacheClient(index.Configuration.Cache);
@@ -173,9 +175,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var cachedIds = new HashSet<Id>(hits.Count);
             foreach (var hit in hits)
             {
-                if (!HasParent)
-                    cachedIds.Add(new Id(hit.Id!));
-                if (hit.Routing is not null)
+                if (!HasParent || hit.Routing is not null)
                     cachedIds.Add(new Id(hit.Id!, hit.Routing));
             }
 
@@ -220,6 +220,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var requestedIds = itemsToFind.ToHashSet();
             var foundLocations = hits.Select(hit => (hit.GetIndex(), hit.Id, hit.Routing)).ToHashSet();
             var findOptions = options.Clone().Cache(false).ReadCache(false);
+            if (IsCacheEnabled && options.ShouldUseCache())
+                findOptions.BuildOption(TrackSourceProjectionKey, true);
             findOptions.PageLimit(1000);
             var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
             do
@@ -235,6 +237,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                     }
                 }
             } while (await response.NextPageAsync().AnyContext());
+
+            if (findOptions.SafeGetOption<bool>(SkipIdCacheKey))
+                options = options.Clone().BuildOption(SkipIdCacheKey, true);
         }
 
         if (IsCacheEnabled && options.ShouldUseCache())
@@ -479,7 +484,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             }
             else
             {
+                options.Values.Remove(PointInTimeIndexesKey);
                 var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                var pointInTimeIndexes = options.SafeGetOption<string[]>(PointInTimeIndexesKey);
+                options.Values.Remove(PointInTimeIndexesKey);
                 if (typeof(IVersioned).IsAssignableFrom(typeof(TResult)))
                     searchDescriptor.SeqNoPrimaryTerm(true);
                 switch (pagingStrategy)
@@ -488,14 +496,17 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                         searchDescriptor.Scroll(options.GetSnapshotLifetime());
                         break;
                     case PagingStrategy.SearchAfterPointInTime:
-                        pointInTimeId = await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
+                        pointInTimeId = await ConfigurePointInTimeAsync(searchDescriptor, query, options, pointInTimeIndexes).AnyContext();
                         break;
                 }
 
                 if (options.SafeGetOption<bool>(FullDocumentSourceKey))
-                    searchDescriptor.Source(true);
+                    searchDescriptor.Source(true).SourceIncludes((Fields?)null).SourceExcludes((Fields?)null);
                 else if (query.ShouldOnlyHaveIds())
                     searchDescriptor.Source(false);
+
+                if (options.SafeGetOption<bool>(TrackSourceProjectionKey) && HasSourceProjection(searchDescriptor, options))
+                    options.BuildOption(SkipIdCacheKey, true);
 
                 if (options.ShouldUseAsyncQuery())
                 {
@@ -522,6 +533,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
         catch
         {
+            options.Values.Remove(PointInTimeIndexesKey);
             await CloseFailedPointInTimeAsync(pointInTimeId, options).AnyContext();
             throw;
         }
@@ -870,14 +882,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return ConfigureSearchDescriptorAsync(new SearchRequestDescriptor<T>(), query, options);
     }
 
-    private async Task<string> ConfigurePointInTimeAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
+    private async Task<string> ConfigurePointInTimeAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options, string[]? configuredIndexes)
     {
         string? pointInTimeId = options.GetPointInTimeId();
         if (String.IsNullOrEmpty(pointInTimeId))
         {
             // The repository opened this point-in-time, so it owns its lifecycle and must auto-close it once paging completes.
             // A caller-supplied point-in-time id is owned by the caller and is never auto-closed.
-            pointInTimeId = await OpenPointInTimeAsync(query, options).AnyContext();
+            pointInTimeId = await OpenPointInTimeAsync(configuredIndexes ?? ElasticIndex.GetIndexesByQuery(query), options).AnyContext();
             options.RepoOwnedPointInTime();
         }
 
@@ -902,9 +914,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    private async Task<string> OpenPointInTimeAsync(IRepositoryQuery query, ICommandOptions options)
+    private async Task<string> OpenPointInTimeAsync(string[] indices, ICommandOptions options)
     {
-        string[] indices = ElasticIndex.GetIndexesByQuery(query);
         Indices index = indices?.Length > 0 ? Indices.Parse(String.Join(",", indices)) : Indices.All;
 
         var response = await _client.OpenPointInTimeAsync(index, p => p
@@ -944,6 +955,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         // A point-in-time pins the target index set at the moment it was opened, so the request must not also set
         // Indices(...) or IgnoreUnavailable() - doing so conflicts with the pinned context.
         bool usePit = options.ShouldUseSearchAfterPagingPointInTime();
+        if (usePit)
+            options.BuildOption(PointInTimeIndexesKey, indices);
         if (indices?.Length > 0 && !usePit)
             search.Indices(String.Join(",", indices));
         if (HasVersion)
@@ -1185,7 +1198,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
                 ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document is not null && String.Equals(v.Id, id.Value, StringComparison.Ordinal)
-                    && (id.Routing is null || String.Equals(v.Routing, id.Routing, StringComparison.Ordinal)))
+                    && ((HasParent && id.Routing is null) || String.Equals(v.Routing, id.Routing, StringComparison.Ordinal)))
                 : null;
             if (result is not null)
                 SyncDocumentVersion(result);
@@ -1246,9 +1259,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    private static bool MatchesRequestedId(FindHit<T> hit, HashSet<Id> requestedIds)
+    private bool MatchesRequestedId(FindHit<T> hit, HashSet<Id> requestedIds)
     {
-        return hit.Id is not null && (requestedIds.Contains(new Id(hit.Id)) || requestedIds.Contains(new Id(hit.Id, hit.Routing)));
+        return hit.Id is not null && (requestedIds.Contains(new Id(hit.Id, hit.Routing)) || (HasParent && requestedIds.Contains(new Id(hit.Id))));
     }
 
     /// <summary>
@@ -1295,7 +1308,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     private bool HasSourceProjection(SearchRequest request, ICommandOptions options)
     {
-        if (request.SourceIncludes?.Any() is true || request.SourceExcludes?.Any() is true)
+        if (HasCallerSourceProjection(options) || request.SourceIncludes?.Any() is true || request.SourceExcludes?.Any() is true)
             return true;
 
         if (request.Source is null)
@@ -1314,6 +1327,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return !filter.Excludes.Select(Infer.Field).ToHashSet(StringComparer.Ordinal).SetEquals(defaultExcludes.Select(Infer.Field));
     }
 
+    private static bool HasCallerSourceProjection(ICommandOptions options)
+    {
+        return options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0
+            || !String.IsNullOrEmpty(options.GetIncludeMask()) || !String.IsNullOrEmpty(options.GetExcludeMask());
+    }
+
     /// <summary>Caches hits under an explicit cache key and, for complete non-dirty reads, under their document IDs.</summary>
     /// <remarks>Caller source include/exclude options and masks prevent ID-cache population, even without an explicit key.
     /// Repository default source filtering defines the normal document shape and does not itself disable ID caching.</remarks>
@@ -1325,8 +1344,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         // Caller projections belong only to their explicit query cache key, never the full-document ID cache.
-        if (options.SafeGetOption<bool>(SkipIdCacheKey) || options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0
-            || !String.IsNullOrEmpty(options.GetIncludeMask()) || !String.IsNullOrEmpty(options.GetExcludeMask()))
+        if (options.SafeGetOption<bool>(SkipIdCacheKey) || HasCallerSourceProjection(options))
             return;
 
         // don't add dirty read documents by id as they may be out of sync due to eventual consistency

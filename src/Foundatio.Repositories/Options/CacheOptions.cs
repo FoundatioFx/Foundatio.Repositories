@@ -103,7 +103,14 @@ namespace Foundatio.Repositories.Options
 
         public static bool ShouldReadCache(this ICommandOptions options)
         {
-            return options.SafeGetOption(SetCacheOptionsExtensions.ReadCacheEnabledKey, options.ShouldUseCache());
+            return options.ShouldReadCache(options.ShouldUseCache());
+        }
+
+        /// <summary>Returns the explicit <c>ReadCache</c> setting, or <paramref name="defaultValue"/> when no
+        /// read override was supplied. The fallback is independent of the <c>Cache</c> setting.</summary>
+        public static bool ShouldReadCache(this ICommandOptions options, bool defaultValue)
+        {
+            return options.SafeGetOption(SetCacheOptionsExtensions.ReadCacheEnabledKey, defaultValue);
         }
 
         public static bool HasCacheKey(this ICommandOptions options)

@@ -5,11 +5,13 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Xunit;
+using HttpMethod = Elastic.Transport.HttpMethod;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -172,6 +174,82 @@ public sealed class ProjectionCacheTests
         Assert.Equal(1, repository.ConfigureQueryCalls);
     }
 
+    [Theory]
+    [InlineData(false, "Include")]
+    [InlineData(false, "Exclude")]
+    [InlineData(false, "IncludeMask")]
+    [InlineData(false, "ExcludeMask")]
+    [InlineData(true, "Include")]
+    [InlineData(true, "Exclude")]
+    [InlineData(true, "IncludeMask")]
+    [InlineData(true, "ExcludeMask")]
+    public async Task GetByIdsAsync_WithProjectedDiscovery_DoesNotPopulateUnfilteredIdCache(bool replacementQuery, string restriction)
+    {
+        using var configuration = new TestConfiguration();
+        configuration.Invoker.SearchRouting = "parent";
+        var configuredQuery = new RepositoryQuery<TestDocument>().Id("one");
+        ApplyProjection(configuredQuery);
+        using var repository = new TestRepository(configuration, configuredQuery: replacementQuery ? configuredQuery : null, hasParent: true);
+        if (!replacementQuery)
+        {
+            repository.BeforeQuery.AddHandler((_, args) =>
+            {
+                ApplyProjection(args.Query);
+                return Task.CompletedTask;
+            });
+        }
+
+        var projected = Assert.Single(await repository.GetByIdsAsync(new Ids("one"), new CommandOptions().Cache()));
+
+        Assert.Equal("full name", projected.Name);
+        Assert.Null(projected.Detail);
+        var full = await repository.GetByIdAsync(new Id("one", "parent"), new CommandOptions().Cache());
+        Assert.NotNull(full);
+        Assert.Equal("full detail", full.Detail);
+        Assert.Equal(1, configuration.Invoker.Searches);
+        Assert.Equal(1, configuration.Invoker.Reads);
+
+        void ApplyProjection(IRepositoryQuery query)
+        {
+            switch (restriction)
+            {
+                case "Include":
+                    query.Include("name");
+                    break;
+                case "Exclude":
+                    query.Exclude("detail");
+                    break;
+                case "IncludeMask":
+                    query.IncludeMask("name");
+                    break;
+                case "ExcludeMask":
+                    query.ExcludeMask("detail");
+                    break;
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("Include")]
+    [InlineData("Exclude")]
+    public async Task ClientPatch_WithNativeSourceQueryParameters_PreservesUnpatchedFields(string restriction)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration) { NativeSourceProjection = restriction };
+        var patch = new ActionPatch<TestDocument>(document => document.Name = "patched");
+
+        long modified = await repository.PatchAllAsync(new RepositoryQuery<TestDocument>().Id("one"), patch,
+            new CommandOptions().Cache(false).Retry(0));
+
+        Assert.Equal(1, modified);
+        var source = Assert.Single(configuration.Invoker.WrittenSources);
+        Assert.Equal("patched", source.GetProperty("name").GetString());
+        Assert.Equal("full detail", source.GetProperty("detail").GetString());
+        Assert.NotNull(configuration.Invoker.LastSearchPath);
+        Assert.DoesNotContain("_source_includes", configuration.Invoker.LastSearchPath, StringComparison.Ordinal);
+        Assert.DoesNotContain("_source_excludes", configuration.Invoker.LastSearchPath, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FindOneAsync_WithRepositoryDefaultExclude_StillPopulatesTheDefaultIdCache()
     {
@@ -217,21 +295,39 @@ public sealed class ProjectionCacheTests
     {
         private readonly IRepositoryQuery<TestDocument>? _configuredQuery;
 
-        public TestRepository(TestConfiguration configuration, bool defaultExclude = false, IRepositoryQuery<TestDocument>? configuredQuery = null)
-            : base(new Index<TestDocument>(configuration, "projection-cache-tests"))
+        public TestRepository(TestConfiguration configuration, bool defaultExclude = false, IRepositoryQuery<TestDocument>? configuredQuery = null, bool hasParent = false)
+            : base(new TestIndex(configuration))
         {
             _configuredQuery = configuredQuery;
+            HasParent = hasParent;
             if (defaultExclude)
                 AddDefaultExclude(document => document.Detail);
         }
 
         public int ConfigureQueryCalls { get; private set; }
+        public string? NativeSourceProjection { get; set; }
 
         protected override IRepositoryQuery ConfigureQuery(IRepositoryQuery<TestDocument> query)
         {
             ConfigureQueryCalls++;
             return base.ConfigureQuery(_configuredQuery ?? query);
         }
+
+        protected override async Task<SearchRequestDescriptor<TestDocument>> ConfigureSearchDescriptorAsync(SearchRequestDescriptor<TestDocument> search, IRepositoryQuery query, ICommandOptions options)
+        {
+            search = await base.ConfigureSearchDescriptorAsync(search, query, options);
+            return NativeSourceProjection switch
+            {
+                "Include" => search.SourceIncludes(document => document.Id, document => document.Name!),
+                "Exclude" => search.SourceExcludes(document => document.Detail!),
+                _ => search
+            };
+        }
+    }
+
+    private sealed class TestIndex(TestConfiguration configuration) : Index<TestDocument>(configuration, "projection-cache-tests")
+    {
+        public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
     }
 
     private sealed class TestConfiguration : ElasticConfiguration
@@ -247,11 +343,18 @@ public sealed class ProjectionCacheTests
         public ResponseFactory ResponseFactory => _owner.ResponseFactory;
         public int Reads { get; private set; }
         public int Searches { get; private set; }
+        public string? SearchRouting { get; set; }
+        public string? LastSearchPath { get; private set; }
+        public List<JsonElement> WrittenSources { get; } = [];
 
         public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
             where TResponse : TransportResponse, new()
         {
             object response;
+            var parameters = new Uri($"http://localhost{endpoint.PathAndQuery}").Query.TrimStart('?')
+                .Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Select(parameter => parameter.Split('=', 2))
+                .ToDictionary(pair => Uri.UnescapeDataString(pair[0]), pair => pair.Length > 1 ? Uri.UnescapeDataString(pair[1]) : String.Empty);
             if (endpoint.PathAndQuery.Contains("_mapping", StringComparison.Ordinal))
             {
                 response = new Dictionary<string, object>
@@ -266,27 +369,61 @@ public sealed class ProjectionCacheTests
             {
                 response = new { _shards = new { total = 1, successful = 1, failed = 0 } };
             }
+            else if (endpoint.PathAndQuery.Contains("_pit", StringComparison.Ordinal))
+            {
+                response = endpoint.Method is HttpMethod.DELETE
+                    ? (object)new { succeeded = true, num_freed = 1 }
+                    : new { id = "projection-point-in-time" };
+            }
+            else if (endpoint.PathAndQuery.Contains("_bulk", StringComparison.Ordinal))
+            {
+                Assert.NotNull(postData);
+                using var requestStream = new MemoryStream();
+                postData.Write(requestStream, boundConfiguration.ConnectionSettings, false);
+                requestStream.Position = 0;
+                using var reader = new StreamReader(requestStream);
+                string[] lines = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                var items = new List<object>();
+                for (int i = 0; i < lines.Length; i += 2)
+                {
+                    using var header = JsonDocument.Parse(lines[i]);
+                    using var source = JsonDocument.Parse(lines[i + 1]);
+                    WrittenSources.Add(source.RootElement.Clone());
+                    var operation = header.RootElement.GetProperty("index");
+                    items.Add(new
+                    {
+                        index = new
+                        {
+                            _index = operation.GetProperty("_index").GetString(),
+                            _id = operation.GetProperty("_id").GetString(),
+                            status = 200,
+                            result = "updated",
+                            _seq_no = 11,
+                            _primary_term = 3
+                        }
+                    });
+                }
+                response = new { took = 1, errors = false, items };
+            }
             else if (endpoint.PathAndQuery.Contains("_search", StringComparison.Ordinal))
             {
                 Searches++;
+                LastSearchPath = endpoint.PathAndQuery;
                 Assert.NotNull(postData);
                 using var requestStream = new MemoryStream();
                 postData.Write(requestStream, boundConfiguration.ConnectionSettings, false);
                 using var request = JsonDocument.Parse(requestStream.ToArray());
                 var sourceFilter = request.RootElement.GetProperty("_source");
-                var includes = ReadFields(sourceFilter, "includes");
-                var excludes = ReadFields(sourceFilter, "excludes");
-                var hit = new { _index = "projection-cache-tests", _id = "one", _seq_no = 10, _primary_term = 3, _source = FilterSource(includes, excludes) };
-                response = new { took = 1, timed_out = false, hits = new { total = new { value = 1, relation = "eq" }, hits = new[] { hit } } };
+                var includes = parameters.TryGetValue("_source_includes", out string? include) ? include.Split(',').ToHashSet() : ReadFields(sourceFilter, "includes");
+                var excludes = parameters.TryGetValue("_source_excludes", out string? exclude) ? exclude.Split(',').ToHashSet() : ReadFields(sourceFilter, "excludes");
+                var hit = new { _index = "projection-cache-tests", _id = "one", _routing = SearchRouting, _seq_no = 10, _primary_term = 3, _source = FilterSource(includes, excludes) };
+                string? pointInTimeId = request.RootElement.TryGetProperty("pit", out _) ? "projection-point-in-time" : null;
+                response = new { took = 1, timed_out = false, pit_id = pointInTimeId, hits = new { total = new { value = 1, relation = "eq" }, hits = new[] { hit } } };
             }
             else
             {
                 Assert.Contains("/_doc/one", endpoint.PathAndQuery, StringComparison.Ordinal);
                 Reads++;
-                var parameters = new Uri($"http://localhost{endpoint.PathAndQuery}").Query.TrimStart('?')
-                    .Split('&', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(parameter => parameter.Split('=', 2))
-                    .ToDictionary(pair => Uri.UnescapeDataString(pair[0]), pair => pair.Length > 1 ? Uri.UnescapeDataString(pair[1]) : String.Empty);
                 var includes = parameters.TryGetValue("_source_includes", out string? include) ? include.Split(',').ToHashSet() : [];
                 var excludes = parameters.TryGetValue("_source_excludes", out string? exclude) ? exclude.Split(',').ToHashSet() : [];
                 response = new { _index = "projection-cache-tests", _id = "one", found = true, _seq_no = 10, _primary_term = 3, _source = FilterSource(includes, excludes) };
@@ -306,7 +443,7 @@ public sealed class ProjectionCacheTests
 
         private static HashSet<string> ReadFields(JsonElement sourceFilter, string name)
         {
-            if (!sourceFilter.TryGetProperty(name, out var value))
+            if (sourceFilter.ValueKind is not JsonValueKind.Object || !sourceFilter.TryGetProperty(name, out var value))
                 return [];
 
             return value.ValueKind is JsonValueKind.String

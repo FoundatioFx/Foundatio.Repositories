@@ -516,10 +516,10 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
     protected override string? GetTimeStampField()
     {
         if (typeof(IHaveDates).IsAssignableFrom(typeof(T)))
-            return InferField(f => ((IHaveDates)f).UpdatedUtc);
+            return InferField(DocumentFields<T>.UpdatedUtc!);
 
         if (typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T)))
-            return InferField(f => ((IHaveCreatedDate)f).CreatedUtc);
+            return InferField(DocumentFields<T>.CreatedUtc!);
 
         return null;
     }

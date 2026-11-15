@@ -144,9 +144,10 @@ public abstract partial class ElasticRepositoryBase<T>
         return operation;
     }
 
-    private Task CacheWrittenDocumentsAsync(WriteRunResult<IndexItem> run, ICommandOptions options)
+    private Task CacheWrittenDocumentsAsync(WriteRunResult<IndexItem> run, ICommandOptions options, bool hasPostWriteCallbacks)
     {
-        if (!String.IsNullOrEmpty(DefaultPipeline))
+        // Nested writes cannot infer an explicit cache key's dependencies, so callbacks must not inherit that entry.
+        if (!String.IsNullOrEmpty(DefaultPipeline) || (options.HasCacheKey() && hasPostWriteCallbacks))
             return options.HasCacheKey() ? Cache.RemoveAsync(options.GetCacheKey()!) : Task.CompletedTask;
 
         var hits = new List<FindHit<T>>(run.Count(WriteOutcome.Succeeded));
@@ -157,10 +158,6 @@ public abstract partial class ElasticRepositoryBase<T>
 
             var item = outcome.Item;
             string? version = outcome.Result.Version.ToVersionString();
-            // An async lifecycle handler can save this same model again before cache population.
-            if (item.Document is IVersioned versioned && !String.Equals(versioned.Version, version, StringComparison.Ordinal))
-                return options.HasCacheKey() ? Cache.RemoveAsync(options.GetCacheKey()!) : Task.CompletedTask;
-
             var hit = new FindHit<T>(item.Key.Id, item.Document, 0, version, item.Routing);
             hit.Data[ElasticDataKeys.Index] = outcome.Result.Index ?? item.Key.Index;
             hits.Add(hit);
@@ -234,14 +231,17 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <summary>Classifies a single-document response the same way bulk items are classified.</summary>
     private static WriteItemResult ToWriteResult(ElasticsearchResponse response, ElasticDocumentVersion version, string? index = null)
     {
-        if (response.IsValidResponse)
-            return new WriteItemResult(response.ApiCallDetails?.HttpStatusCode is 404 ? WriteOutcome.Missing : WriteOutcome.Succeeded, response.ApiCallDetails?.HttpStatusCode, Version: version, Index: index);
-
+        var exception = response.OriginalException();
         int? status = response.ApiCallDetails?.HttpStatusCode;
         var error = response.ElasticsearchServerError?.Error;
-        var exception = response.OriginalException();
+        if (status is 404 && error is null && response is not DeleteResponse { Result: Result.NotFound, Id: not null and not "", Index: not null and not "" })
+            return new WriteItemResult(WriteOutcome.Fatal, status, Reason: "The write returned HTTP 404 without an Elasticsearch document result or error.", Exception: exception);
+
+        if (response.IsValidResponse && !WriteOutcomeClassifier.IsPingFailure(exception))
+            return new WriteItemResult(status is 404 ? WriteOutcome.Missing : WriteOutcome.Succeeded, status, Version: version, Index: index);
+
         string reason = response.GetErrorMessage("Error writing document");
-        if ((error is null && status is not 404) || (status is 503 && String.IsNullOrEmpty(error?.Type)))
+        if (WriteOutcomeClassifier.IsPingFailure(exception) || (error is null && status is not 404) || (status is 503 && String.IsNullOrEmpty(error?.Type)))
             return new WriteItemResult(WriteOutcomeClassifier.ClassifyRequestFailure(status, exception), status, error?.Type, error?.Reason ?? reason, exception);
 
         return new WriteItemResult(WriteOutcomeClassifier.Classify(status, error?.Type, error?.Reason), status, error?.Type, error?.Reason ?? reason, exception);

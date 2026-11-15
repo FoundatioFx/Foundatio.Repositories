@@ -922,26 +922,22 @@ public static class ElasticIndexExtensions
         bool hasCustomFields = typeof(IHaveCustomFields).IsAssignableFrom(typeof(T));
         bool hasVirtualCustomFields = typeof(IHaveVirtualCustomFields).IsAssignableFrom(typeof(T));
 
-        if (hasIdentity)
-            pd.Keyword(d => ((IIdentity)d).Id);
-
+        // Native name inference deduplicates mappings during serialization; concrete fields must win alias collisions.
         if (supportsSoftDeletes)
-        {
-            pd.Boolean(d => ((ISupportSoftDeletes)d).IsDeleted);
-            pd.FieldAlias("deleted", a => a.Path(p => ((ISupportSoftDeletes)p).IsDeleted));
-        }
-
+            pd.FieldAlias("deleted", a => a.Path(DocumentFields<T>.IsDeleted!));
         if (hasCreatedDate)
-        {
-            pd.Date(d => ((IHaveCreatedDate)d).CreatedUtc);
-            pd.FieldAlias("created", a => a.Path(p => ((IHaveCreatedDate)p).CreatedUtc));
-        }
-
+            pd.FieldAlias("created", a => a.Path(DocumentFields<T>.CreatedUtc!));
         if (hasDates)
-        {
-            pd.Date(d => ((IHaveDates)d).UpdatedUtc);
-            pd.FieldAlias("updated", a => a.Path(p => ((IHaveDates)p).UpdatedUtc));
-        }
+            pd.FieldAlias("updated", a => a.Path(DocumentFields<T>.UpdatedUtc!));
+
+        if (hasIdentity)
+            pd.Keyword(DocumentFields<T>.Id!);
+        if (supportsSoftDeletes)
+            pd.Boolean(DocumentFields<T>.IsDeleted!);
+        if (hasCreatedDate)
+            pd.Date(DocumentFields<T>.CreatedUtc!);
+        if (hasDates)
+            pd.Date(DocumentFields<T>.UpdatedUtc!);
 
         if (hasCustomFields || hasVirtualCustomFields)
             pd.Object("idx", f => f.Dynamic(DynamicMapping.True));

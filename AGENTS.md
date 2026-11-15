@@ -88,7 +88,7 @@ samples
 - **Guard clauses**: Use `ArgumentNullException.ThrowIfNull(param)` instead of manual `if (param == null) throw`
 - **Lambda bodies**: Prefer multi-line bodies for lambda expressions—no single-line `{ action(); return true; }` patterns
 - **Raw string literals**: Use `"""..."""` for multi-line strings. Never use string concatenation (`+`) to build script or query strings
-- **Domain-correct syntax in scripts**: Verify operator syntax for the target language (e.g., Painless uses `==` not `===`; Elasticsearch client uses specific query DSL methods)
+- **Domain-correct syntax in scripts**: Verify operator syntax for the target language (e.g., Painless uses `==` for value equality and `===` for identity equality; Elasticsearch client uses specific query DSL methods)
 
 ### Architecture Patterns
 
@@ -241,7 +241,7 @@ For every abstraction, type, and mechanism you introduced, ask:
 
 - **XML docs on public types**: Every public class and interface method has XML docs that describe **behavior**, not just parameters. For operations with nuanced behavior (like noop detection varying by type), document the specifics in `<remarks>` or `<returns>` tags.
 - **Feature docs updated**: Any new behavior, return type change, or API addition needs corresponding updates in `docs/guide/`.
-- **Code samples compile**: Mentally (or actually) verify every code sample in documentation would compile and produce the described result. Use modern C# idioms (raw strings, not string concat; correct operator syntax for the target language like Painless `==` not `===`).
+- **Code samples compile**: Mentally (or actually) verify every code sample in documentation would compile and produce the described result. Use modern C# idioms (raw strings, not string concat; correct operator semantics for the target language, such as Painless `==` for value equality).
 - **Limitations documented**: If a feature has known limitations (e.g., cached bulk path overcount), document them explicitly—both in code comments and in user-facing docs.
 
 #### 5. Performance Audit

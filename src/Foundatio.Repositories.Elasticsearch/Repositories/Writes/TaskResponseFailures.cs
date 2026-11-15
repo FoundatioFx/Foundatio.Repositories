@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace Foundatio.Repositories.Elasticsearch;
 
 /// <summary>
-/// Reads the per-document failures of a completed update-by-query task response (the <c>failures</c> array).
+/// Reads failure and cancellation metadata from query task responses and captured query responses.
 /// </summary>
 internal static class TaskResponseFailures
 {
@@ -23,6 +23,55 @@ internal static class TaskResponseFailures
         };
 
         return timedOut is true or JsonElement { ValueKind: JsonValueKind.True };
+    }
+
+    public static string? GetCancellationReason(object? response)
+    {
+        object? reason = response switch
+        {
+            JsonElement { ValueKind: JsonValueKind.Object } element when element.TryGetProperty("canceled", out var value) => value,
+            IDictionary<string, object> dict when dict.TryGetValue("canceled", out var value) => value,
+            _ => null
+        };
+
+        return reason switch
+        {
+            string text => text,
+            JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+            _ => null
+        };
+    }
+
+    /// <summary>Reads cancellation metadata omitted by the generated query response types without copying the response body.</summary>
+    public static string? GetCancellationReason(byte[]? responseBody)
+    {
+        if (responseBody is null or { Length: 0 })
+            return null;
+
+        try
+        {
+            var reader = new Utf8JsonReader(responseBody);
+            if (!reader.Read() || reader.TokenType is not JsonTokenType.StartObject)
+                return null;
+
+            while (reader.Read() && reader.TokenType is not JsonTokenType.EndObject)
+            {
+                bool canceled = reader.ValueTextEquals("canceled");
+                if (!reader.Read())
+                    return null;
+                if (canceled)
+                    return reader.TokenType is JsonTokenType.String ? reader.GetString() : null;
+
+                reader.Skip();
+            }
+        }
+        catch (JsonException)
+        {
+            // Non-JSON and malformed failure responses use the normal response classification.
+            return null;
+        }
+
+        return null;
     }
 
     /// <summary>

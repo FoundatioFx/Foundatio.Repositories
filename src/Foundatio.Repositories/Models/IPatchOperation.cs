@@ -156,7 +156,7 @@ public class JsonPatch : IPatchOperation
 /// <remarks>
 /// Elasticsearch does not automatically detect noops for script updates.
 /// To signal a no-op, the script must explicitly set <c>ctx.op = 'noop'</c>, which works with both the Update API and update-by-query.
-/// Painless uses <c>==</c> for equality (Java-style); <c>===</c> is not valid.
+/// Painless uses <c>==</c> for value equality. The <c>===</c> operator compares object identity for reference values.
 /// <para><b>Date tracking:</b> The automatically added UTC timestamp parameter uses ISO 8601 by default.
 /// Source converters attached to the target model member do not control script parameters. To use another
 /// representation, provide the timestamp parameter and assign it in the script; providing that parameter

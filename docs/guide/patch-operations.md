@@ -59,6 +59,8 @@ For scripts, supply a parameter in the required stored representation and assign
 
 ### Custom Date Fields
 
+Standard `IIdentity`, `IHaveCreatedDate`, `IHaveDates`, and `ISupportSoftDeletes` fields use the configured Elasticsearch inferrer with their concrete public implementation members. This honors `[JsonPropertyName]` and client field-name inference settings in standard mappings, required fields, timestamp selection, and patch date tracking. Renaming those members does not require custom repository overrides.
+
 If your model uses custom date fields instead of `IHaveDates` (e.g., a nested `MetaData.DateUpdatedUtc` property), you can opt into automatic date tracking by overriding three virtual hooks on your repository:
 
 ```csharp
@@ -248,7 +250,7 @@ Errors (document not found, version conflicts) throw exceptions rather than retu
 
 Use `ctx.op = 'noop'` in your Painless script to conditionally skip the update. This works for both the Update API and update-by-query; the Update API also accepts `none`, but update-by-query does not. Elasticsearch evaluates `ctx.op` after the entire script executes, so placing it anywhere in the script works — even when automatic date tracking appends a timestamp assignment.
 
-> **Note:** Painless uses `==` for equality comparison (Java-style), not `===` (JavaScript-style). The `===` operator is not valid in Painless.
+> **Note:** Use `==` for value equality in Painless. The `===` operator is also valid, but compares object identity for reference values. See the [Painless operator reference](https://www.elastic.co/docs/reference/scripting-languages/painless/painless-operators-boolean).
 
 ```csharp
 // Only update if the value actually changes
@@ -599,6 +601,10 @@ Successful documents are invalidated in the cache and notified as each batch com
 
 `PatchAllAsync` reads its batches from a point-in-time snapshot, or a scroll snapshot when `SnapshotPaging()` is supplied. A refresh between batches cannot move an already-patched document past the cursor and patch it again. Multi-ID client-side patches that locate documents by search also use snapshot paging, so large ID sets do not exceed the offset result window. Daily and monthly indexes can locate caller-assigned IDs through this multi-ID search path; the single-ID overload still requires an ID from which the index can be resolved.
 
+Multi-ID JSON/action patches process one search page at a time, using `PageLimit` or a default batch size of 500. Each page is patched and its successful IDs are notified before the next page is read. Failures are summarized across batches and thrown after later successful batches have been processed, without retaining all loaded documents in memory.
+
+Multi-ID pipeline `PartialPatch` uses the same batch-size option for real-time reads and bulk writes. It writes full batches of known locations before discovering unresolved locations, retaining only a bounded group of documents between requests. Small mixed inputs can share one bulk write. The discovery snapshot starts after those earlier writes; real-time success, missing, and failure results remain authoritative for their locations across the whole operation. Overlapping routed and unrouted inputs do not patch the same discovered location twice. Successful IDs are notified and passed to `UpdateCallback` after each written batch, with failures reported after the remaining batches.
+
 With a default pipeline, `PartialPatch` recursively merges JSON objects before reindexing. Fields omitted from a nested object remain intact; arrays and scalar values replace the corresponding value, matching the Update API's merge behavior.
 
 See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full table.
@@ -610,7 +616,7 @@ Client-side patch reads request the complete `_source`, overriding included or e
 For `PatchAsync(Ids, ...)`, repeated `(ID, routing)` pairs are patched once. The same ID with different routing values can identify different documents, so both requests are retained. When the repository searches to locate documents, explicit routing still limits which matching documents are patched.
 
 - `o.Retry(n)` means n retries after the first attempt on every patch path (default 10): `retry_on_conflict = n` on the Update API, and up to n re-read-and-re-apply rounds for JSON, action and pipeline partial patches.
-- Transient errors (HTTP 429, 503 responses containing an Elasticsearch error type, and requests that were never sent) are retried within the same budget with exponential backoff and jitter. HTTP 502/504, unstructured gateway 503 responses and timeouts are reported. `DocumentNotFoundException` is not retried.
+- Transient errors (HTTP 429, 503 responses containing an Elasticsearch error type, and requests that were never sent) are retried within the same budget with exponential backoff and jitter. A failed transport ping can establish that no write was sent, allowing transient ping failures to retry. HTTP 502/504, unstructured gateway 503 responses and timeouts from an actual write remain terminal because its outcome is uncertain. Authentication failures and `DocumentNotFoundException` are not retried.
 - With `IfVersion`, every attempt (including transient retries) is sent with the expected version and the document is never re-read.
 - Models retain their configured JSON contracts, including explicit `IVersioned.Version` implementations and `[JsonIgnore]`. After a client-side patch, the repository restores the token captured with the read, so a JSON field cannot replace the concurrency token used for the write. Independent business properties named `Version`, such as `MigrationState.Version`, and nested version fields can be patched normally.
 - Conflicts are logged at Warning level with the expected and current versions; retry rounds at Information level; an exhausted budget at Error level.

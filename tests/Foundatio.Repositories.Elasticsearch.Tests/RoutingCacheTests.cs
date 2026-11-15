@@ -10,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Foundatio.Serializer;
 using Xunit;
@@ -99,6 +100,73 @@ public sealed class RoutingCacheTests
         Assert.NotNull(result);
         AssertDocument(result, requested);
         Assert.Empty(configuration.Invoker.ReadLocations);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnroutedRead_OnNonParentRepository_DoesNotUseAnotherRoutesCachedDocument(bool multiple)
+    {
+        var routed = new StoredDocument("same", "parent", "routed value", 1, 11);
+        var unrouted = new StoredDocument("same", null, "unrouted value", 2, 22);
+        using var configuration = new TestConfiguration([routed, unrouted]);
+        using var repository = new TestRepository(configuration, hasParent: false);
+        var options = new CommandOptions().Cache();
+        Assert.NotNull(await repository.GetByIdAsync(new Id(routed.Id, routed.Routing), options));
+
+        var result = multiple
+            ? Assert.Single(await repository.GetByIdsAsync(new Ids(unrouted.Id), options))
+            : await repository.GetByIdAsync(unrouted.Id, options);
+
+        Assert.NotNull(result);
+        AssertDocument(result, unrouted);
+        Assert.Equal(new[] { new Id(routed.Id, routed.Routing), new Id(unrouted.Id) }, configuration.Invoker.ReadLocations);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task WritePreread_RespectsExplicitCacheReadOverrideWithoutMutatingCallerOptions(bool save, bool disableCacheReads)
+    {
+        var stored = new StoredDocument("one", null, "stored value", 2, 22);
+        var cached = stored with { Value = "cached value" };
+        using var configuration = new TestConfiguration([stored]);
+        using var repository = new TestRepository(configuration, hasParent: false);
+        await repository.SeedAsync(stored.Id, [cached.ToHit()]);
+        var options = new CommandOptions().Cache(false);
+        if (disableCacheReads)
+            options.ReadCache(false);
+        var stop = new InvalidOperationException("Stop after inspecting the write pre-read.");
+        RoutedDocument? observed = null;
+        if (save)
+        {
+            options.Originals();
+            repository.DocumentsSaving.AddHandler((_, args) =>
+            {
+                observed = Assert.Single(args.Documents).Original;
+                return Task.FromException(stop);
+            });
+        }
+        else
+        {
+            repository.DocumentsRemoving.AddHandler((_, args) =>
+            {
+                observed = Assert.Single(args.Documents);
+                return Task.FromException(stop);
+            });
+        }
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => save
+            ? repository.SaveAsync(stored.ToHit().Document!, options)
+            : repository.RemoveAsync(new Id(stored.Id), options));
+
+        Assert.Same(stop, exception);
+        Assert.NotNull(observed);
+        AssertDocument(observed, disableCacheReads ? stored : cached);
+        Assert.Equal(disableCacheReads ? 1 : 0, configuration.Invoker.ReadLocations.Count);
+        Assert.False(options.ShouldReadCache());
     }
 
     [Theory]
