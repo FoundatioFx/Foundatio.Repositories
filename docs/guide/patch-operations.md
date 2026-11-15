@@ -605,6 +605,8 @@ Multi-ID JSON/action patches process one search page at a time, using `PageLimit
 
 Multi-ID pipeline `PartialPatch` uses the same batch-size option for real-time reads and bulk writes. It writes full batches of known locations before discovering unresolved locations, retaining only a bounded group of documents between requests. Small mixed inputs can share one bulk write. The discovery snapshot starts after those earlier writes; real-time success, missing, and failure results remain authoritative for their locations across the whole operation. Overlapping routed and unrouted inputs do not patch the same discovered location twice. Successful IDs are notified and passed to `UpdateCallback` after each written batch, with failures reported after the remaining batches.
 
+Batches bound retained document data, but add read and bulk requests compared with accumulating the entire selection. A larger `PageLimit` reduces request overhead at the cost of retaining larger batches. Choose the limit using representative document sizes, concurrency, and backend latency; smaller batches do not guarantee lower elapsed time or fewer garbage collections.
+
 With a default pipeline, `PartialPatch` recursively merges JSON objects before reindexing. Fields omitted from a nested object remain intact; arrays and scalar values replace the corresponding value, matching the Update API's merge behavior.
 
 See [Versioning](/guide/versioning#concurrency-model-per-operation) for the full table.
