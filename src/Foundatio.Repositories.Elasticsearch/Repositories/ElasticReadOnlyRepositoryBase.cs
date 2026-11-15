@@ -353,7 +353,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             throw new ArgumentNullException(nameof(cacheKeys));
 
         if (keys.Count > 0)
+        {
+            CustomWriteCacheScope.AppendInvalidationKeys(Cache, keys);
             return Cache.RemoveAllAsync(keys);
+        }
 
         return Task.CompletedTask;
     }
@@ -872,7 +875,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         if (keysToRemove.Count > 0)
+        {
+            CustomWriteCacheScope.AppendInvalidationKeys(Cache, keysToRemove);
             return Cache.RemoveAllAsync(keysToRemove);
+        }
 
         return Task.CompletedTask;
     }

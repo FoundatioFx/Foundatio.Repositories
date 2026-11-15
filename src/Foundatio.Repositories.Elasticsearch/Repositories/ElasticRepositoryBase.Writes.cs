@@ -144,10 +144,9 @@ public abstract partial class ElasticRepositoryBase<T>
         return operation;
     }
 
-    private Task CacheWrittenDocumentsAsync(WriteRunResult<IndexItem> run, ICommandOptions options, bool hasPostWriteCallbacks)
+    private Task CacheWrittenDocumentsAsync(WriteRunResult<IndexItem> run, ICommandOptions options)
     {
-        // Nested writes cannot infer an explicit cache key's dependencies, so callbacks must not inherit that entry.
-        if (!String.IsNullOrEmpty(DefaultPipeline) || (options.HasCacheKey() && hasPostWriteCallbacks))
+        if (!String.IsNullOrEmpty(DefaultPipeline))
             return options.HasCacheKey() ? Cache.RemoveAsync(options.GetCacheKey()!) : Task.CompletedTask;
 
         var hits = new List<FindHit<T>>(run.Count(WriteOutcome.Succeeded));

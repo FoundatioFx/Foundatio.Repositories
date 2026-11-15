@@ -86,6 +86,237 @@ public sealed class WriteCacheIdentityTests
     }
 
     [Theory]
+    [InlineData("Add", "OperationHandler")]
+    [InlineData("Save", "OperationHandler")]
+    [InlineData("Add", "DocumentsChanged")]
+    [InlineData("Save", "DocumentsChanged")]
+    [InlineData("Add", "Notifications")]
+    [InlineData("Save", "Notifications")]
+    public async Task CachedWrite_WithHarmlessPostWriteCallbacks_PopulatesCustomAndIdCache(string operation, string callback)
+    {
+        var document = new TestDocument { Id = "one", Index = "first", Routing = "route", Value = "persisted source", Version = operation is "Save" ? "1:1" : null };
+        using var configuration = new TestConfiguration(operation is "Save" ? [document] : []);
+        using var repository = new TestRepository(configuration, notificationsEnabled: callback is "Notifications");
+        var options = new CommandOptions().Cache().CacheKey("selected-document").Retry(0);
+        var expectedChange = operation is "Add" ? ChangeType.Added : ChangeType.Saved;
+        int callbackCount = 0;
+        void RecordCallback(TestDocument current)
+        {
+            callbackCount++;
+            Assert.Same(document, current);
+            Assert.Equal("3:10", current.Version);
+        }
+        if (callback is "OperationHandler")
+        {
+            if (operation is "Add")
+                repository.DocumentsAdded.AddSyncHandler((_, args) => RecordCallback(Assert.Single(args.Documents)));
+            else
+                repository.DocumentsSaved.AddSyncHandler((_, args) => RecordCallback(Assert.Single(args.Documents).Value));
+        }
+        else if (callback is "DocumentsChanged")
+        {
+            repository.DocumentsChanged.AddSyncHandler((_, args) =>
+            {
+                Assert.Equal(expectedChange, args.ChangeType);
+                RecordCallback(Assert.Single(args.Documents).Value);
+            });
+        }
+
+        if (operation is "Add")
+            await repository.AddAsync(document, options);
+        else
+            await repository.SaveAsync(document, options);
+
+        Assert.Equal(callback is "Notifications" ? 0 : 1, callbackCount);
+        if (callback is "Notifications")
+            Assert.Equal((expectedChange, (string?)document.Id), Assert.Single(repository.Notifications));
+        else
+            Assert.Empty(repository.Notifications);
+        var cache = Assert.IsType<InMemoryCacheClient>(configuration.Cache);
+        Assert.Equal(2, cache.Count);
+        Assert.Equal(0, cache.Hits);
+        Assert.Equal(0, cache.Misses);
+        foreach (string key in new[] { document.Id, "selected-document" })
+        {
+            var cached = Assert.Single(await repository.GetCachedHitsAsync(key));
+            Assert.Equal(document.Id, cached.Id);
+            Assert.Equal("first-v1", cached.GetIndex());
+            Assert.Equal("route", cached.Routing);
+            Assert.Equal("3:10", cached.Version);
+            Assert.NotNull(cached.Document);
+            Assert.Equal("persisted source", cached.Document.Value);
+            Assert.Equal("3:10", cached.Document.Version);
+        }
+
+        var found = await repository.FindOneAsync(new RepositoryQuery(), options);
+        Assert.NotNull(found.Document);
+        Assert.Equal("persisted source", found.Document.Value);
+        Assert.Equal("3:10", found.Document.Version);
+        var byId = await repository.GetByIdAsync(new Id(document.Id, document.Routing), options);
+        Assert.NotNull(byId);
+        Assert.Equal("persisted source", byId.Value);
+        Assert.Equal("3:10", byId.Version);
+        Assert.Equal(1, configuration.Invoker.Requests);
+        Assert.Equal(1, configuration.Invoker.IndexRequests);
+        Assert.Empty(configuration.Invoker.Reads);
+        Assert.Equal(0, configuration.Invoker.Searches);
+        Assert.Equal(4, cache.Hits);
+        Assert.Equal(0, cache.Misses);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CachedWrite_WhenFreshRepositorySavesInsideCallback_InvalidatesCustomKeyImmediately(bool cacheNestedWrite, bool bypassBaseInvalidation)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration);
+        using var nestedRepository = new TestRepository(configuration, bypassBaseInvalidation: bypassBaseInvalidation);
+        var document = new TestDocument { Id = "one", Index = "first", Routing = "route", Value = "outer write" };
+        var options = new CommandOptions().Cache().CacheKey("selected-document").Retry(0);
+        int callbacks = 0;
+        repository.DocumentsAdded.AddHandler(async (_, args) =>
+        {
+            callbacks++;
+            Assert.Same(document, Assert.Single(args.Documents));
+            var cached = Assert.Single(await repository.GetCachedHitsAsync("selected-document"));
+            Assert.Equal("outer write", cached.Document!.Value);
+            Assert.Equal("3:10", cached.Version);
+
+            await Task.Yield();
+            var reloaded = await nestedRepository.GetByIdAsync(new Id(document.Id, document.Routing), new CommandOptions().Cache(false));
+            Assert.NotNull(reloaded);
+            Assert.NotSame(document, reloaded);
+            reloaded.Value = "nested save";
+            await nestedRepository.SaveAsync(reloaded, new CommandOptions().Cache(cacheNestedWrite).Retry(0));
+
+            var immediate = await repository.GetByIdAsync(new Id(document.Id, document.Routing), options);
+            Assert.NotNull(immediate);
+            Assert.Equal("nested save", immediate.Value);
+            Assert.Equal("3:20", immediate.Version);
+            var refreshed = Assert.Single(await repository.GetCachedHitsAsync("selected-document"));
+            Assert.Equal("nested save", refreshed.Document!.Value);
+            Assert.Equal("first-v1", refreshed.GetIndex());
+            Assert.Equal("route", refreshed.Routing);
+            Assert.Equal("3:20", refreshed.Version);
+        });
+
+        await repository.AddAsync(document, options);
+
+        Assert.Equal(1, callbacks);
+        Assert.Equal(1, nestedRepository.DocumentInvalidations);
+        Assert.Equal(2, configuration.Invoker.IndexRequests);
+        var current = await repository.GetByIdAsync(new Id(document.Id, document.Routing), options);
+        Assert.NotNull(current);
+        Assert.Equal("nested save", current.Value);
+        Assert.Equal("3:20", current.Version);
+        Assert.Equal("outer write", document.Value);
+        Assert.Equal("3:10", document.Version);
+    }
+
+    [Theory]
+    [InlineData("OtherId")]
+    [InlineData("DifferentRoot")]
+    [InlineData("DifferentScope")]
+    public async Task CachedWrite_WhenNestedWriteDoesNotShareItsCacheIdentity_PreservesCustomKey(string isolation)
+    {
+        using var rootCache = new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true });
+        using var otherRootCache = new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true });
+        using var outerCache = new ScopedCacheClient(rootCache, "outer");
+        using var nestedCache = new ScopedCacheClient(isolation is "DifferentRoot" ? otherRootCache : rootCache,
+            isolation is "DifferentScope" ? "nested" : "outer");
+        var document = new TestDocument { Id = "one", Index = "first", Routing = "route", Value = "outer write" };
+        var nestedDocument = new TestDocument { Id = isolation is "OtherId" ? "other" : "one", Index = "first", Routing = "route", Value = "nested save", Version = "1:1" };
+        using var configuration = new TestConfiguration(cache: outerCache);
+        using var nestedConfiguration = new TestConfiguration([nestedDocument], cache: nestedCache);
+        using var repository = new TestRepository(configuration);
+        using var nestedRepository = new TestRepository(nestedConfiguration);
+        var options = new CommandOptions().Cache().CacheKey("selected-document").Retry(0);
+        int callbacks = 0;
+        repository.DocumentsAdded.AddHandler(async (_, _) =>
+        {
+            callbacks++;
+            var before = Assert.Single(await repository.GetCachedHitsAsync("selected-document"));
+            Assert.Equal("outer write", before.Document!.Value);
+            Assert.Equal("3:10", before.Version);
+
+            await Task.Yield();
+            var hitsBeforeWrite = rootCache.Hits;
+            var missesBeforeWrite = rootCache.Misses;
+            await nestedRepository.SaveAsync(nestedDocument, new CommandOptions().Cache(false).Retry(0));
+            Assert.Equal(hitsBeforeWrite, rootCache.Hits);
+            Assert.Equal(missesBeforeWrite, rootCache.Misses);
+            Assert.Equal(0, otherRootCache.Hits);
+            Assert.Equal(0, otherRootCache.Misses);
+
+            var after = Assert.Single(await repository.GetCachedHitsAsync("selected-document"));
+            Assert.Equal("outer write", after.Document!.Value);
+            Assert.Equal("3:10", after.Version);
+            var immediate = await repository.GetByIdAsync(new Id(document.Id, document.Routing), options);
+            Assert.NotNull(immediate);
+            Assert.Equal("outer write", immediate.Value);
+            Assert.Equal("3:10", immediate.Version);
+        });
+
+        await repository.AddAsync(document, options);
+
+        Assert.Equal(1, callbacks);
+        var retained = Assert.Single(await repository.GetCachedHitsAsync("selected-document"));
+        Assert.Equal("outer write", retained.Document!.Value);
+        Assert.Equal("first-v1", retained.GetIndex());
+        Assert.Equal("route", retained.Routing);
+        Assert.Equal("3:10", retained.Version);
+        var current = await repository.GetByIdAsync(new Id(document.Id, document.Routing), options);
+        Assert.NotNull(current);
+        Assert.Equal("outer write", current.Value);
+        Assert.Equal("3:10", current.Version);
+        Assert.Equal(1, configuration.Invoker.Requests);
+        Assert.Empty(configuration.Invoker.Reads);
+        Assert.Equal(1, nestedConfiguration.Invoker.IndexRequests);
+    }
+
+    [Fact]
+    public async Task CachedWrite_AfterNestedWriteCallbackThrows_AllowsSubsequentCustomKeyWrite()
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration);
+        using var subsequentRepository = new TestRepository(configuration);
+        var document = new TestDocument { Id = "one", Index = "first", Routing = "route", Value = "outer write" };
+        var options = new CommandOptions().Cache().CacheKey("selected-document").Retry(0);
+        repository.DocumentsAdded.AddHandler(async (_, _) =>
+        {
+            await Task.Yield();
+            document.Value = "nested save";
+            await subsequentRepository.SaveAsync(document, new CommandOptions().Cache(false).Retry(0));
+            throw new InvalidOperationException("Callback failed after the nested save.");
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () => await repository.AddAsync(document, options));
+
+        Assert.Equal("Callback failed after the nested save.", exception.Message);
+        Assert.Equal("3:20", document.Version);
+        Assert.False(await repository.CacheContainsAsync("selected-document"));
+        document.Value = "subsequent save";
+        await subsequentRepository.SaveAsync(document, options);
+
+        var cached = Assert.Single(await subsequentRepository.GetCachedHitsAsync("selected-document"));
+        Assert.Equal("subsequent save", cached.Document!.Value);
+        Assert.Equal("first-v1", cached.GetIndex());
+        Assert.Equal("route", cached.Routing);
+        Assert.Equal("3:30", cached.Version);
+        var current = await subsequentRepository.GetByIdAsync(new Id(document.Id, document.Routing), options);
+        Assert.NotNull(current);
+        Assert.Equal("subsequent save", current.Value);
+        Assert.Equal("3:30", current.Version);
+        Assert.Equal(2, Assert.IsType<InMemoryCacheClient>(configuration.Cache).Count);
+        Assert.Equal(3, configuration.Invoker.Requests);
+        Assert.Equal(3, configuration.Invoker.IndexRequests);
+        Assert.Empty(configuration.Invoker.Reads);
+    }
+
+    [Theory]
     [InlineData("Add", false, false)]
     [InlineData("Add", true, false)]
     [InlineData("Save", false, false)]
@@ -179,12 +410,18 @@ public sealed class WriteCacheIdentityTests
         if (operation is "Save")
             await repository.AddAsync(document, new CommandOptions().Retry(0));
 
-        Task OnWrittenAsync()
+        bool savedFromHandler = false;
+        async Task OnWrittenAsync()
         {
+            if (savedFromHandler)
+                return;
+
+            savedFromHandler = true;
+            document.Value = "nested save";
+            await repository.SaveAsync(document, new CommandOptions().Cache(false).Retry(0));
             cache.FailRemoval = true;
-            return handlerThrows
-                ? Task.FromException(new InvalidOperationException("Callback failed."))
-                : Task.CompletedTask;
+            if (handlerThrows)
+                throw new InvalidOperationException("Callback failed.");
         }
         if (operation is "Add")
             repository.DocumentsAdded.AddHandler((_, _) => OnWrittenAsync());
@@ -209,6 +446,7 @@ public sealed class WriteCacheIdentityTests
             Assert.IsType<IOException>(exception);
             Assert.Equal("Cache cleanup failed.", exception.Message);
         }
+        Assert.True(savedFromHandler);
         Assert.True(cache.FailedRemovals > 0);
     }
 
@@ -543,16 +781,28 @@ public sealed class WriteCacheIdentityTests
 
     private sealed class TestRepository : ElasticRepositoryBase<TestDocument>
     {
-        public TestRepository(TestConfiguration configuration, string? pipeline = null, bool notificationsEnabled = false) : base(new TestIndex(configuration))
+        private readonly bool _bypassBaseInvalidation;
+
+        public TestRepository(TestConfiguration configuration, string? pipeline = null, bool notificationsEnabled = false, bool bypassBaseInvalidation = false) : base(new TestIndex(configuration))
         {
             HasParent = true;
             GetParentIdFunc = document => document.Routing;
             NotificationsEnabled = notificationsEnabled;
             DefaultPipeline = pipeline;
+            _bypassBaseInvalidation = bypassBaseInvalidation;
         }
 
         public List<(ChangeType ChangeType, string? Id)> Notifications { get; } = [];
+        public int DocumentInvalidations { get; private set; }
         public Task<bool> CacheContainsAsync(string id) => Cache.ExistsAsync(id);
+
+        protected override Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<TestDocument>> documents, ChangeType? changeType = null)
+        {
+            DocumentInvalidations++;
+            return _bypassBaseInvalidation
+                ? Cache.RemoveAllAsync(documents.Select(document => document.Value.Id))
+                : base.InvalidateCacheAsync(documents, changeType);
+        }
 
         protected override Task PublishMessageAsync(EntityChanged message, TimeSpan? delay = null)
         {
@@ -581,6 +831,10 @@ public sealed class WriteCacheIdentityTests
 
     private sealed class FailingRemovalCache : InMemoryCacheClient, ICacheClient
     {
+        public FailingRemovalCache() : base(new InMemoryCacheClientOptions { CloneValues = true })
+        {
+        }
+
         public bool FailRemoval { get; set; }
         public int FailedRemovals { get; private set; }
 

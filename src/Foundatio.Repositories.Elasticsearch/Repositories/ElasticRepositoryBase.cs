@@ -237,6 +237,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             var patched = run.Succeeded.Select(i => i.Document).ToList();
             if (patched.Count > 0)
             {
+                if (CustomWriteCacheScope.HasActiveScope)
+                    await CustomWriteCacheScope.InvalidateAsync(Cache, [id.Value]).AnyContext();
                 if (IsCacheEnabled && !String.Equals(patched[0].Id, id.Value, StringComparison.Ordinal))
                     await InvalidateCacheAsync(id.Value).AnyContext();
                 await OnDocumentsChangedAsync(ChangeType.Saved, patched, options).AnyContext();
@@ -260,6 +262,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (modified)
         {
             // Server-side patches don't return the document.
+            if (CustomWriteCacheScope.HasActiveScope)
+                await CustomWriteCacheScope.InvalidateAsync(Cache, [id.Value]).AnyContext();
             if (IsCacheEnabled)
                 await InvalidateCacheAsync(id.Value).AnyContext();
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
@@ -381,6 +385,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (modifiedIds.Count is 0)
             return;
 
+        await CustomWriteCacheScope.InvalidateAsync(Cache, modifiedIds).AnyContext();
         if (IsCacheEnabled)
         {
             if (modifiedDocuments is { Count: > 0 })
@@ -529,6 +534,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         await EnsureIndexesAsync(docs).AnyContext();
 
         var run = await DeleteDocumentsAsync(items, options).AnyContext();
+        if (CustomWriteCacheScope.HasActiveScope)
+            await CustomWriteCacheScope.InvalidateAsync(Cache, run.Items
+                .Where(i => i.Result.Outcome is WriteOutcome.Succeeded or WriteOutcome.Missing)
+                .Select(i => i.Item.Key.Id)).AnyContext();
         var alreadyGone = run.With(WriteOutcome.Missing).Select(i => i.Item.Document).ToList();
         if (alreadyGone.Count > 0 && IsCacheEnabled)
             await InvalidateCacheAsync(alreadyGone).AnyContext();
@@ -1237,10 +1246,19 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             || DocumentsChanged.HasHandlers || (NotificationsEnabled && options.ShouldNotify());
         bool cacheWrites = IsCacheEnabled && options.ShouldUseCache();
         string? callbackCacheKey = cacheWrites && hasCallbacks ? options.GetCacheKey() : null;
+        if (CustomWriteCacheScope.HasActiveScope)
+            await CustomWriteCacheScope.InvalidateAsync(Cache, run.Items
+                .Where(i => i.Result.Outcome is WriteOutcome.Succeeded)
+                .Select(i => i.Item.Key.Id)).AnyContext();
         await InvalidateCacheAsync(modifiedDocs, changeType).AnyContext();
         if (cacheWrites)
-            await CacheWrittenDocumentsAsync(run, options, hasCallbacks).AnyContext();
+            await CacheWrittenDocumentsAsync(run, options).AnyContext();
 
+        var cacheScope = !String.IsNullOrEmpty(callbackCacheKey)
+            ? new CustomWriteCacheScope(Cache, callbackCacheKey, run.Items
+                .Where(i => i.Result.Outcome is WriteOutcome.Succeeded)
+                .Select(i => i.Item.Key.Id))
+            : null;
         bool callbacksCompleted = false;
         try
         {
@@ -1255,16 +1273,17 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         }
         finally
         {
-            // A callback can refill this key before a nested write that does not know the key.
-            if (!String.IsNullOrEmpty(callbackCacheKey))
+            cacheScope?.Dispose();
+            // A callback can refill its key after an overlapping nested write invalidates it.
+            if (cacheScope is { IsDirty: true })
             {
                 try
                 {
-                    await Cache.RemoveAsync(callbackCacheKey).AnyContext();
+                    await cacheScope.RemoveAsync().AnyContext();
                 }
                 catch (Exception ex) when (!callbacksCompleted)
                 {
-                    _logger.LogError(ex, "Error removing write cache key {CacheKey} after a post-write callback failed", callbackCacheKey);
+                    _logger.LogError(ex, "Error removing write cache key {CacheKey} after a post-write callback failed", cacheScope.CacheKey);
                 }
             }
         }
