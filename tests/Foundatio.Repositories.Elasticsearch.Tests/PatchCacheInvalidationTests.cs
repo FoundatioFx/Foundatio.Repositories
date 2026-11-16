@@ -105,6 +105,60 @@ public sealed class PatchCacheInvalidationTests
             Assert.Null(await repository.GetByIdAsync(new Id("three"), options => options.Cache(false)));
     }
 
+    [Fact]
+    public async Task RemoveByIdAsync_WhenRequestedRoutingDiffersFromStoredRouting_DeletesReturnedMetadataLocation()
+    {
+        using var cache = new RecordingCache();
+        using var configuration = new TestConfiguration(cache);
+        using var repository = new TestRepository(configuration);
+        Assert.True(await repository.PatchAsync(new Id("one"), new PartialPatch(new { id = "two", value = "selected source" }), options => options.Retry(0)));
+        configuration.Invoker.StoredRoutings["one"] = "stored-route";
+        repository.PublishedIds.Clear();
+        var removedSourceIds = new List<string>();
+        repository.DocumentsRemoved.AddSyncHandler((_, args) => removedSourceIds.AddRange(args.Documents.Select(document => document.Id)));
+
+        await repository.RemoveAsync(new Id("one", "requested-route"), options => options.Cache(false).ReadCache(false).Retry(0));
+
+        Assert.Equal(new[] { "one" }, configuration.Invoker.Deletes);
+        Assert.Contains("routing=stored-route", Assert.Single(configuration.Invoker.DeletePaths), StringComparison.Ordinal);
+        Assert.Equal(new[] { "one" }, repository.PublishedIds);
+        Assert.Equal(new[] { "two" }, removedSourceIds);
+        Assert.Null(await repository.GetByIdAsync(new Id("one", "requested-route"), options => options.Cache(false)));
+        var unrelated = await repository.GetByIdAsync(new Id("two"), options => options.Cache(false));
+        Assert.NotNull(unrelated);
+        Assert.Equal("before", unrelated.Value);
+    }
+
+    [Fact]
+    public async Task RemoveByIdAsync_WhenReadOverrideProbesAnotherRouting_DoesNotCaptureThePrerequisiteRead()
+    {
+        using var cache = new RecordingCache(cloneValues: false);
+        using var configuration = new TestConfiguration(cache);
+        using var repository = new ForwardingOptionsRepository(configuration);
+        Assert.True(await repository.PatchAsync(new Id("one"), new PartialPatch(new { id = "two" }), options => options.Retry(0)));
+        var shared = await repository.GetByIdAsync(new Id("one"), options => options.Cache(false));
+        Assert.NotNull(shared);
+        await repository.SeedHitAsync("one", shared, "other-route");
+        repository.PublishedIds.Clear();
+        repository.BeforeRead = async options =>
+        {
+            repository.BeforeRead = null;
+            var prerequisite = await repository.GetByIdsAsync(new Ids(new Id("one", "other-route")), options);
+            Assert.Same(shared, Assert.Single(prerequisite));
+            await repository.SeedHitAsync("one", shared, "requested-route");
+        };
+
+        await repository.RemoveAsync(new Id("one", "requested-route"), options => options.Retry(0));
+
+        Assert.Equal(2, repository.ReadCalls);
+        Assert.Equal(new[] { "one" }, configuration.Invoker.Deletes);
+        Assert.Contains("routing=requested-route", Assert.Single(configuration.Invoker.DeletePaths), StringComparison.Ordinal);
+        Assert.Equal(new[] { "one" }, repository.PublishedIds);
+        Assert.Equal("two", shared.Id);
+        Assert.Null(await repository.GetByIdAsync(new Id("one"), options => options.Cache(false)));
+        Assert.NotNull(await repository.GetByIdAsync(new Id("two"), options => options.Cache(false)));
+    }
+
     [Theory]
     [InlineData(false, "Removing")]
     [InlineData(false, "Changing")]
@@ -541,8 +595,8 @@ public sealed class PatchCacheInvalidationTests
 
         public Task SeedAsync(string id) => Cache.SetAsync(id, "cached");
         public Task<bool> CacheContainsAsync(string id) => Cache.ExistsAsync(id);
-        public Task SeedHitAsync(string id, TestDocument document) => Cache.SetAsync<ICollection<FindHit<TestDocument>>>(id,
-            [new FindHit<TestDocument>(id, document, 0, data: new Dictionary<string, object?> { [ElasticDataKeys.Index] = "patch-cache-tests" })]);
+        public Task SeedHitAsync(string id, TestDocument document, string? routing = null) => Cache.SetAsync<ICollection<FindHit<TestDocument>>>(id,
+            [new FindHit<TestDocument>(id, document, 0, routing: routing, data: new Dictionary<string, object?> { [ElasticDataKeys.Index] = "patch-cache-tests" })]);
 
         protected override Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<TestDocument>> documents, ChangeType? changeType = null)
         {
@@ -645,7 +699,9 @@ public sealed class PatchCacheInvalidationTests
         private static readonly Dictionary<string, IEnumerable<string>> _headers = new(StringComparer.OrdinalIgnoreCase) { ["X-Elastic-Product"] = ["Elasticsearch"] };
         public ResponseFactory ResponseFactory => _owner.ResponseFactory;
         public List<string> Deletes { get; } = [];
+        public List<string> DeletePaths { get; } = [];
         public List<string> SearchedIds { get; } = [];
+        public Dictionary<string, string> StoredRoutings { get; } = new(StringComparer.Ordinal);
 
         public void AddStoredDocument(TestDocument document) => _documents.Add(document.Id, document);
 
@@ -720,6 +776,7 @@ public sealed class PatchCacheInvalidationTests
                 if (endpoint.Method is Elastic.Transport.HttpMethod.DELETE)
                 {
                     Deletes.Add(id);
+                    DeletePaths.Add(endpoint.PathAndQuery);
                     bool removed = _documents.Remove(id);
                     statusCode = removed ? 200 : 404;
                     response = new { _index = "patch-cache-tests", _id = id, _seq_no = 2, _primary_term = 1, result = removed ? "deleted" : "not_found", _shards = new { total = 1, successful = 1, failed = 0 } };
@@ -747,7 +804,7 @@ public sealed class PatchCacheInvalidationTests
         {
             if (!_documents.TryGetValue(id, out var document))
                 return new { _index = "patch-cache-tests", _id = id, found = false };
-            return new { _index = "patch-cache-tests", _id = id, _seq_no = 0, _primary_term = 1, found = true, _source = new { id = document.Id, value = document.Value } };
+            return new { _index = "patch-cache-tests", _id = id, _routing = StoredRoutings.GetValueOrDefault(id), _seq_no = 0, _primary_term = 1, found = true, _source = new { id = document.Id, value = document.Value } };
         }
 
         private static string[] GetSearchIds(JsonElement element)

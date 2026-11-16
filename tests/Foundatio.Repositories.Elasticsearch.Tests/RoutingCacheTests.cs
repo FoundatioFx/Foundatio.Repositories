@@ -257,6 +257,66 @@ public sealed class RoutingCacheTests
             Assert.Empty(results);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task GetByIdsAsync_WhenRequestedAndStoredRoutingDiffer_SearchesOnlyMissingRequests(bool includeMissing, bool reverseRequests)
+    {
+        var stored = new StoredDocument("same", "stored-route", "stored value", 2, 22);
+        using var configuration = new TestConfiguration([stored]);
+        using var repository = new TestRepository(configuration);
+        var requested = new Id(stored.Id, "requested-route");
+        var missing = new Id("missing", "missing-route");
+        configuration.Invoker.StoredRoutingByRequest[requested] = stored.Routing;
+        repository.SearchException = includeMissing ? null : new InvalidOperationException("Search unavailable.");
+        repository.ReverseMultiGetRequests = reverseRequests;
+        var ids = includeMissing ? new Ids(missing, requested) : new Ids(requested);
+        var expectedReads = reverseRequests ? ids.AsEnumerable().Reverse().ToArray() : ids.ToArray();
+        var options = new CommandOptions().Cache().ImmediateConsistency();
+
+        var results = await repository.GetByIdsAsync(ids, options);
+
+        AssertDocument(Assert.Single(results), stored);
+        Assert.Equal(expectedReads, configuration.Invoker.ReadLocations);
+        if (includeMissing)
+            Assert.Equal(new[] { missing.Value }, Assert.Single(repository.SearchedIds));
+        else
+            Assert.Empty(repository.SearchedIds);
+        var cached = await repository.GetByIdAsync(new Id(stored.Id, stored.Routing), options);
+        Assert.NotNull(cached);
+        AssertDocument(cached, stored);
+        Assert.Equal(expectedReads, configuration.Invoker.ReadLocations);
+
+        var foundAgain = await repository.GetByIdAsync(requested, options);
+
+        Assert.NotNull(foundAgain);
+        AssertDocument(foundAgain, stored);
+        Assert.Equal(expectedReads.Append(requested), configuration.Invoker.ReadLocations);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WhenRequestOverrideSuppliesDefaultRouting_KeepsUnroutedMgetSuccessResolved()
+    {
+        var stored = new StoredDocument("one", null, "stored value", 2, 22);
+        using var configuration = new TestConfiguration([stored]);
+        using var repository = new TestRepository(configuration, hasParent: false, hasMultipleIndexes: true);
+        repository.DefaultMultiGetRouting = "requested-route";
+        repository.SearchException = new InvalidOperationException("Search unavailable.");
+        var requested = new Id(stored.Id, repository.DefaultMultiGetRouting);
+        configuration.Invoker.StoredRoutingByRequest[requested] = stored.Routing;
+        var options = new CommandOptions().Cache().ImmediateConsistency();
+
+        var results = await repository.GetByIdsAsync(new Ids(stored.Id), options);
+
+        AssertDocument(Assert.Single(results), stored);
+        Assert.Empty(repository.SearchedIds);
+        var cached = await repository.GetByIdAsync(new Id(stored.Id), options);
+        Assert.NotNull(cached);
+        AssertDocument(cached, stored);
+        Assert.Equal(requested, Assert.Single(configuration.Invoker.ReadLocations));
+    }
+
     [Fact]
     public async Task GetByIdsAsync_WithSameIdInDifferentSearchIndexes_ReturnsBothDocuments()
     {
@@ -340,8 +400,8 @@ public sealed class RoutingCacheTests
     {
         private readonly IReadOnlyList<StoredDocument> _documents;
 
-        public TestRepository(TestConfiguration configuration, bool hasParent = true)
-            : base(new TestIndex(configuration))
+        public TestRepository(TestConfiguration configuration, bool hasParent = true, bool hasMultipleIndexes = false)
+            : base(new TestIndex(configuration) { HasMultipleIndexes = hasMultipleIndexes })
         {
             _documents = configuration.Documents;
             HasParent = hasParent;
@@ -351,6 +411,22 @@ public sealed class RoutingCacheTests
         public Task SeedAsync(string key, ICollection<FindHit<RoutedDocument>> hits) => Cache.SetAsync(key, hits);
         public Task<bool> CacheContainsAsync(string key) => Cache.ExistsAsync(key);
         public List<(ChangeType ChangeType, string? Id)> PublishedChanges { get; } = [];
+        public List<string[]> SearchedIds { get; } = [];
+        public Exception? SearchException { get; set; }
+        public bool ReverseMultiGetRequests { get; set; }
+        public string? DefaultMultiGetRouting { get; set; }
+
+        protected override void ConfigureMultiGetRequest(Elastic.Clients.Elasticsearch.MultiGetRequestDescriptor request, ICommandOptions options)
+        {
+            base.ConfigureMultiGetRequest(request, options);
+            if (DefaultMultiGetRouting is not null)
+                request.Routing(DefaultMultiGetRouting);
+            if (ReverseMultiGetRequests)
+            {
+                Elastic.Clients.Elasticsearch.MultiGetRequest configured = request;
+                request.Docs(configured.Docs!.Reverse().ToArray());
+            }
+        }
 
         protected override Task PublishChangeTypeMessageAsync(ChangeType changeType, string? id, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
         {
@@ -361,6 +437,10 @@ public sealed class RoutingCacheTests
         public override Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null)
         {
             var ids = query.GetIds();
+            SearchedIds.Add(ids.ToArray());
+            if (SearchException is not null)
+                return Task.FromException<FindResults<TResult>>(SearchException);
+
             var hits = _documents.Where(document => ids.Contains(document.Id))
                 .Select(document =>
                 {
@@ -390,6 +470,7 @@ public sealed class RoutingCacheTests
         public ResponseFactory ResponseFactory => _owner.ResponseFactory;
         public List<Id> ReadLocations { get; } = [];
         public List<Id> UpdatedLocations { get; } = [];
+        public Dictionary<Id, string?> StoredRoutingByRequest { get; } = [];
 
         public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
             where TResponse : TransportResponse, new()
@@ -418,10 +499,11 @@ public sealed class RoutingCacheTests
                 postData.Write(requestStream, boundConfiguration.ConnectionSettings, false);
                 using var request = JsonDocument.Parse(requestStream.ToArray());
                 var results = new List<object>();
+                string? defaultRouting = GetLocation(endpoint).Routing;
                 foreach (var item in request.RootElement.GetProperty("docs").EnumerateArray())
                 {
                     string id = item.GetProperty("_id").GetString()!;
-                    string? routing = item.TryGetProperty("routing", out var route) ? route.GetString() : null;
+                    string? routing = item.TryGetProperty("routing", out var route) ? route.GetString() : defaultRouting;
                     results.Add(ReadDocument(id, routing));
                 }
 
@@ -450,13 +532,15 @@ public sealed class RoutingCacheTests
 
         private object ReadDocument(string id, string? routing)
         {
-            ReadLocations.Add(new Id(id, routing));
-            var stored = documents.SingleOrDefault(document => document.Id == id && document.Routing == routing);
+            var requested = new Id(id, routing);
+            ReadLocations.Add(requested);
+            string? storedRouting = StoredRoutingByRequest.TryGetValue(requested, out var resolvedRouting) ? resolvedRouting : routing;
+            var stored = documents.SingleOrDefault(document => document.Id == id && document.Routing == storedRouting);
             return new
             {
                 _index = "routing-cache-tests",
                 _id = id,
-                _routing = routing,
+                _routing = stored is null ? routing : stored.Routing,
                 found = stored is not null,
                 _seq_no = stored?.SequenceNumber,
                 _primary_term = stored?.PrimaryTerm,

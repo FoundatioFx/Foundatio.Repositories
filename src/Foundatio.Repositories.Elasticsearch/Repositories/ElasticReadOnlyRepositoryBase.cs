@@ -60,13 +60,32 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         private HashSet<Id>? _ids = ids.ToHashSet();
         private Action<FindHit<T>>? _callback = callback;
 
-        internal void Capture(FindHit<T> hit)
+        internal HashSet<string>? SelectIds(IEnumerable<Id> ids)
         {
             lock (_lock)
             {
-                if (_ids is not null && hit.Id is not null && (_ids.Contains(new Id(hit.Id, hit.Routing)) || (hasParent && _ids.Contains(new Id(hit.Id)))))
-                    _callback?.Invoke(hit);
+                if (_ids is null)
+                    return null;
+
+                HashSet<string>? selectedIds = null;
+                foreach (var id in ids)
+                {
+                    if (_ids.Contains(id) || (hasParent && _ids.Contains(new Id(id.Value))))
+                        (selectedIds ??= new(StringComparer.Ordinal)).Add(id.Value);
+                }
+
+                return selectedIds;
             }
+        }
+
+        internal void Capture(FindHit<T> hit, HashSet<string>? selectedIds)
+        {
+            // A requested route can find a document stored under another route on the same shard.
+            if (hit.Id is null || selectedIds?.Contains(hit.Id) is not true)
+                return;
+
+            lock (_lock)
+                _callback?.Invoke(hit);
         }
 
         internal void Complete()
@@ -198,6 +217,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (idList == null || idList.Count == 0)
             return EmptyList;
 
+        var captureIds = captureHit?.SelectIds(idList);
+
         if (!HasIdentity)
             throw new NotSupportedException("Model type must implement IIdentity.");
 
@@ -222,7 +243,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             itemsToFind.RemoveAll(cachedIds.Contains);
         }
         if (itemsToFind.Count == 0)
-            return GetDocuments(hits, options, captureHit);
+            return GetDocuments(hits, options, captureHit, captureIds);
 
         // Build MultiGetOperation objects for each ID
         var itemsForMultiGet = itemsToFind.Where(i => i.Routing != null || !HasParent).ToList();
@@ -241,16 +262,41 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var multiGet = new MultiGetRequestDescriptor().Docs(docOperations);
 
             ConfigureMultiGetRequest(multiGet, options);
+            MultiGetRequest configuredRequest = multiGet;
+            var requestLocations = configuredRequest.Ids is null
+                ? configuredRequest.Docs?.Select(document => new Id(Infer.Resolve(document.Id),
+                    document.Routing is null ? null : Infer.Resolve(document.Routing))).ToArray()
+                : null;
             var multiGetResults = await _client.MultiGetAsync<T>(multiGet).AnyContext();
             _logger.LogRequest(multiGetResults, options.GetQueryLogLevel());
 
             if (!multiGetResults.IsValidResponse)
                 throw new DocumentException(multiGetResults.GetErrorMessage("Error getting documents"), multiGetResults.OriginalException());
 
-            foreach (var findHit in multiGetResults.ToFindHits(_logger))
+            if (requestLocations is not null && multiGetResults.Docs.Count != requestLocations.Length)
+                throw new DocumentException("The multi-get response did not contain one result per requested document.");
+
+            var foundHits = multiGetResults.ToFindHits(_logger);
+            hits.AddRange(foundHits);
+            if (requestLocations is not null)
             {
-                hits.Add(findHit);
-                itemsToFind.Remove(new Id(findHit.Id!, findHit.Routing));
+                int requestIndex = 0;
+                foreach (var result in multiGetResults.Docs)
+                {
+                    // Multi-get results follow request order; the stored routing can differ on the same shard.
+                    var location = result.Match<Id?>(
+                        static document => document is { Found: true } ? new Id(document.Id, document.Routing) : (Id?)null,
+                        static _ => null);
+                    if (location is { } found && !itemsToFind.Remove(requestLocations[requestIndex]))
+                        itemsToFind.Remove(found);
+                    requestIndex++;
+                }
+            }
+            else
+            {
+                // Native ID-list requests don't expose their entries; preserve metadata matching for those overrides.
+                foreach (var hit in foundHits)
+                    itemsToFind.Remove(new Id(hit.Id!, hit.Routing));
             }
         }
 
@@ -296,10 +342,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
         }
 
-        return GetDocuments(hits, options, captureHit);
+        return GetDocuments(hits, options, captureHit, captureIds);
     }
 
-    private IReadOnlyCollection<T> GetDocuments(ICollection<FindHit<T>> hits, ICommandOptions options, ReadHitCapture? captureHit)
+    private IReadOnlyCollection<T> GetDocuments(ICollection<FindHit<T>> hits, ICommandOptions options, ReadHitCapture? captureHit, HashSet<string>? captureIds)
     {
         var documents = new List<T>(hits.Count);
         foreach (var hit in hits)
@@ -307,7 +353,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (!ShouldReturnDocument(hit.Document, options))
                 continue;
 
-            captureHit?.Capture(hit);
+            captureHit?.Capture(hit, captureIds);
             documents.Add(hit.Document!);
         }
 
