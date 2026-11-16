@@ -33,6 +33,56 @@ namespace Foundatio.Repositories.Elasticsearch;
 public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new()
 {
     protected readonly IMessagePublisher? _messagePublisher;
+    private readonly bool _hasUpdatedUtcFieldPathOverride;
+    private const string DeleteLocationsKey = "@DeleteLocations";
+
+    // Overrides may partition a remove; consume only selected instances, once across options clones.
+    private sealed class ResolvedDeleteLocations(IReadOnlyCollection<T> documents, Dictionary<T, (DocumentKey Key, string? Routing)> locations)
+    {
+        private readonly System.Threading.Lock _lock = new();
+        private IReadOnlyCollection<T>? _documents = documents;
+        private Dictionary<T, (DocumentKey Key, string? Routing)>? _locations = locations;
+
+        internal Dictionary<T, (DocumentKey Key, string? Routing)>? Take(IEnumerable<T> requestedDocuments, IReadOnlyCollection<T> materializedDocuments)
+        {
+            lock (_lock)
+            {
+                if (_locations is null)
+                    return null;
+
+                if (ReferenceEquals(_documents, requestedDocuments))
+                {
+                    var result = _locations;
+                    _locations = null;
+                    _documents = null;
+                    return result;
+                }
+
+                Dictionary<T, (DocumentKey Key, string? Routing)>? selected = null;
+                foreach (var document in materializedDocuments)
+                {
+                    if (_locations.Remove(document, out var location))
+                        (selected ??= new(ReferenceEqualityComparer.Instance)).Add(document, location);
+                }
+
+                return selected;
+            }
+        }
+
+        internal void Complete()
+        {
+            lock (_lock)
+            {
+                _locations = null;
+                _documents = null;
+            }
+        }
+    }
+
+    private sealed class WrittenDocument(T value, T? original, string id) : ModifiedDocument<T>(value, original)
+    {
+        internal string Id { get; } = id;
+    }
 
     protected ElasticRepositoryBase(IIndex index) : base(index)
     {
@@ -40,6 +90,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         _lazyWriteClient = new Lazy<ElasticsearchClient>(CreateWriteClient, LazyThreadSafetyMode.ExecutionAndPublication);
         _messagePublisher = index.Configuration.MessageBus;
         NotificationsEnabled = _messagePublisher != null;
+        // The native name is a literal source member; existing overrides retain their dot-path semantics.
+        _hasUpdatedUtcFieldPathOverride = HasDates && ((Func<string>)GetUpdatedUtcFieldPath).Method.DeclaringType != typeof(ElasticRepositoryBase<T>);
 
         if (_idField is not null)
             AddRequiredField(_idField);
@@ -407,35 +459,18 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                 await InvalidateCacheAsync(modifiedIds).AnyContext();
         }
 
-        await OnDocumentsChangedAsync(ChangeType.Saved, modifiedDocuments ?? EmptyList, options).AnyContext();
-        // Handlers can change model IDs, so notifications compare them with the write locations after the handlers run.
-        List<string>? changedIds = null;
         if (modifiedDocuments is { Count: > 0 })
         {
-            foreach (var (id, document) in modifiedIds.Zip(modifiedDocuments))
-            {
-                if (!String.Equals(id, document.Id, StringComparison.Ordinal))
-                {
-                    changedIds ??= [];
-                    changedIds.Add(id);
-                }
-            }
+            var documents = modifiedIds.Zip(modifiedDocuments,
+                (id, document) => (ModifiedDocument<T>)new WrittenDocument(document, null, id)).ToList();
+            await OnDocumentsChangedAsync(ChangeType.Saved, documents, options).AnyContext();
+            await SendNotificationsAsync(ChangeType.Saved, documents, options).AnyContext();
         }
-
-        if (changedIds is not null && modifiedDocuments is not null)
-        {
-            var matchingDocuments = modifiedIds.Zip(modifiedDocuments)
-                .Where(pair => String.Equals(pair.First, pair.Second.Id, StringComparison.Ordinal))
-                .Select(pair => pair.Second).ToList();
-            if (matchingDocuments.Count > 0)
-                await SendNotificationsAsync(ChangeType.Saved, matchingDocuments, options).AnyContext();
-
-            await SendNotificationsAsync(ChangeType.Saved, changedIds, options).AnyContext();
-        }
-        else if (modifiedDocuments is { Count: > 0 })
-            await SendNotificationsAsync(ChangeType.Saved, modifiedDocuments, options).AnyContext();
         else
+        {
+            await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendNotificationsAsync(ChangeType.Saved, modifiedIds, options).AnyContext();
+        }
 
         try
         {
@@ -474,15 +509,54 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         options = ConfigureOptions(options?.As<T>());
         ThrowIfExpectedVersion(options);
-        var readOptions = IsCacheEnabled ? options.Clone().ReadCache(options.ShouldReadCache(true)) : options;
+        var locations = new Dictionary<T, (DocumentKey Key, string? Routing)>(ReferenceEqualityComparer.Instance);
+        var readOptions = options.Clone();
+        if (IsCacheEnabled)
+            readOptions.ReadCache(options.ShouldReadCache(true));
+        var readCapture = new ReadHitCapture(ids, HasParent, hit => AddDeleteLocation(locations, hit));
+        readOptions.BuildOption(ReadHitCallbackKey, readCapture);
+        try
+        {
+            var documents = await GetByIdsAsync(ids, readOptions).AnyContext();
+            readCapture.Complete();
+            if (documents is not null)
+                await RemoveWithLocationsAsync(documents, locations, options).AnyContext();
+        }
+        finally
+        {
+            readOptions.Values.Remove(ReadHitCallbackKey);
+            readCapture.Complete();
+            locations.Clear();
+        }
+    }
 
-        // TODO: If not OriginalsEnabled then just delete by id
-        // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
-        var documents = await GetByIdsAsync(ids, readOptions).AnyContext();
-        if (documents == null)
+    private async Task RemoveWithLocationsAsync(IReadOnlyCollection<T> documents, Dictionary<T, (DocumentKey Key, string? Routing)> locations, ICommandOptions options)
+    {
+        var deleteLocations = new ResolvedDeleteLocations(documents, locations);
+        var removeOptions = options.Clone().SkipVersionCheck().BuildOption(DeleteLocationsKey, deleteLocations);
+        try
+        {
+            await RemoveAsync(documents, removeOptions).AnyContext();
+        }
+        finally
+        {
+            removeOptions.Values.Remove(DeleteLocationsKey);
+            deleteLocations.Complete();
+            locations.Clear();
+        }
+    }
+
+    private void AddDeleteLocation(Dictionary<T, (DocumentKey Key, string? Routing)> locations, FindHit<T> hit)
+    {
+        if (hit.Document is null)
             return;
 
-        await RemoveAsync(documents, options.Clone().SkipVersionCheck()).AnyContext();
+        if (String.IsNullOrEmpty(hit.Id))
+            throw new DocumentException("A document selected for removal has no metadata ID.");
+
+        var location = (new DocumentKey(hit.GetIndex() ?? ElasticIndex.GetIndex(new Id(hit.Id, hit.Routing)), hit.Id), hit.Routing);
+        if (!locations.TryAdd(hit.Document, location) && locations[hit.Document] != location)
+            throw new DocumentException("The same document instance was returned for multiple delete locations.");
     }
 
     public Task RemoveAsync(T document, CommandOptionsDescriptor<T>? options)
@@ -517,6 +591,12 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     /// <see cref="ArgumentException"/>: a remove checks the <see cref="IVersioned.Version"/> of the document passed in.</remarks>
     public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
+        var deleteLocations = options.SafeGetOption<ResolvedDeleteLocations>(DeleteLocationsKey);
+        if (deleteLocations is not null)
+        {
+            options = options!.Clone();
+            options.Values.Remove(DeleteLocationsKey);
+        }
         var docs = documents?.ToList();
         if (docs == null || docs.Any(d => d == null))
             throw new ArgumentNullException(nameof(documents));
@@ -524,25 +604,42 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (docs.Count == 0)
             return;
 
+        var locations = deleteLocations?.Take(documents!, docs);
         options = ConfigureOptions(options?.As<T>());
         ThrowIfExpectedVersion(options);
         if (IsCacheEnabled && options.HasCacheKey())
             throw new ArgumentException("Cache key can't be set when calling RemoveAsync");
 
         await OnDocumentsRemovingAsync(docs, options).AnyContext();
-        var items = CreateDeleteItems(docs, options);
-        await EnsureIndexesAsync(docs).AnyContext();
+        var items = CreateDeleteItems(docs, options, locations);
+        if (locations is { Count: > 0 })
+        {
+            var unresolved = docs.Where(d => !locations.ContainsKey(d)).ToList();
+            if (unresolved.Count > 0)
+                await EnsureIndexesAsync(unresolved).AnyContext();
+        }
+        else
+            await EnsureIndexesAsync(docs).AnyContext();
 
         var run = await DeleteDocumentsAsync(items, options).AnyContext();
         if (CustomWriteCacheScope.HasActiveScope)
             await CustomWriteCacheScope.InvalidateAsync(Cache, run.Items
                 .Where(i => i.Result.Outcome is WriteOutcome.Succeeded or WriteOutcome.Missing)
                 .Select(i => i.Item.Key.Id)).AnyContext();
+        if (IsCacheEnabled)
+        {
+            var changedIds = run.Items
+                .Where(i => i.Result.Outcome is WriteOutcome.Succeeded or WriteOutcome.Missing
+                    && !String.Equals(i.Item.Key.Id, i.Item.Document.Id, StringComparison.Ordinal))
+                .Select(i => i.Item.Key.Id).ToList();
+            if (changedIds.Count > 0)
+                await InvalidateCacheAsync(changedIds).AnyContext();
+        }
         var alreadyGone = run.With(WriteOutcome.Missing).Select(i => i.Item.Document).ToList();
         if (alreadyGone.Count > 0 && IsCacheEnabled)
             await InvalidateCacheAsync(alreadyGone).AnyContext();
 
-        var removed = run.Succeeded.Select(i => i.Document).ToList();
+        var removed = run.Succeeded;
         if (removed.Count > 0)
             await OnDocumentsRemovedAsync(removed, options).AnyContext();
 
@@ -621,10 +718,15 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             {
                 (affectedRecords, queryConflicts) = await WaitForPatchAllByQueryAsync(taskId, options).AnyContext();
             }
-            catch (Exception ex) when (ex is DocumentException or OperationCanceledException)
+            catch (Exception ex)
             {
                 await NotifyPatchedByQuerySafelyAsync(query, options).AnyContext();
-                throw;
+                if (DisposedCancellationToken.IsCancellationRequested && ex is not OperationCanceledException)
+                    throw new OperationCanceledException("Update by query task polling was cancelled.", ex, DisposedCancellationToken);
+                if (ex is DocumentException or OperationCanceledException)
+                    throw;
+
+                throw new DocumentException($"Update by query task {taskId} status could not be read, so how many documents it patched is unknown.", ex);
             }
         }
         else if (strategy is PatchStrategy.ClientSide)
@@ -758,7 +860,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
             return await BatchProcessAsync(query, async results =>
             {
-                await RemoveAsync(results.Documents, removeOptions).AnyContext();
+                var locations = new Dictionary<T, (DocumentKey Key, string? Routing)>(ReferenceEqualityComparer.Instance);
+                foreach (var hit in results.Hits)
+                    AddDeleteLocation(locations, hit);
+                await RemoveWithLocationsAsync(results.Documents, locations, removeOptions).AnyContext();
                 return true;
             }, options).AnyContext();
         }
@@ -770,7 +875,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
-            await OnDocumentsRemovedAsync(EmptyList, options).AnyContext();
+            await OnDocumentsRemovedAsync([], options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
         }
 
@@ -1179,7 +1284,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
     private Task OnDocumentsAddedAsync(IReadOnlyCollection<T> documents, WriteRunResult<IndexItem> run, ICommandOptions options)
     {
-        var modifiedDocs = documents.Select(d => new ModifiedDocument<T>(d, null)).ToList();
+        var modifiedDocs = run.Items.Where(i => i.Result.Outcome is WriteOutcome.Succeeded)
+            .Select(i => (ModifiedDocument<T>)new WrittenDocument(i.Item.Document, null, i.Item.Key.Id)).ToList();
         return CompleteDocumentWriteAsync(ChangeType.Added, documents, modifiedDocs, run, options);
     }
 
@@ -1219,11 +1325,16 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     private async Task OnDocumentsSavedAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, WriteRunResult<IndexItem> run, ICommandOptions options)
     {
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, GetDocumentLocationKey, GetDocumentLocationKey,
-            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m =>
+            run.Items.Where(i => i.Result.Outcome is WriteOutcome.Succeeded).Select(i => i.Item),
+            GetDocumentLocationKey, item =>
             {
-                T current = m.Modified ?? m.Original ?? throw new DocumentException($"Full outer join produced no document for id {m.Id}.");
-                return new ModifiedDocument<T>(current, m.Modified is not null ? m.Original : null);
+                ArgumentNullException.ThrowIfNull(item);
+                return (item.Key.Index, item.Routing, item.Key.Id);
+            },
+            (original, modified, id) =>
+            {
+                T current = modified?.Document ?? original ?? throw new DocumentException($"Full outer join produced no document for id {id}.");
+                return (ModifiedDocument<T>)new WrittenDocument(current, modified is not null ? original : null, id.Id);
             }).ToList();
 
         if (SupportsSoftDeletes && IsCacheEnabled)
@@ -1301,16 +1412,17 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
     public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoved { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
-    private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
+    private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<DeleteItem> items, ICommandOptions options)
     {
-        var modifiedDocs = documents.Select(d => new ModifiedDocument<T>(d, null)).ToList();
+        var documents = items.Select(i => i.Document).ToList();
+        var modifiedDocs = items.Select(i => (ModifiedDocument<T>)new WrittenDocument(i.Document, null, i.Key.Id)).ToList();
         await InvalidateCacheAsync(modifiedDocs, ChangeType.Removed).AnyContext();
 
         if (DocumentsRemoved is { HasHandlers: true })
             await DocumentsRemoved.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         await RaiseDocumentsChangedAsync(ChangeType.Removed, modifiedDocs, options).AnyContext();
-        await SendNotificationsAsync(ChangeType.Removed, documents, options).AnyContext();
+        await SendNotificationsAsync(ChangeType.Removed, modifiedDocs, options).AnyContext();
     }
 
     public AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanging { get; } = new AsyncEvent<DocumentsChangeEventArgs<T>>();
@@ -1504,15 +1616,15 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             // TODO: This needs to support batch notifications
             if (!SupportsSoftDeletes || changeType != ChangeType.Saved)
             {
-                foreach (var doc in documents.Select(d => d.Value))
-                    tasks.Add(PublishChangeTypeMessageAsync(changeType, doc, delay));
+                foreach (var doc in documents)
+                    tasks.Add(PublishDocumentChangeAsync(changeType, doc, delay));
 
                 return Task.WhenAll(tasks);
             }
 
             bool allDeleted = documents.All(d => d.Original != null && ((ISupportSoftDeletes)d.Original).IsDeleted == false && ((ISupportSoftDeletes)d.Value).IsDeleted);
-            foreach (var doc in documents.Select(d => d.Value))
-                tasks.Add(PublishChangeTypeMessageAsync(allDeleted ? ChangeType.Removed : changeType, doc, delay));
+            foreach (var doc in documents)
+                tasks.Add(PublishDocumentChangeAsync(allDeleted ? ChangeType.Removed : changeType, doc, delay));
 
             return Task.WhenAll(tasks);
         }
@@ -1520,7 +1632,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (!SupportsSoftDeletes)
         {
             foreach (var d in documents)
-                tasks.Add(PublishChangeTypeMessageAsync(changeType, d.Value, delay));
+                tasks.Add(PublishDocumentChangeAsync(changeType, d, delay));
 
             return Task.WhenAll(tasks);
         }
@@ -1536,10 +1648,18 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
                     docChangeType = ChangeType.Removed;
             }
 
-            tasks.Add(PublishChangeTypeMessageAsync(docChangeType, d.Value, delay));
+            tasks.Add(PublishDocumentChangeAsync(docChangeType, d, delay));
         }
 
         return Task.WhenAll(tasks);
+    }
+
+    private Task PublishDocumentChangeAsync(ChangeType changeType, ModifiedDocument<T> document, TimeSpan? delay)
+    {
+        if (document is WrittenDocument written && !String.Equals(written.Id, document.Value.Id, StringComparison.Ordinal))
+            return PublishChangeTypeMessageAsync(changeType, written.Id, delay: delay);
+
+        return PublishChangeTypeMessageAsync(changeType, document.Value, delay);
     }
 
     protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T? document, TimeSpan? delay)
@@ -1585,8 +1705,9 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
 
     /// <summary>
-    /// Returns the Elasticsearch dot-path for the updated timestamp field (e.g., <c>"updatedUtc"</c>
-    /// or <c>"metaData.dateUpdatedUtc"</c>). Called only when <see cref="HasDateTracking"/> is <c>true</c>.
+    /// Returns the native source member name for the updated timestamp field (e.g., <c>"updatedUtc"</c>).
+    /// Overrides return an Elasticsearch dot-path (e.g., <c>"metaData.dateUpdatedUtc"</c>).
+    /// Called only when <see cref="HasDateTracking"/> is <c>true</c>.
     /// </summary>
     /// <exception cref="RepositoryException">
     /// Thrown when <see cref="HasDateTracking"/> is <c>true</c> but no field path is available.
@@ -1639,7 +1760,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             return script;
 
         var fieldPath = GetUpdatedUtcFieldPath();
-        var lastDotIndex = fieldPath.LastIndexOf('.');
+        var literalField = HasDates && !_hasUpdatedUtcFieldPathOverride;
+        var lastDotIndex = literalField ? -1 : fieldPath.LastIndexOf('.');
         var paramKey = lastDotIndex >= 0 ? fieldPath[(lastDotIndex + 1)..] : fieldPath;
 
         if (script.Params is { } existingParams && existingParams.ContainsKey(paramKey))
@@ -1648,7 +1770,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             return script;
         }
 
-        var scriptSuffix = BuildNestedAssignmentScript(fieldPath, paramKey);
+        var scriptSuffix = BuildNestedAssignmentScript(fieldPath, paramKey, literalField);
         var patchParams = script.Params is { } existing
             ? new Dictionary<string, object>(existing)
             : new Dictionary<string, object>();
@@ -1656,7 +1778,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         // Date tracking is appended AFTER the user's script. This is safe for noop detection
         // because ES evaluates ctx.op after the entire script executes — if the user set
-        // ctx.op = 'none', the write is skipped regardless of source modifications.
+        // ctx.op = 'noop', the write is skipped regardless of source modifications.
         return new ScriptPatch($"{script.Script} {scriptSuffix}") { Params = patchParams };
     }
 
@@ -1678,14 +1800,15 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (partialDoc is not JsonObject partialObject)
             return patch;
 
-        if (GetNestedJsonNode(partialObject, fieldPath) is not null)
+        var literalField = HasDates && !_hasUpdatedUtcFieldPathOverride;
+        if (GetNestedJsonNode(partialObject, fieldPath, literalField) is not null)
         {
             _logger.LogDebug("Skipping automatic {FieldPath} injection; caller already provided it", fieldPath);
             return patch;
         }
 
         SetNestedJsonNodeValue(partialObject, fieldPath,
-            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime), literalField);
 
         return new PartialPatch(ToDictionary(partialObject));
     }
@@ -1704,13 +1827,13 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         var fieldPath = GetUpdatedUtcFieldPath();
 
         SetNestedJsonNodeValue(target, fieldPath,
-            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime), HasDates && !_hasUpdatedUtcFieldPathOverride);
     }
 
-    private static string BuildNestedAssignmentScript(string fieldPath, string paramKey)
+    private static string BuildNestedAssignmentScript(string fieldPath, string paramKey, bool literalField)
     {
         var dotIndex = fieldPath.IndexOf('.');
-        if (dotIndex < 0)
+        if (literalField || dotIndex < 0)
             return $"ctx._source{MemberAccess(fieldPath)} = params{MemberAccess(paramKey)};";
 
         var sb = new System.Text.StringBuilder();
@@ -1747,8 +1870,11 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         }
     }
 
-    private static JsonNode? GetNestedJsonNode(JsonNode? node, string dotPath)
+    private static JsonNode? GetNestedJsonNode(JsonNode? node, string dotPath, bool literalField)
     {
+        if (literalField)
+            return (node as JsonObject)?[dotPath];
+
         var remaining = dotPath.AsSpan();
 
         while (remaining.Length > 0)
@@ -1769,8 +1895,15 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         return node;
     }
 
-    private static void SetNestedJsonNodeValue(JsonNode node, string dotPath, JsonNode value)
+    private static void SetNestedJsonNodeValue(JsonNode node, string dotPath, JsonNode value, bool literalField)
     {
+        if (literalField)
+        {
+            if (node is JsonObject obj)
+                obj[dotPath] = value;
+            return;
+        }
+
         var remaining = dotPath.AsSpan();
 
         while (true)

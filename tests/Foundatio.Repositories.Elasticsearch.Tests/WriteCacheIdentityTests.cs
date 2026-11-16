@@ -9,6 +9,7 @@ using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Xunit;
@@ -83,6 +84,136 @@ public sealed class WriteCacheIdentityTests
         Assert.Equal("first-v1", cached.GetIndex());
         Assert.Equal("route", cached.Routing);
         Assert.Equal("3:10", cached.Version);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CachedSave_WithRepeatedDocumentLocation_ReturnsTheFinalPersistedSource(bool customCacheKey, bool retryFirstWrite)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.TransientIndexFailures = retryFirstWrite ? 1 : 0;
+        TestDocument[] documents =
+        [
+            new() { Id = "one", Index = "first", Routing = "route", Value = "first source" },
+            new() { Id = "one", Index = "first", Routing = "route", Value = "second source" }
+        ];
+        var options = new CommandOptions().SkipVersionCheck().Cache().Retry(1);
+        if (customCacheKey)
+            options.CacheKey("selected-documents");
+
+        await repository.SaveAsync(documents, options);
+
+        Assert.Equal(2, configuration.Invoker.Writes.Count);
+        var persisted = await repository.GetByIdAsync(new Id("one", "route"), new CommandOptions().Cache(false));
+        Assert.NotNull(persisted);
+        var cached = await repository.GetByIdAsync(new Id("one", "route"), options);
+        Assert.NotNull(cached);
+        Assert.Equal(persisted.Value, cached.Value);
+        Assert.Equal(persisted.Version, cached.Version);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CachedSave_WhenLaterDuplicateAppliesButReturnsUnknownOutcome_DoesNotCacheEarlierSuccess(bool customCacheKey)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.AmbiguousBulkWriteNumber = 2;
+        TestDocument[] documents =
+        [
+            new() { Id = "one", Index = "first", Routing = "route", Value = "confirmed earlier source" },
+            new() { Id = "one", Index = "first", Routing = "route", Value = "applied later source" }
+        ];
+        var options = new CommandOptions().SkipVersionCheck().Cache().Retry(0);
+        if (customCacheKey)
+            options.CacheKey("selected-documents");
+
+        await Assert.ThrowsAsync<DocumentException>(() => repository.SaveAsync(documents, options));
+
+        Assert.Equal(2, configuration.Invoker.Writes.Count);
+        var persisted = await repository.GetByIdAsync(new Id("one", "route"), new CommandOptions().Cache(false));
+        Assert.NotNull(persisted);
+        Assert.Equal("applied later source", persisted.Value);
+        var cached = await repository.GetByIdAsync(new Id("one", "route"), options);
+        Assert.NotNull(cached);
+        Assert.Equal(persisted.Value, cached.Value);
+        Assert.Equal(persisted.Version, cached.Version);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CachedSave_WhenDifferentRoutesShareOneShard_ReturnsTheFinalPersistedSource(bool customCacheKey)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.SingleShard = true;
+        TestDocument[] documents =
+        [
+            new() { Id = "one", Index = "first", Routing = "first-route", Value = "first source" },
+            new() { Id = "one", Index = "first", Routing = "second-route", Value = "second source" }
+        ];
+        var options = new CommandOptions().SkipVersionCheck().Cache().Retry(0);
+        if (customCacheKey)
+            options.CacheKey("selected-documents");
+
+        await repository.SaveAsync(documents, options);
+
+        Assert.Equal(2, configuration.Invoker.Writes.Count);
+        foreach (var document in documents)
+        {
+            var id = new Id(document.Id, document.Routing);
+            var persisted = await repository.GetByIdAsync(id, new CommandOptions().Cache(false));
+            Assert.NotNull(persisted);
+            Assert.Equal("second source", persisted.Value);
+            Assert.Equal("second-route", persisted.Routing);
+            var cached = await repository.GetByIdAsync(id, options);
+            Assert.NotNull(cached);
+            Assert.Equal(persisted.Value, cached.Value);
+            Assert.Equal(persisted.Routing, cached.Routing);
+            Assert.Equal(persisted.Version, cached.Version);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CachedSave_WhenAnotherAliasRetryAppliesButReturnsUnknownOutcome_DoesNotCacheEarlierSuccess(bool customCacheKey)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.IndexAliases.Add("first", "shared-v1");
+        configuration.Invoker.IndexAliases.Add("second", "shared-v1");
+        configuration.Invoker.TransientBulkOperationNumber = 2;
+        configuration.Invoker.AmbiguousIndexWrite = true;
+        TestDocument[] documents =
+        [
+            new() { Id = "one", Index = "first", Routing = "route", Value = "confirmed earlier source" },
+            new() { Id = "one", Index = "second", Routing = "route", Value = "applied retry source" }
+        ];
+        var options = new CommandOptions().SkipVersionCheck().Cache().Retry(1);
+        if (customCacheKey)
+            options.CacheKey("selected-documents");
+
+        await Assert.ThrowsAsync<DocumentException>(() => repository.SaveAsync(documents, options));
+
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Equal(1, configuration.Invoker.IndexRequests);
+        Assert.Equal(new[] { ("first", "one", "route"), ("second", "one", "route") }, configuration.Invoker.Writes);
+        var persisted = await repository.GetByIdAsync(new Id("one", "route"), new CommandOptions().Cache(false));
+        Assert.NotNull(persisted);
+        Assert.Equal("applied retry source", persisted.Value);
+        Assert.Equal("second", persisted.Index);
+        var cached = await repository.GetByIdAsync(new Id("one", "route"), options);
+        Assert.NotNull(cached);
+        Assert.Equal(persisted.Value, cached.Value);
+        Assert.Equal(persisted.Index, cached.Index);
+        Assert.Equal(persisted.Version, cached.Version);
     }
 
     [Theory]
@@ -542,6 +673,102 @@ public sealed class WriteCacheIdentityTests
     }
 
     [Theory]
+    [InlineData("Add", "Operation")]
+    [InlineData("Add", "Changed")]
+    [InlineData("Save", "Operation")]
+    [InlineData("Save", "Changed")]
+    [InlineData("Remove", "Operation")]
+    [InlineData("Remove", "Changed")]
+    public async Task WriteCompletion_WhenPostWriteHandlerChangesId_NotifiesPersistedLocations(string operation, string callback)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration, notificationsEnabled: true);
+        TestDocument[] documents =
+        [
+            new() { Id = "one", Index = "first", Routing = "route", Value = "first source" },
+            new() { Id = "two", Index = "first", Routing = "route", Value = "second source" }
+        ];
+        if (operation is not "Add")
+            await repository.AddAsync(documents, new CommandOptions().Cache().Retry(0));
+        repository.Notifications.Clear();
+        repository.DocumentNotifications.Clear();
+        repository.NotificationGroups.Clear();
+
+        void ChangeId(TestDocument document) => document.Id = "unsaved-callback-id";
+        if (callback is "Changed")
+            repository.DocumentsChanged.AddSyncHandler((_, args) => ChangeId(args.Documents.First().Value));
+        else if (operation is "Add")
+            repository.DocumentsAdded.AddSyncHandler((_, args) => ChangeId(args.Documents.First()));
+        else if (operation is "Save")
+            repository.DocumentsSaved.AddSyncHandler((_, args) => ChangeId(args.Documents.First().Value));
+        else
+            repository.DocumentsRemoved.AddSyncHandler((_, args) => ChangeId(args.Documents.First()));
+
+        IReadOnlyCollection<ModifiedDocument<TestDocument>>? changedDocuments = null;
+        repository.DocumentsChanged.AddSyncHandler((_, args) => changedDocuments = args.Documents);
+
+        if (operation is "Add")
+            await repository.AddAsync(documents, new CommandOptions().Cache().Retry(0));
+        else if (operation is "Save")
+            await repository.SaveAsync(documents, new CommandOptions().Cache().Retry(0));
+        else
+            await repository.RemoveAsync(documents, new CommandOptions().Retry(0));
+
+        Assert.Equal("unsaved-callback-id", documents[0].Id);
+        Assert.Equal(new[] { "one", "two" }, repository.Notifications.Select(notification => notification.Id).OrderBy(id => id, StringComparer.Ordinal));
+        var expectedChange = operation is "Add" ? ChangeType.Added : operation is "Save" ? ChangeType.Saved : ChangeType.Removed;
+        Assert.All(repository.Notifications, notification => Assert.Equal(expectedChange, notification.ChangeType));
+        Assert.Contains(documents[1], repository.DocumentNotifications);
+        var notificationGroup = Assert.Single(repository.NotificationGroups);
+        Assert.Equal(2, notificationGroup.Count);
+        Assert.Same(changedDocuments, notificationGroup);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SaveAsync_WhenSavedHandlerReplacesSoftDeletedValue_PreservesNotificationGroupAndPersistedId(bool batchNotifications, bool allDeleted)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new SoftDeleteTestRepository(configuration) { BatchNotifications = batchNotifications };
+        SoftDeleteDocument[] originals =
+        [
+            new() { Id = "one", Index = "first", Routing = "route", Value = "first original" },
+            new() { Id = "two", Index = "first", Routing = "route", Value = "second original" }
+        ];
+        SoftDeleteDocument[] documents =
+        [
+            new() { Id = "one", Index = "first", Routing = "route", Value = "first saved", IsDeleted = true },
+            new() { Id = "two", Index = "first", Routing = "route", Value = "second saved", IsDeleted = allDeleted }
+        ];
+        var replacement = new SoftDeleteDocument { Id = "unsaved-callback-id", Index = "first", Routing = "route", Value = "callback replacement", IsDeleted = true };
+        IReadOnlyCollection<ModifiedDocument<SoftDeleteDocument>>? savedDocuments = null;
+        IReadOnlyCollection<ModifiedDocument<SoftDeleteDocument>>? changedDocuments = null;
+        repository.DocumentsSaved.AddSyncHandler((_, args) =>
+        {
+            savedDocuments = args.Documents;
+            var first = Assert.Single(args.Documents, document => document.Value.Id is "one");
+            Assert.Same(originals[0], first.Original);
+            first.Value = replacement;
+        });
+        repository.DocumentsChanged.AddSyncHandler((_, args) => changedDocuments = args.Documents);
+
+        await repository.SaveAsync(documents, new CommandOptions().Originals().AddOriginals(originals[0]).AddOriginals(originals[1]).Retry(0));
+
+        var notificationGroup = Assert.Single(repository.NotificationGroups);
+        Assert.Same(savedDocuments, notificationGroup);
+        Assert.Same(changedDocuments, notificationGroup);
+        Assert.Equal(2, notificationGroup.Count);
+        Assert.Contains(notificationGroup, document => ReferenceEquals(replacement, document.Value));
+        Assert.Equal(new[] { ("first", "one", "route"), ("first", "two", "route") }, configuration.Invoker.Writes);
+        Assert.Equal(2, repository.Notifications.Count);
+        Assert.Contains((!batchNotifications || allDeleted ? ChangeType.Removed : ChangeType.Saved, "one"), repository.Notifications);
+        Assert.Contains((allDeleted ? ChangeType.Removed : ChangeType.Saved, "two"), repository.Notifications);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task SaveAsync_WhenPostWriteHandlerThrows_DoesNotLeaveThePreviousSourceCached(bool populateCache)
@@ -710,7 +937,7 @@ public sealed class WriteCacheIdentityTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task GetByIdsAsync_WithOnlyExplicitRoutes_UsesCachedDocuments(bool customCacheKey)
+    public async Task GetByIdsAsync_AfterWritingSameIdToDifferentRoutes_ReadsPersistedDocumentsWhenLocationsAreUnproven(bool customCacheKey)
     {
         using var configuration = new TestConfiguration(hasMultipleIndexes: false);
         using var repository = new TestRepository(configuration);
@@ -724,11 +951,14 @@ public sealed class WriteCacheIdentityTests
             options.CacheKey("selected-documents");
         await repository.AddAsync(documents, options);
 
+        Assert.False(await repository.CacheContainsAsync("same"));
+        if (customCacheKey)
+            Assert.False(await repository.CacheContainsAsync("selected-documents"));
         var results = await repository.GetByIdsAsync(new Ids(new Id("same", "first"), new Id("same", "second")), options);
 
         Assert.Equal(documents.Select(document => document.Value), results.Select(document => document.Value));
-        Assert.Equal(1, configuration.Invoker.Requests);
-        Assert.Empty(configuration.Invoker.Reads);
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Equal(new[] { new Id("same", "first"), new Id("same", "second") }, configuration.Invoker.Reads);
         Assert.Equal(0, configuration.Invoker.Searches);
     }
 
@@ -793,6 +1023,8 @@ public sealed class WriteCacheIdentityTests
         }
 
         public List<(ChangeType ChangeType, string? Id)> Notifications { get; } = [];
+        public List<TestDocument?> DocumentNotifications { get; } = [];
+        public List<IReadOnlyCollection<ModifiedDocument<TestDocument>>> NotificationGroups { get; } = [];
         public int DocumentInvalidations { get; private set; }
         public Task<bool> CacheContainsAsync(string id) => Cache.ExistsAsync(id);
 
@@ -808,6 +1040,18 @@ public sealed class WriteCacheIdentityTests
         {
             Notifications.Add((message.ChangeType, message.Id));
             return Task.CompletedTask;
+        }
+
+        protected override Task PublishChangeTypeMessageAsync(ChangeType changeType, TestDocument? document, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
+        {
+            DocumentNotifications.Add(document);
+            return base.PublishChangeTypeMessageAsync(changeType, document, data, delay);
+        }
+
+        protected override Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<TestDocument>> documents, ICommandOptions options)
+        {
+            NotificationGroups.Add(documents);
+            return base.SendNotificationsAsync(changeType, documents, options);
         }
 
         public async Task<ICollection<FindHit<TestDocument>>> GetCachedHitsAsync(string key)
@@ -826,6 +1070,47 @@ public sealed class WriteCacheIdentityTests
         }
 
         public override string GetIndex(object target) => target is TestDocument document ? document.Index : "first";
+        public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
+    }
+
+    public sealed class SoftDeleteDocument : IIdentity, IVersioned, ISupportSoftDeletes
+    {
+        public string Id { get; set; } = null!;
+        public string Index { get; set; } = null!;
+        public string Routing { get; set; } = null!;
+        public string Value { get; set; } = null!;
+        public string? Version { get; set; }
+        public bool IsDeleted { get; set; }
+    }
+
+    private sealed class SoftDeleteTestRepository : ElasticRepositoryBase<SoftDeleteDocument>
+    {
+        public SoftDeleteTestRepository(TestConfiguration configuration) : base(new SoftDeleteTestIndex(configuration))
+        {
+            HasParent = true;
+            GetParentIdFunc = document => document.Routing;
+            NotificationsEnabled = true;
+        }
+
+        public List<(ChangeType ChangeType, string? Id)> Notifications { get; } = [];
+        public List<IReadOnlyCollection<ModifiedDocument<SoftDeleteDocument>>> NotificationGroups { get; } = [];
+
+        protected override Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<SoftDeleteDocument>> documents, ICommandOptions options)
+        {
+            NotificationGroups.Add(documents);
+            return base.SendNotificationsAsync(changeType, documents, options);
+        }
+
+        protected override Task PublishMessageAsync(EntityChanged message, TimeSpan? delay = null)
+        {
+            Notifications.Add((message.ChangeType, message.Id));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class SoftDeleteTestIndex(TestConfiguration configuration) : Index<SoftDeleteDocument>(configuration, "write-cache-tests")
+    {
+        public override string GetIndex(object target) => target is SoftDeleteDocument document ? document.Index : "first";
         public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
     }
 
@@ -860,11 +1145,18 @@ public sealed class WriteCacheIdentityTests
         private readonly InMemoryRequestInvoker _owner = new();
         private readonly Dictionary<(string Index, string Id, string Routing), TestDocument> _documents = documents.ToDictionary(document => (document.Index, document.Id, document.Routing));
         private static readonly Dictionary<string, IEnumerable<string>> _headers = new(StringComparer.OrdinalIgnoreCase) { ["X-Elastic-Product"] = ["Elasticsearch"] };
+        private int _bulkIndexOperations;
         public ResponseFactory ResponseFactory => _owner.ResponseFactory;
         public int Requests { get; private set; }
         public int IndexRequests { get; private set; }
         public int Searches { get; private set; }
         public int PipelineWrites { get; private set; }
+        public int TransientIndexFailures { get; set; }
+        public int? TransientBulkOperationNumber { get; set; }
+        public int? AmbiguousBulkWriteNumber { get; set; }
+        public bool AmbiguousIndexWrite { get; set; }
+        public bool SingleShard { get; set; }
+        public Dictionary<string, string> IndexAliases { get; } = new(StringComparer.Ordinal);
         public List<(string Index, string Id, string Routing)> Writes { get; } = [];
         public List<(string Index, string Id, string Routing, string? Version)> Deletes { get; } = [];
         public List<Id> Reads { get; } = [];
@@ -894,7 +1186,7 @@ public sealed class WriteCacheIdentityTests
                     .Select(parameter => parameter.Split('=', 2))
                     .ToDictionary(pair => Uri.UnescapeDataString(pair[0]), pair => Uri.UnescapeDataString(pair[1]));
                 string routing = parameters["routing"];
-                var key = (index, id, routing);
+                var key = GetStorageKey(index, id, routing);
                 _documents.TryGetValue(key, out var stored);
                 var storedVersion = ElasticDocumentVersion.Parse(stored?.Version);
                 if (parameters.TryGetValue("if_seq_no", out string? sequenceNumber)
@@ -911,9 +1203,15 @@ public sealed class WriteCacheIdentityTests
                     postData.Write(requestStream, boundConfiguration.ConnectionSettings, false);
                     using var source = JsonDocument.Parse(requestStream.ToArray());
                     string value = source.RootElement.GetProperty("value").GetString()!;
-                    Writes.Add(key);
+                    Writes.Add((index, id, routing));
                     _documents[key] = new TestDocument { Id = id, Index = index, Routing = routing, Value = value, Version = $"3:{Writes.Count * 10}" };
-                    response = new { _index = $"{index}-v1", _id = id, result = parameters.GetValueOrDefault("op_type") is "create" ? "created" : "updated", _seq_no = Writes.Count * 10, _primary_term = 3, _version = Writes.Count, _shards = new { total = 1, successful = 1, failed = 0 } };
+                    if (AmbiguousIndexWrite)
+                    {
+                        statusCode = 504;
+                        response = new { status = 504, error = new { type = "timeout_exception", reason = "The response was lost after the write applied." } };
+                    }
+                    else
+                        response = new { _index = GetPhysicalIndex(index), _id = id, result = parameters.GetValueOrDefault("op_type") is "create" ? "created" : "updated", _seq_no = Writes.Count * 10, _primary_term = 3, _version = Writes.Count, _shards = new { total = 1, successful = 1, failed = 0 } };
                 }
             }
             else if (endpoint.Method is HttpMethod.DELETE && endpoint.PathAndQuery.Contains("/_doc/", StringComparison.Ordinal))
@@ -951,35 +1249,28 @@ public sealed class WriteCacheIdentityTests
             {
                 response = new Dictionary<string, object> { ["write-cache-tests"] = new { mappings = new { properties = new { id = new { type = "keyword" } } } } };
             }
+            else if (endpoint.PathAndQuery.Contains("_mget", StringComparison.Ordinal))
+            {
+                Assert.NotNull(postData);
+                using var requestStream = new MemoryStream();
+                postData.Write(requestStream, boundConfiguration.ConnectionSettings, false);
+                using var request = JsonDocument.Parse(requestStream.ToArray());
+                var docs = request.RootElement.GetProperty("docs").EnumerateArray().Select(item =>
+                    CreateGetResponse(item.GetProperty("_index").GetString()!, item.GetProperty("_id").GetString()!, item.GetProperty("routing").GetString(), out _)).ToArray();
+                response = new { docs };
+            }
             else
             {
                 Assert.Contains("/_doc/", endpoint.PathAndQuery, StringComparison.Ordinal);
                 var uri = new Uri(new Uri("http://localhost/"), endpoint.PathAndQuery);
+                string index = Uri.UnescapeDataString(uri.Segments[1].TrimEnd('/'));
                 string id = Uri.UnescapeDataString(uri.Segments[^1]);
                 string? routing = uri.Query.TrimStart('?').Split('&')
                     .FirstOrDefault(value => value.StartsWith("routing=", StringComparison.Ordinal))?["routing=".Length..];
                 routing = routing is null ? null : Uri.UnescapeDataString(routing);
-                Reads.Add(new Id(id, routing));
-                var document = _documents.Values.SingleOrDefault(document => document.Id == id && document.Routing == routing);
-                if (document is null)
-                {
+                response = CreateGetResponse(index, id, routing, out bool found);
+                if (!found)
                     statusCode = 404;
-                    response = new { _index = "first-v1", _id = id, found = false };
-                }
-                else
-                {
-                    var version = ElasticDocumentVersion.Parse(document.Version ?? "3:10");
-                    response = new
-                    {
-                        _index = $"{document.Index}-v1",
-                        _id = id,
-                        _routing = routing,
-                        found = true,
-                        _seq_no = version.SequenceNumber,
-                        _primary_term = version.PrimaryTerm,
-                        _source = new { id, index = document.Index, routing, value = document.Value }
-                    };
-                }
             }
 
             byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(response);
@@ -995,6 +1286,7 @@ public sealed class WriteCacheIdentityTests
             requestStream.Position = 0;
             using var reader = new StreamReader(requestStream);
             var items = new List<object>();
+            bool errors = false;
             while (reader.ReadLine() is { } line)
             {
                 using var metadata = JsonDocument.Parse(line);
@@ -1009,22 +1301,44 @@ public sealed class WriteCacheIdentityTests
                     continue;
                 }
 
-                Writes.Add((index, id, routing));
                 string? documentJson = reader.ReadLine();
                 Assert.NotNull(documentJson);
                 using var source = JsonDocument.Parse(documentJson);
+                _bulkIndexOperations++;
+                if (TransientIndexFailures > 0 || _bulkIndexOperations == TransientBulkOperationNumber)
+                {
+                    if (TransientIndexFailures > 0)
+                        TransientIndexFailures--;
+                    errors = true;
+                    items.Add(new Dictionary<string, object>
+                    {
+                        [operation.Name] = new { _index = $"{index}-v1", _id = id, status = 429, error = new { type = "es_rejected_execution_exception", reason = "Injected retryable failure." } }
+                    });
+                    continue;
+                }
+
+                Writes.Add((index, id, routing));
                 string value = source.RootElement.GetProperty("value").GetString()!;
                 if (operation.Value.TryGetProperty("pipeline", out var pipeline) && pipeline.GetString() is "lowercase-value")
                 {
                     value = value.ToLowerInvariant();
                     PipelineWrites++;
                 }
-                _documents[(index, id, routing)] = new TestDocument { Id = id, Index = index, Routing = routing, Value = value, Version = $"3:{Writes.Count * 10}" };
+                _documents[GetStorageKey(index, id, routing)] = new TestDocument { Id = id, Index = index, Routing = routing, Value = value, Version = $"3:{Writes.Count * 10}" };
+                if (Writes.Count == AmbiguousBulkWriteNumber)
+                {
+                    errors = true;
+                    items.Add(new Dictionary<string, object>
+                    {
+                        [operation.Name] = new { _index = $"{index}-v1", _id = id, status = 504, error = new { type = "timeout_exception", reason = "Injected ambiguous failure after the write applied." } }
+                    });
+                    continue;
+                }
                 items.Add(new Dictionary<string, object>
                 {
                     [operation.Name] = new
                     {
-                        _index = $"{index}-v1",
+                        _index = GetPhysicalIndex(index),
                         _id = id,
                         status = operation.Name is "create" ? 201 : 200,
                         result = operation.Name is "create" ? "created" : "updated",
@@ -1034,7 +1348,35 @@ public sealed class WriteCacheIdentityTests
                 });
             }
 
-            return new { took = 1, errors = false, items };
+            return new { took = 1, errors, items };
+        }
+
+        private (string Index, string Id, string Routing) GetStorageKey(string index, string id, string routing) =>
+            (IndexAliases.GetValueOrDefault(index, index), id, SingleShard ? String.Empty : routing);
+
+        private string GetPhysicalIndex(string index) => IndexAliases.GetValueOrDefault(index, $"{index}-v1");
+
+        private object CreateGetResponse(string index, string id, string? routing, out bool found)
+        {
+            Reads.Add(new Id(id, routing));
+            var document = SingleShard || IndexAliases.Count > 0
+                ? _documents.GetValueOrDefault(GetStorageKey(index, id, routing ?? String.Empty))
+                : _documents.Values.SingleOrDefault(document => document.Id == id && document.Routing == routing);
+            found = document is not null;
+            if (document is null)
+                return new { _index = GetPhysicalIndex(index), _id = id, found = false };
+
+            var version = ElasticDocumentVersion.Parse(document.Version ?? "3:10");
+            return new
+            {
+                _index = GetPhysicalIndex(document.Index),
+                _id = id,
+                _routing = document.Routing,
+                found = true,
+                _seq_no = version.SequenceNumber,
+                _primary_term = version.PrimaryTerm,
+                _source = new { id, index = document.Index, routing = document.Routing, value = document.Value }
+            };
         }
 
         public Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)

@@ -361,6 +361,259 @@ public sealed class QueryWriteFailureTests
     }
 
     [Fact]
+    public async Task PatchAllAsync_WithUnexpectedTaskSubmissionContentType_NotifiesUnknownOutcomeAndThrowsWithoutResubmitting()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(("_update_by_query", 200, "<html>upstream response unavailable</html>"));
+        using var repository = new TestRepository(configuration);
+        int changed = 0;
+        repository.DocumentsChanged.AddHandler((_, _) =>
+        {
+            changed++;
+            return Task.CompletedTask;
+        });
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1)));
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.Requests);
+        Assert.Single(configuration.Invoker.RequestPaths, path => path.Contains("_update_by_query", StringComparison.Ordinal));
+        Assert.Equal(1, changed);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenDisposedDuringUnexpectedTaskSubmissionResponse_NotifiesUnknownOutcomeAndThrowsCancelled()
+    {
+        // Arrange
+        using var configuration = new TestConfiguration(("_update_by_query", 200, "<html>upstream response unavailable</html>"));
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.BeforeResponseRead = path =>
+        {
+            if (path.Contains("_update_by_query", StringComparison.Ordinal))
+                repository.Dispose();
+        };
+        int changed = 0;
+        repository.DocumentsChanged.AddHandler((_, _) =>
+        {
+            changed++;
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            _ = await repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1));
+        });
+
+        // Assert
+        Assert.Equal(1, configuration.Invoker.Requests);
+        Assert.Single(configuration.Invoker.RequestPaths, path => path.Contains("_update_by_query", StringComparison.Ordinal));
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.Equal(1, changed);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAllAsync_WithMalformedTaskResponse_NotifiesUnknownOutcomeAndPreservesCause(bool duringSubmission)
+    {
+        // Arrange
+        using var configuration = duringSubmission
+            ? new TestConfiguration(("_update_by_query", 200, """{"task":"node:1","unexpected": """))
+            : new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, """{"completed":true,"task": """));
+        using var repository = new TestRepository(configuration);
+        int changed = 0;
+        repository.DocumentsChanged.AddHandler((_, _) =>
+        {
+            changed++;
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var failure = await Record.ExceptionAsync(async () =>
+        {
+            _ = await repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1));
+        });
+
+        // Assert
+        Assert.Equal(duringSubmission ? 1 : 2, configuration.Invoker.Requests);
+        Assert.Single(configuration.Invoker.RequestPaths, path => path.Contains("_update_by_query", StringComparison.Ordinal));
+        var exception = Assert.IsType<DocumentException>(failure);
+        Assert.IsType<UnexpectedTransportException>(exception.InnerException);
+        Assert.IsAssignableFrom<JsonException>(exception.GetBaseException());
+        Assert.Equal(1, changed);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData("{}", 0)]
+    [InlineData("{}", 1)]
+    [InlineData("null", 1)]
+    [InlineData("\"unrecognized\"", 1)]
+    [InlineData("{\"total\":0,\"updated\":0,\"created\":0,\"deleted\":0,\"version_conflicts\":0}", 1)]
+    public async Task PatchAllAsync_WithCompletedResponseCounters_UsesTheAuthoritativeResult(string taskStatus, int updated)
+    {
+        // Arrange
+        string completedTask = $$$"""
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{{{taskStatus}}}},"response":{"took":1,"timed_out":false,"total":1,"updated":{{{updated}}},"created":0,"deleted":0,"version_conflicts":0,"failures":[]}}
+            """;
+        using var configuration = new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, completedTask));
+        using var repository = new TestRepository(configuration);
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        // Act
+        long patched = await repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1));
+
+        // Assert
+        Assert.Equal(updated, patched);
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Single(configuration.Invoker.RequestPaths, path => path.Contains("_update_by_query", StringComparison.Ordinal));
+        Assert.Equal(updated is 0 ? 0 : 1, changed);
+        Assert.Equal(updated is 0 ? 0 : 1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData("{}", "{}")]
+    [InlineData("null", "null")]
+    [InlineData("\"unrecognized\"", "{}")]
+    [InlineData("{}", "{\"updated\":1}")]
+    [InlineData("{\"total\":1,\"created\":0,\"deleted\":0,\"version_conflicts\":0}", "null")]
+    [InlineData("{}", "{\"total\":1,\"updated\":-1,\"created\":0,\"deleted\":0,\"version_conflicts\":0}")]
+    [InlineData("{}", "{\"total\":1,\"updated\":0.5,\"created\":0,\"deleted\":0,\"version_conflicts\":0}")]
+    public async Task PatchAllAsync_WithUnreadableCompletedCounters_NotifiesUnknownOutcomeAndThrows(string taskStatus, string taskResponse)
+    {
+        // Arrange
+        string completedTask = $$$"""
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{{{taskStatus}}}},"response":{{{taskResponse}}}}
+            """;
+        using var configuration = new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, completedTask));
+        using var repository = new TestRepository(configuration);
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1)));
+
+        // Assert
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Single(configuration.Invoker.RequestPaths, path => path.Contains("_update_by_query", StringComparison.Ordinal));
+        Assert.Equal(1, changed);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WithOverflowingCompletedCounters_NotifiesUnknownOutcomeAndPreservesCause()
+    {
+        // Arrange
+        const string completedTask = """
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{"total":9223372036854775807,"updated":1,"created":9223372036854775807,"deleted":0,"version_conflicts":0}},"response":{"took":1,"timed_out":false,"total":9223372036854775807,"updated":1,"created":9223372036854775807,"deleted":0,"version_conflicts":0,"failures":[]}}
+            """;
+        using var configuration = new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, completedTask));
+        using var repository = new TestRepository(configuration);
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1)));
+
+        // Assert
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsType<OverflowException>(exception.InnerException);
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.Single(configuration.Invoker.RequestPaths, path => path.Contains("_update_by_query", StringComparison.Ordinal));
+        Assert.Equal(1, changed);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchAllAsync_WhenDisposedDuringTaskResponseRead_NotifiesUnknownOutcomeAndThrowsCancelled(bool duringSubmission)
+    {
+        // Arrange
+        const string completedTask = """
+            {"completed":true,"task":{"node":"node","id":1,"type":"transport","action":"indices:data/write/update/byquery","status":{"total":1,"updated":1,"created":0,"deleted":0,"version_conflicts":0}},"response":{"took":1,"timed_out":false,"total":1,"updated":1,"created":0,"deleted":0,"version_conflicts":0,"failures":[]}}
+            """;
+        using var configuration = new TestConfiguration(("_update_by_query", 200, """{"task":"node:1"}"""), ("_tasks", 200, completedTask));
+        using var repository = new TestRepository(configuration);
+        configuration.Invoker.BeforeResponseRead = path =>
+        {
+            if (path.Contains(duringSubmission ? "_update_by_query" : "_tasks", StringComparison.Ordinal))
+                repository.Dispose();
+        };
+        int changed = 0;
+        repository.DocumentsChanged.AddHandler((_, _) =>
+        {
+            changed++;
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            _ = await repository.PatchAllAsync(q => q, new ScriptPatch("ctx._source.count++"), o => o.UseUpdateByQuery().Retry(1));
+        });
+
+        // Assert
+        Assert.Equal(duringSubmission ? 1 : 2, configuration.Invoker.Requests);
+        Assert.Single(configuration.Invoker.RequestPaths, path => path.Contains("_update_by_query", StringComparison.Ordinal));
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.Equal(1, changed);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenDisposedDuringRetryResponseRead_NotifiesEarlierSuccessAndThrowsCancelled()
+    {
+        // Arrange
+        const string partialSuccess = """
+            {"took":1,"errors":true,"items":[{"update":{"_index":"query-tests","_id":"one","status":200,"result":"updated","_seq_no":1,"_primary_term":1}},{"update":{"_index":"query-tests","_id":"two","status":429,"error":{"type":"es_rejected_execution_exception","reason":"retry"}}}]}
+            """;
+        const string retryResponse = """
+            {"_index":"query-tests","_id":"two","result":"updated","_seq_no":1,"_primary_term":1,"_shards":{"total":1,"successful":1,"failed":0}}
+            """;
+        using var configuration = new TestConfiguration(("_bulk", 200, partialSuccess), ("_update/two", 200, retryResponse));
+        using var repository = new TestRepository(configuration, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        configuration.Invoker.BeforeResponseRead = path =>
+        {
+            if (path.Contains("_update/two", StringComparison.Ordinal))
+                repository.Dispose();
+        };
+        var updatedIds = new List<string>();
+        int changed = 0;
+        repository.DocumentsChanged.AddHandler((_, _) =>
+        {
+            changed++;
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            _ = await repository.PatchAsync(new Ids("one", "two"), new ScriptPatch("ctx._source.count++"), o => o.Retry(1).UpdateCallback(updatedIds.AddRange));
+        });
+
+        // Assert
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.Equal(new[] { "one" }, updatedIds);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(1, changed);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+    }
+
+    [Fact]
     public async Task PatchAllAsync_WithTimedOutTask_NotifiesAndThrowsInsteadOfReportingSuccess()
     {
         // Arrange
@@ -503,6 +756,7 @@ public sealed class QueryWriteFailureTests
 
         public int QueryNotifications { get; private set; }
         public List<string> QueryNotificationIds { get; } = [];
+        public List<string?> DocumentNotificationIds { get; } = [];
         public List<string> QueryInvalidationIds { get; } = [];
         public bool ConfigureSelectionFilter { get; init; }
         public IRepositoryQuery<TestDocument>? ReplacementQuery { get; init; }
@@ -524,6 +778,12 @@ public sealed class QueryWriteFailureTests
         {
             QueryNotifications++;
             QueryNotificationIds.AddRange(query.GetIds());
+            return Task.CompletedTask;
+        }
+
+        protected override Task PublishChangeTypeMessageAsync(ChangeType changeType, string? id, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
+        {
+            DocumentNotificationIds.Add(id);
             return Task.CompletedTask;
         }
 
@@ -562,8 +822,15 @@ public sealed class QueryWriteFailureTests
         public int Requests { get; private set; }
         public List<string> RequestBodies { get; } = [];
         public List<string> RequestPaths { get; } = [];
+        public Action<string>? BeforeResponseRead { get; set; }
 
         public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
+            where TResponse : TransportResponse, new()
+        {
+            return RequestCoreAsync<TResponse>(false, endpoint, boundConfiguration, postData).GetAwaiter().GetResult();
+        }
+
+        private async Task<TResponse> RequestCoreAsync<TResponse>(bool isAsync, Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken = default)
             where TResponse : TransportResponse, new()
         {
             int status;
@@ -588,14 +855,18 @@ public sealed class QueryWriteFailureTests
 
             byte[] bytes = Encoding.UTF8.GetBytes(body);
             using var stream = new MemoryStream(bytes);
-            return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, status, _headers, stream, body.StartsWith('{') ? "application/json" : "text/plain", bytes.Length, null, null);
+            BeforeResponseRead?.Invoke(endpoint.PathAndQuery);
+            string contentType = body.StartsWith('{') ? "application/json" : body.StartsWith('<') ? "text/html" : "text/plain";
+            return isAsync
+                ? await ResponseFactory.CreateAsync<TResponse>(endpoint, boundConfiguration, postData, null, status, _headers, stream, contentType, bytes.Length, null, null, cancellationToken)
+                : ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, status, _headers, stream, contentType, bytes.Length, null, null);
         }
 
         public Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
             where TResponse : TransportResponse, new()
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(Request<TResponse>(endpoint, boundConfiguration, postData));
+            return RequestCoreAsync<TResponse>(true, endpoint, boundConfiguration, postData, cancellationToken);
         }
 
         public void Dispose() => ((IDisposable)_responseFactoryOwner).Dispose();

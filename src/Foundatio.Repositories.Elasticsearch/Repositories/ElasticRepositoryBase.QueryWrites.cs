@@ -109,13 +109,24 @@ public abstract partial class ElasticRepositoryBase<T>
         bool outcomeUnknown = false;
         var run = await WriteRunner.RunAsync<QueryItem>("PatchAll submission", [new QueryItem(new DocumentKey(indexNames, "*"))], options.GetRetryCount(), async (_, ct) =>
         {
-            var response = await WriteClient.UpdateByQueryAsync(request, ct).AnyContext();
+            ct.ThrowIfCancellationRequested();
+            UpdateByQueryResponse response;
+            try
+            {
+                response = await WriteClient.UpdateByQueryAsync(request, ct).AnyContext();
+            }
+            catch (Exception ex)
+            {
+                outcomeUnknown = !WriteOutcomeClassifier.IsNotSent(ex);
+                throw;
+            }
+
             _logger.LogRequest(response, options.GetQueryLogLevel());
             if (!response.IsValidResponse || response.ApiCallDetails?.HttpStatusCode is 404)
             {
                 var result = ToWriteResult(response, ElasticDocumentVersion.Empty);
                 int? status = response.ApiCallDetails?.HttpStatusCode;
-                outcomeUnknown = status is null or 408 or >= 500 && result.Outcome is WriteOutcome.Fatal;
+                outcomeUnknown = status is null or (>= 200 and < 300) or 408 or >= 500 && result.Outcome is WriteOutcome.Fatal;
                 return [result with { Outcome = result.Outcome is WriteOutcome.Missing ? WriteOutcome.Fatal : result.Outcome, Reason = response.GetErrorMessage("Error occurred while patching by query") }];
             }
 
@@ -170,29 +181,32 @@ public abstract partial class ElasticRepositoryBase<T>
             else
             {
                 failedReads.RecordSuccess();
-                var status = ReadTaskStatus(taskStatus.Task.Status);
                 if (taskStatus.Completed)
                 {
                     if (taskStatus.Error is not null)
                         throw new DocumentException($"Script operation task ({taskId}) failed: {taskStatus.Error.Type} - {taskStatus.Error.Reason}", taskStatus.OriginalException());
 
+                    var status = ReadTaskStatus(taskStatus.Response)
+                        ?? throw new DocumentException($"Update by query task {taskId} completed without readable result counters, so how many documents it patched is unknown.", taskStatus.OriginalException());
+                    long affected = checked(status.Created + status.Updated + status.Deleted);
                     string? cancellationReason = TaskResponseFailures.GetCancellationReason(taskStatus.Response)
-                        ?? TaskResponseFailures.GetCancellationReason(taskStatus.Task.Status);
+                        ?? TaskResponseFailures.GetCancellationReason(taskStatus.Task?.Status);
                     if (cancellationReason is not null)
-                        throw new DocumentException($"Script operation task ({taskId}) was canceled after patching {status.Created + status.Updated + status.Deleted} documents: {cancellationReason}", taskStatus.OriginalException());
+                        throw new DocumentException($"Script operation task ({taskId}) was canceled after patching {affected} documents: {cancellationReason}", taskStatus.OriginalException());
 
                     if (TaskResponseFailures.IsTimedOut(taskStatus.Response))
-                        throw new DocumentException($"Script operation task ({taskId}) timed out after patching {status.Created + status.Updated + status.Deleted} documents.", taskStatus.OriginalException());
+                        throw new DocumentException($"Script operation task ({taskId}) timed out after patching {affected} documents.", taskStatus.OriginalException());
 
                     var failures = TaskResponseFailures.Read(taskStatus.Response);
                     if (failures.Count > 0)
-                        throw new DocumentException($"Script operation task ({taskId}) completed with {failures.Count} failures after patching {status.Created + status.Updated + status.Deleted} documents: {TaskResponseFailures.Summarize(failures)}", taskStatus.OriginalException());
+                        throw new DocumentException($"Script operation task ({taskId}) completed with {failures.Count} failures after patching {affected} documents: {TaskResponseFailures.Summarize(failures)}", taskStatus.OriginalException());
 
                     _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
-                    return (status.Created + status.Updated + status.Deleted, status.VersionConflicts);
+                    return (affected, status.VersionConflicts);
                 }
 
-                _logger.LogDebug("Checking script operation task ({TaskId}) status: Updated: {Updated} Conflicts: {Conflicts} Total: {Total}", taskId, status.Updated, status.VersionConflicts, status.Total);
+                var progress = ReadTaskStatus(taskStatus.Task?.Status);
+                _logger.LogDebug("Checking script operation task ({TaskId}) status: Updated: {Updated} Conflicts: {Conflicts} Total: {Total}", taskId, progress?.Updated, progress?.VersionConflicts, progress?.Total);
             }
 
             await ElasticIndex.Configuration.TimeProvider.SafeDelay(TimeSpan.FromSeconds(attempt <= 5 ? 1 : 5), DisposedCancellationToken).AnyContext();
@@ -217,19 +231,38 @@ public abstract partial class ElasticRepositoryBase<T>
     }
 
     /// <summary>
-    /// Reads task status counters. The status is <c>object?</c> and may be a <see cref="JsonElement"/> or a dictionary
-    /// depending on the serializer configuration.
+    /// Reads a complete set of nonnegative task counters. Native task status and completed response objects may be
+    /// <see cref="JsonElement"/> values or dictionaries depending on the serializer configuration.
     /// </summary>
-    private static QueryTaskStatus ReadTaskStatus(object? status)
+    private static QueryTaskStatus? ReadTaskStatus(object? status)
     {
-        return status switch
-        {
-            JsonElement element => new QueryTaskStatus(Read(element, "total"), Read(element, "created"), Read(element, "updated"), Read(element, "deleted"), Read(element, "version_conflicts")),
-            IDictionary<string, object> dict => new QueryTaskStatus(ReadValue(dict, "total"), ReadValue(dict, "created"), ReadValue(dict, "updated"), ReadValue(dict, "deleted"), ReadValue(dict, "version_conflicts")),
-            _ => default
-        };
+        long? total = Read(status, "total");
+        long? created = Read(status, "created");
+        long? updated = Read(status, "updated");
+        long? deleted = Read(status, "deleted");
+        long? conflicts = Read(status, "version_conflicts");
+        if (total is null || created is null || updated is null || deleted is null || conflicts is null)
+            return null;
 
-        static long Read(JsonElement element, string name) => element.TryGetProperty(name, out var value) ? value.GetInt64() : 0;
-        static long ReadValue(IDictionary<string, object> dict, string name) => dict.TryGetValue(name, out var value) ? Convert.ToInt64(value) : 0;
+        return new QueryTaskStatus(total.Value, created.Value, updated.Value, deleted.Value, conflicts.Value);
+
+        static long? Read(object? source, string name)
+        {
+            object? value = source switch
+            {
+                JsonElement { ValueKind: JsonValueKind.Object } element when element.TryGetProperty(name, out var counter) => counter,
+                IDictionary<string, object> dict when dict.TryGetValue(name, out var counter) => counter,
+                _ => null
+            };
+
+            if (value is JsonElement number)
+                return number.ValueKind is JsonValueKind.Number && number.TryGetInt64(out long count) && count >= 0 ? count : null;
+
+            if (value is not (byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal))
+                return null;
+
+            decimal converted = Convert.ToDecimal(value);
+            return converted >= 0 && converted <= Int64.MaxValue && Decimal.Truncate(converted) == converted ? (long)converted : null;
+        }
     }
 }

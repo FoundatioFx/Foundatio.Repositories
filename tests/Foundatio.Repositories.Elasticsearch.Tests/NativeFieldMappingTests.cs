@@ -31,7 +31,7 @@ public sealed class NativeFieldMappingTests
 
         Assert.Equal("document_id", repository.IdField);
         Assert.Equal("updated_at", repository.UpdatedField);
-        Assert.Equal(new[] { "document_id", "created_at", "updated_at" }, repository.RequiredFieldNames);
+        Assert.Equal(new[] { "is_deleted", "document_id", "created_at", "updated_at" }, repository.RequiredFieldNames);
         Assert.Equal("is_deleted", configuration.Client.Infer.Field(DocumentFields<TestDocument>.IsDeleted!));
     }
 
@@ -49,6 +49,19 @@ public sealed class NativeFieldMappingTests
         Assert.Equal("updated_at", infer.Field(DocumentFields<InheritedDocument>.UpdatedUtc!));
         Assert.Equal("overridden_updated_at", infer.Field(DocumentFields<OverriddenDocument>.UpdatedUtc!));
         Assert.Null(DocumentFields<CreatedOnlyDocument>.UpdatedUtc);
+    }
+
+    [Fact]
+    public void NativeSourceSerializer_WithRenamedOverride_PreservesBothNativeMembers()
+    {
+        using var configuration = new TestConfiguration();
+        var updatedUtc = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+        var document = new OverriddenDocument { Id = "one", UpdatedUtc = updatedUtc };
+
+        using var json = JsonDocument.Parse(configuration.Client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(document));
+
+        Assert.Equal(updatedUtc, json.RootElement.GetProperty("overridden_updated_at").GetDateTime());
+        Assert.Equal(updatedUtc, json.RootElement.GetProperty("updated_at").GetDateTime());
     }
 
     [Fact]
@@ -218,6 +231,139 @@ public sealed class NativeFieldMappingTests
     }
 
     [Fact]
+    public void JsonPatch_WithDottedNativeUpdatedUtc_UpdatesTheLiteralSourceField()
+    {
+        var utcNow = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+        using var configuration = new TestConfiguration(new FakeTimeProvider(utcNow));
+        using var repository = new DottedDateRepository(configuration);
+        var source = new DottedDateDocument
+        {
+            Id = "one",
+            Name = "before",
+            CreatedUtc = utcNow.AddDays(-2).UtcDateTime,
+            UpdatedUtc = utcNow.AddDays(-1).UtcDateTime
+        };
+        var serializer = configuration.Client.ElasticsearchClientSettings.SourceSerializer;
+        using var originalJson = JsonDocument.Parse(serializer.SerializeToString(source));
+        Assert.Equal(new[] { "created_at", "document_id", "name", "updated.at" },
+            originalJson.RootElement.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(source.UpdatedUtc, originalJson.RootElement.GetProperty("updated.at").GetDateTime());
+        var applier = new ClientPatchApplier<DottedDateDocument>(serializer, repository.ApplyJsonDates, _ => { });
+        var patch = new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "/name", Value = "patched" }));
+
+        var patched = applier.Apply(new FindHit<DottedDateDocument>(source.Id, source, 0), patch);
+
+        Assert.NotNull(patched);
+        using var json = JsonDocument.Parse(serializer.SerializeToString(patched));
+        Assert.Equal("patched", json.RootElement.GetProperty("name").GetString());
+        Assert.Equal(utcNow.UtcDateTime, json.RootElement.GetProperty("updated.at").GetDateTime());
+        Assert.False(json.RootElement.TryGetProperty("updated", out _));
+        Assert.Equal(source.CreatedUtc, patched.CreatedUtc);
+        Assert.Equal(utcNow.AddDays(-1).UtcDateTime, source.UpdatedUtc);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PartialPatch_WithDottedNativeUpdatedUtc_UsesTheLiteralSourceField(bool suppliedDate)
+    {
+        var utcNow = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+        using var configuration = new TestConfiguration(new FakeTimeProvider(utcNow));
+        using var repository = new DottedDateRepository(configuration);
+        var document = new Dictionary<string, object> { ["name"] = "patched" };
+        var explicitDate = utcNow.AddHours(-1).UtcDateTime;
+        if (suppliedDate)
+            document["updated.at"] = explicitDate;
+
+        var prepared = repository.PreparePartialPatch(new PartialPatch(document));
+        var request = new UpdateRequest<DottedDateDocument, object>("native-field-mapping", "one") { Doc = prepared.Document };
+        using var json = JsonDocument.Parse(configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(request));
+
+        var source = json.RootElement.GetProperty("doc");
+        Assert.Equal("patched", source.GetProperty("name").GetString());
+        Assert.True(source.TryGetProperty("updated.at", out var updated));
+        Assert.Equal(suppliedDate ? explicitDate : utcNow.UtcDateTime, updated.GetDateTime());
+        Assert.False(source.TryGetProperty("updated", out _));
+    }
+
+    [Fact]
+    public void ScriptPatch_WithDottedNativeUpdatedUtc_UsesTheLiteralSourceField()
+    {
+        var utcNow = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+        using var configuration = new TestConfiguration(new FakeTimeProvider(utcNow));
+        using var repository = new DottedDateRepository(configuration);
+
+        var prepared = repository.PrepareScriptPatch(new ScriptPatch("ctx._source.name = 'patched';"));
+        var request = new UpdateRequest<DottedDateDocument, DottedDateDocument>("native-field-mapping", "one")
+        {
+            Script = new Script { Source = prepared.Script, Params = prepared.Params }
+        };
+        using var json = JsonDocument.Parse(configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(request));
+
+        var script = json.RootElement.GetProperty("script");
+        string source = script.GetProperty("source").GetString()!;
+        Assert.Contains("ctx._source['updated.at'] = params['updated.at'];", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ctx._source.updated", source, StringComparison.Ordinal);
+        var parameters = script.GetProperty("params");
+        Assert.Equal(utcNow.UtcDateTime, parameters.GetProperty("updated.at").GetDateTime());
+        Assert.Single(parameters.EnumerateObject());
+    }
+
+    [Fact]
+    public void PartialPatch_WithNestedTimestampOverride_PreservesTheNestedSource()
+    {
+        var utcNow = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+        using var configuration = new TestConfiguration(new FakeTimeProvider(utcNow));
+        using var repository = new TestRepository(configuration, "metaData.updated_at");
+
+        var prepared = repository.PreparePartialPatch(new PartialPatch(new { metaData = new { original = "preserved" } }));
+        var request = new UpdateRequest<TestDocument, object>("native-field-mapping", "one") { Doc = prepared.Document };
+        using var json = JsonDocument.Parse(configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(request));
+
+        var source = json.RootElement.GetProperty("doc");
+        var metadata = source.GetProperty("metaData");
+        Assert.Equal("preserved", metadata.GetProperty("original").GetString());
+        Assert.Equal(utcNow.UtcDateTime, metadata.GetProperty("updated_at").GetDateTime());
+        Assert.False(source.TryGetProperty("metaData.updated_at", out _));
+    }
+
+    [Fact]
+    public void DateTracking_WithInheritedOverrideMatchingNativeName_PreservesTheNestedPath()
+    {
+        var utcNow = new DateTimeOffset(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+        using var configuration = new TestConfiguration(new FakeTimeProvider(utcNow));
+        using var repository = new InheritedNestedDottedDateRepository(configuration);
+        Assert.Equal("updated.at", configuration.Client.Infer.Field(DocumentFields<DottedDateDocument>.UpdatedUtc!));
+
+        var target = JsonNode.Parse("{\"updated\":{\"original\":\"preserved\"}}")!;
+        repository.ApplyJsonDates(target);
+
+        Assert.Equal("preserved", target["updated"]!["original"]!.GetValue<string>());
+        Assert.Equal(utcNow.UtcDateTime, target["updated"]!["at"]!.GetValue<DateTime>());
+        Assert.Null(target["updated.at"]);
+
+        var partial = repository.PreparePartialPatch(new PartialPatch(new { updated = new { original = "preserved" } }));
+        var partialRequest = new UpdateRequest<DottedDateDocument, object>("native-field-mapping", "one") { Doc = partial.Document };
+        using var partialJson = JsonDocument.Parse(configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(partialRequest));
+        var source = partialJson.RootElement.GetProperty("doc");
+        Assert.Equal("preserved", source.GetProperty("updated").GetProperty("original").GetString());
+        Assert.Equal(utcNow.UtcDateTime, source.GetProperty("updated").GetProperty("at").GetDateTime());
+        Assert.False(source.TryGetProperty("updated.at", out _));
+
+        var script = repository.PrepareScriptPatch(new ScriptPatch("ctx._source.name = 'patched';"));
+        var scriptRequest = new UpdateRequest<DottedDateDocument, DottedDateDocument>("native-field-mapping", "one")
+        {
+            Script = new Script { Source = script.Script, Params = script.Params }
+        };
+        using var scriptJson = JsonDocument.Parse(configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(scriptRequest));
+        var serializedScript = scriptJson.RootElement.GetProperty("script");
+        Assert.Contains("ctx._source.updated.at = params.at;", serializedScript.GetProperty("source").GetString()!, StringComparison.Ordinal);
+        var parameters = serializedScript.GetProperty("params");
+        Assert.Equal(utcNow.UtcDateTime, parameters.GetProperty("at").GetDateTime());
+        Assert.Single(parameters.EnumerateObject());
+    }
+
+    [Fact]
     public void PartialPatch_WithExplicitRenamedUpdatedUtc_DoesNotAddAnotherTimestamp()
     {
         using var configuration = new TestConfiguration();
@@ -335,6 +481,21 @@ public sealed class NativeFieldMappingTests
         public ScriptPatch PrepareScriptPatch(ScriptPatch patch) => ApplyDateTracking(patch);
     }
 
+    private class DottedDateRepository(TestConfiguration configuration)
+        : ElasticRepositoryBase<DottedDateDocument>(new Index<DottedDateDocument>(configuration, "native-field-mapping"))
+    {
+        public void ApplyJsonDates(JsonNode target) => ApplyDateTracking(target);
+        public PartialPatch PreparePartialPatch(PartialPatch patch) => ApplyDateTracking(patch);
+        public ScriptPatch PrepareScriptPatch(ScriptPatch patch) => ApplyDateTracking(patch);
+    }
+
+    private class NestedDottedDateRepository(TestConfiguration configuration) : DottedDateRepository(configuration)
+    {
+        protected override string GetUpdatedUtcFieldPath() => "updated.at";
+    }
+
+    private sealed class InheritedNestedDottedDateRepository(TestConfiguration configuration) : NestedDottedDateRepository(configuration) { }
+
     public class TestDocument : IIdentity, IHaveDates, ISupportSoftDeletes
     {
         [JsonPropertyName("document_id")]
@@ -354,6 +515,17 @@ public sealed class NativeFieldMappingTests
     {
         [JsonPropertyName("overridden_updated_at")]
         public override DateTime UpdatedUtc { get; set; }
+    }
+
+    private sealed class DottedDateDocument : IIdentity, IHaveDates
+    {
+        [JsonPropertyName("document_id")]
+        public string Id { get; set; } = null!;
+        public string? Name { get; set; }
+        [JsonPropertyName("created_at")]
+        public DateTime CreatedUtc { get; set; }
+        [JsonPropertyName("updated.at")]
+        public DateTime UpdatedUtc { get; set; }
     }
 
     private sealed class PlainDocument : IIdentity, IHaveDates, ISupportSoftDeletes

@@ -99,6 +99,65 @@ public sealed class WriteRoundRunnerTests
         Assert.Contains("1 documents not confirmed", exception.Message);
     }
 
+    [Theory]
+    [InlineData(null, false, true)]
+    [InlineData(200, false, true)]
+    [InlineData(200, true, false)]
+    [InlineData(400, false, false)]
+    [InlineData(503, false, false)]
+    public async Task RunAsync_WhenCancelledWithAResponse_PreservesKnownResults(int? status, bool succeeded, bool cancelled)
+    {
+        using var cancellation = new CancellationTokenSource();
+        int sends = 0;
+        var run = await CreateRunner().RunAsync<Item>("Test", [new Item(new DocumentKey("i", "1"))], 3, (_, _) =>
+        {
+            sends++;
+            cancellation.Cancel();
+            return Task.FromResult<IReadOnlyList<WriteItemResult>>([new WriteItemResult(succeeded ? WriteOutcome.Succeeded : WriteOutcome.Fatal, Status: status)]);
+        }, null, cancellation.Token);
+
+        Assert.Equal(1, sends);
+        var outcome = Assert.Single(run.Items).Result.Outcome;
+        Assert.Equal(succeeded ? WriteOutcome.Succeeded : cancelled ? WriteOutcome.Cancelled : WriteOutcome.Fatal, outcome);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_WhenOwnedCancellationIsWrapped_PreservesSuccessesAndCancelsPendingItems(bool duringConflictPreparation)
+    {
+        // Arrange
+        using var cancellation = new CancellationTokenSource();
+        var items = new[] { new Item(new DocumentKey("i", "ok")), new Item(new DocumentKey("i", "pending")) };
+        int sends = 0;
+
+        // Act
+        var run = await CreateRunner().RunAsync<Item>("Test", items, 1, (pending, _) =>
+        {
+            sends++;
+            if (sends is 1)
+            {
+                return Task.FromResult<IReadOnlyList<WriteItemResult>>(pending.Select(item => new WriteItemResult(item.Key.Id is "ok"
+                    ? WriteOutcome.Succeeded
+                    : duringConflictPreparation ? WriteOutcome.Conflict : WriteOutcome.Transient)).ToList());
+            }
+
+            cancellation.Cancel();
+            throw new InvalidOperationException("Transport wrapped the cancelled send.");
+        }, (_, _) =>
+        {
+            cancellation.Cancel();
+            throw new InvalidOperationException("Transport wrapped the cancelled conflict read.");
+        }, cancellation.Token);
+
+        // Assert
+        Assert.Equal(duringConflictPreparation ? 1 : 2, sends);
+        Assert.Equal([WriteOutcome.Succeeded, WriteOutcome.Cancelled], run.Items.Select(item => item.Result.Outcome));
+        Assert.Equal("ok", Assert.Single(run.Succeeded).Key.Id);
+        var exception = Assert.IsType<OperationCanceledException>(WriteExceptionMapper.CreateException(run, "testing", MissingDocumentPolicy.Skip));
+        Assert.Contains("1 documents not confirmed", exception.Message);
+    }
+
     [Fact]
     public async Task RunAsync_WhenConflictHandlerThrows_EndsConflictsAsFatalAndKeepsSuccesses()
     {

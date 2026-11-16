@@ -17,7 +17,7 @@ namespace Foundatio.Repositories
     /// Extension methods for configuring field includes and excludes on <see cref="IRepositoryQuery"/>.
     /// These control Elasticsearch <c>_source</c> filtering to limit which fields are returned.
     /// Includes and excludes from the query are merged with those from <see cref="ICommandOptions"/> at execution time.
-    /// If the same field appears in both includes and excludes, the include takes precedence.
+    /// Identical resolved include/exclude entries retain include precedence.
     /// </summary>
     public static class FieldIncludesQueryExtensions
     {
@@ -88,7 +88,7 @@ namespace Foundatio.Repositories
         /// Adds a field to the set of excluded fields omitted from Elasticsearch <c>_source</c> filtering.
         /// Multiple calls are additive. These are merged with any excludes set via <see cref="ExcludeMask{T}"/>
         /// and with excludes from <see cref="ICommandOptions"/>.
-        /// If the same field appears in both includes and excludes, the include takes precedence.
+        /// Identical resolved include/exclude entries retain include precedence.
         /// </summary>
         /// <remarks>
         /// Setting any explicit excludes on a query will cause default excludes (registered via
@@ -147,7 +147,7 @@ namespace Foundatio.Repositories
     /// Extension methods for configuring field includes and excludes on <see cref="ICommandOptions"/>.
     /// These control Elasticsearch <c>_source</c> filtering to limit which fields are returned.
     /// Includes and excludes from command options are merged with those from <see cref="IRepositoryQuery"/> at execution time.
-    /// If the same field appears in both includes and excludes, the include takes precedence.
+    /// Identical resolved include/exclude entries retain include precedence.
     /// </summary>
     /// <remarks>
     /// ID-based caching is skipped when includes or excludes are active to avoid storing incomplete documents in the cache.
@@ -221,7 +221,7 @@ namespace Foundatio.Repositories
         /// Adds a field to the set of excluded fields omitted from Elasticsearch <c>_source</c> filtering.
         /// Multiple calls are additive. These are merged with any excludes set via <see cref="ExcludeMask{T}"/>
         /// and with excludes from <see cref="IRepositoryQuery"/>.
-        /// If the same field appears in both includes and excludes, the include takes precedence.
+        /// Identical resolved include/exclude entries retain include precedence.
         /// </summary>
         public static T Exclude<T>(this T options, Field field) where T : ICommandOptions
         {
@@ -279,7 +279,17 @@ namespace Foundatio.Repositories
         /// </summary>
         internal static T RequiredFields<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
         {
-            return options.AddCollectionOptionValue(RequiredFieldsKey, fields);
+            ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(fields);
+
+            var requiredFields = options.SafeGetOption<List<Field>>(RequiredFieldsKey) ?? [];
+            foreach (var field in fields)
+            {
+                if (!requiredFields.Contains(field))
+                    requiredFields.Add(field);
+            }
+
+            return options.BuildOption(RequiredFieldsKey, requiredFields);
         }
     }
 }
@@ -354,9 +364,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     ///   <item>Parsed mask expressions from <see cref="ICommandOptions"/> (<c>.IncludeMask()</c> / <c>.ExcludeMask()</c>)</item>
     /// </list>
     /// <para>
-    /// If a field appears in both includes and excludes, the include takes precedence (the exclude is dropped).
-    /// Required fields registered on the repository are automatically injected when caller-specified
-    /// field restrictions are active.
+    /// Identical resolved include/exclude entries retain include precedence (the exclude is dropped).
+    /// Required fields are injected when field restrictions are active, and exact required-field exclusions
+    /// are removed. A remaining wildcard or parent-path exclusion that would remove a required native field
+    /// throws <see cref="ArgumentException"/> before the filtered read request is sent. Use include projections
+    /// or narrower explicit exclusions; broader exclusions are not silently dropped. Source-filter matching
+    /// is case-sensitive and uses only <c>*</c> as a wildcard.
     /// </para>
     /// </remarks>
     public class FieldIncludesQueryBuilder : IElasticQueryBuilder
@@ -399,10 +412,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 .Where(f => !resolvedIncludes.Contains(f))
                 .ToArray();
 
-            if (requiredFields.Count > 0 && resolvedIncludes.Length is 0)
+            if (requiredFields.Count > 0 && resolvedExcludes.Length > 0)
             {
                 var resolvedRequiredFields = resolver.GetResolvedFields(requiredFields);
-                resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
+                if (resolvedIncludes.Length is 0)
+                    resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
+
+                ValidateRequiredFieldExclusions(resolvedRequiredFields, resolvedExcludes);
             }
 
             if (resolvedIncludes.Length > 0 || resolvedExcludes.Length > 0)
@@ -417,6 +433,64 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             }
 
             return Task.CompletedTask;
+        }
+
+        internal static void ValidateRequiredFieldExclusions(ICollection<Field> requiredFields, ICollection<Field> excludes)
+        {
+            foreach (var excludedField in excludes)
+            {
+                var pattern = excludedField.Name.AsSpan();
+                foreach (var requiredField in requiredFields)
+                {
+                    var fieldPath = requiredField.Name.AsSpan();
+                    while (!fieldPath.IsEmpty)
+                    {
+                        // Elasticsearch exclusions win over includes, and excluding an object also removes its descendants.
+                        if (MatchesSourceField(pattern, fieldPath))
+                            throw new ArgumentException($"Source exclusion '{excludedField.Name}' removes required field '{requiredField.Name}'. Use explicit exclusions that preserve required fields or an include projection.", nameof(excludes));
+
+                        int separator = fieldPath.LastIndexOf('.');
+                        if (separator < 0)
+                            break;
+
+                        fieldPath = fieldPath[..separator];
+                    }
+                }
+            }
+        }
+
+        private static bool MatchesSourceField(ReadOnlySpan<char> pattern, ReadOnlySpan<char> field)
+        {
+            // Source filters use case-sensitive matching with '*' as the only wildcard.
+            int patternIndex = 0;
+            int fieldIndex = 0;
+            int starIndex = -1;
+            int starFieldIndex = 0;
+            while (fieldIndex < field.Length)
+            {
+                if (patternIndex < pattern.Length && pattern[patternIndex] is '*')
+                {
+                    starIndex = patternIndex++;
+                    starFieldIndex = fieldIndex;
+                }
+                else if (patternIndex < pattern.Length && pattern[patternIndex] == field[fieldIndex])
+                {
+                    patternIndex++;
+                    fieldIndex++;
+                }
+                else if (starIndex >= 0)
+                {
+                    patternIndex = starIndex + 1;
+                    fieldIndex = ++starFieldIndex;
+                }
+                else
+                    return false;
+            }
+
+            while (patternIndex < pattern.Length && pattern[patternIndex] is '*')
+                patternIndex++;
+
+            return patternIndex == pattern.Length;
         }
     }
 }

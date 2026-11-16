@@ -97,7 +97,7 @@ internal sealed class WriteRoundRunner
             {
                 sent = await send(pending.Select(slot => current[slot]).ToList(), cancellationToken).AnyContext();
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (Exception) when (cancellationToken.IsCancellationRequested)
             {
                 Complete(pending, results, WriteItemResult.Cancelled);
                 break;
@@ -115,7 +115,8 @@ internal sealed class WriteRoundRunner
             }
 
             if (cancellationToken.IsCancellationRequested)
-                sent = sent.Select(r => r.Outcome is WriteOutcome.Fatal or WriteOutcome.Transient && r.Status is null ? WriteItemResult.Cancelled : r).ToList();
+                sent = sent.Select(r => r.Outcome is WriteOutcome.Fatal or WriteOutcome.Transient
+                    && r.Status is null or (>= 200 and < 300) ? WriteItemResult.Cancelled : r).ToList();
 
             bool canRetry = round <= retryBudget;
             var transient = new List<int>();
@@ -176,7 +177,7 @@ internal sealed class WriteRoundRunner
         {
             prepared = await prepare(conflicts.Select(slot => current[slot]).ToList(), cancellationToken).AnyContext();
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             Complete(conflicts.Concat(pending), results, WriteItemResult.Cancelled);
             pending.Clear();

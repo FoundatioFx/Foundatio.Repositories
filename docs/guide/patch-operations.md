@@ -61,6 +61,8 @@ For scripts, supply a parameter in the required stored representation and assign
 
 Standard `IIdentity`, `IHaveCreatedDate`, `IHaveDates`, and `ISupportSoftDeletes` fields use the configured Elasticsearch inferrer with their concrete public implementation members. This honors `[JsonPropertyName]` and client field-name inference settings in standard mappings, required fields, timestamp selection, and patch date tracking. Renaming those members does not require custom repository overrides.
 
+The default timestamp name is a literal root source member. For example, `[JsonPropertyName("updated.at")]` updates the JSON member `"updated.at"` and uses the script parameter `params['updated.at']`. Existing `GetUpdatedUtcFieldPath()` overrides retain their nested dot-path meaning, including inherited overrides; an override returning `"updated.at"` addresses the nested `updated` object's `at` member.
+
 If your model uses custom date fields instead of `IHaveDates` (e.g., a nested `MetaData.DateUpdatedUtc` property), you can opt into automatic date tracking by overriding three virtual hooks on your repository:
 
 ```csharp
@@ -96,7 +98,7 @@ public class MyRepository : ElasticRepositoryBase<MyEntity>
 | Hook | Purpose | Default Behavior |
 |------|---------|-----------------|
 | `HasDateTracking` | Gate for all date tracking logic | `true` when `T` implements `IHaveDates` |
-| `GetUpdatedUtcFieldPath()` | Returns the Elasticsearch field path for the updated timestamp | Returns the inferred `UpdatedUtc` field name. Throws `RepositoryException` if `HasDateTracking` is `true` but no field path is available |
+| `GetUpdatedUtcFieldPath()` | Overrides return a nested dot-path for the updated timestamp | Returns the inferred literal `UpdatedUtc` source member name. Throws `RepositoryException` if `HasDateTracking` is `true` but no field path is available |
 | `SetDocumentDates(T, TimeProvider)` | Sets date properties on the C# object (used by Add, Save, ActionPatch, JsonPatch bulk) | Sets `CreatedUtc` and `UpdatedUtc` on `IHaveDates` models |
 
 The `ApplyDateTracking` overloads for `ScriptPatch`, `PartialPatch`, and `JsonNode` are also virtual and can be overridden for full control over how dates are injected into each patch type. For nested fields, the script parameter key uses the last segment of the field path (e.g., `dateUpdatedUtc` for `metaData.dateUpdatedUtc`).
@@ -596,6 +598,8 @@ For `IVersioned` entities, patches never lose a concurrent change: a patch that 
 - **`PatchAllAsync` ScriptPatch:** uses the bulk Update API per batch by default. `o.UseUpdateByQuery()` (cache disabled) uses update-by-query instead, which skips documents changed after its snapshot and throws unless `o.ProceedOnQueryConflicts()`. With a default pipeline, each document is patched by update-by-query on its id so the pipeline runs.
 - **Expected version (`IfVersion`):** supported only by `PatchAsync(id)`, for any entity. Every attempt (including transient retries) sends `if_seq_no`/`if_primary_term` from the expected version (script and partial patches leave out `retry_on_conflict`); JSON and action patches compare the version they read and never re-read. It's rejected with `SkipVersionCheck()`, for script patches with a default pipeline, by `PatchAsync(ids)` for any number of ids, and by `AddAsync`/`SaveAsync`/`RemoveAsync`/`RemoveAllAsync`.
 - **Pipeline ScriptPatch batches** (`PatchAsync(ids)`/`PatchAllAsync` with a default pipeline) send one update-by-query request per document, because the Update API can't run ingest pipelines. Each request disables its own refresh. Before retrying conflicts, the repository refreshes the affected indexes so the next snapshot sees current versions, even with eventual consistency. The final refresh follows the requested consistency, including after per-document write failures. Prefer a PartialPatch, JSON or action patch (which are batched) when the pipeline must run on many documents.
+
+For opt-in asynchronous update-by-query, completed counts come from the final response, not interim task progress. All required counters must be readable, nonnegative integers within `Int64` range, and their affected-count sum must not overflow. Missing or invalid counters leave the outcome unknown: the repository sends query-level refresh notifications and throws `DocumentException`, without reporting zero or resubmitting the task. See [Notifications](/guide/message-bus#patch-notification-behavior) for notification scope.
 
 Successful documents are invalidated in the cache and notified as each batch completes. Documents still failing after the retry budget are reported at the end; see [Failure handling](/guide/versioning#failure-handling) for exception types and diagnostics. Make scripts idempotent when an operation may be retried or run in parallel.
 

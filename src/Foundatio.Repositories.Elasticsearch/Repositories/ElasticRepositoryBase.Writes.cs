@@ -149,10 +149,24 @@ public abstract partial class ElasticRepositoryBase<T>
         if (!String.IsNullOrEmpty(DefaultPipeline))
             return options.HasCacheKey() ? Cache.RemoveAsync(options.GetCacheKey()!) : Task.CompletedTask;
 
+        var repeatedIds = GetRepeatedWriteCacheIds(run);
+        if (repeatedIds is not null && options.HasCacheKey())
+        {
+            // An explicit key represents the complete result, which cannot be reconstructed from overlapping writes.
+            foreach (var outcome in run.AsSpan())
+            {
+                if (outcome.Result.Outcome is WriteOutcome.Succeeded)
+                    repeatedIds.Add(outcome.Item.Key.Id);
+            }
+
+            repeatedIds.Add(options.GetCacheKey()!);
+            return Cache.RemoveAllAsync(repeatedIds);
+        }
+
         var hits = new List<FindHit<T>>(run.Count(WriteOutcome.Succeeded));
         foreach (var outcome in run.Items)
         {
-            if (outcome.Result.Outcome is not WriteOutcome.Succeeded)
+            if (outcome.Result.Outcome is not WriteOutcome.Succeeded || repeatedIds?.Contains(outcome.Item.Key.Id) is true)
                 continue;
 
             var item = outcome.Item;
@@ -162,7 +176,50 @@ public abstract partial class ElasticRepositoryBase<T>
             hits.Add(hit);
         }
 
-        return AddDocumentsToCacheAsync(hits, options, false);
+        return repeatedIds is null
+            ? AddDocumentsToCacheAsync(hits, options, false)
+            : InvalidateRepeatedWritesAndCacheAsync(repeatedIds, hits, options);
+    }
+
+    private static HashSet<string>? GetRepeatedWriteCacheIds(WriteRunResult<IndexItem> run)
+    {
+        if (run.Items.Count < 2)
+            return null;
+
+        var ids = new HashSet<string>(run.Items.Count, StringComparer.Ordinal);
+        HashSet<string>? repeatedIds = null;
+        foreach (var outcome in run.AsSpan())
+        {
+            if (!ids.Add(outcome.Item.Key.Id))
+                (repeatedIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(outcome.Item.Key.Id);
+        }
+        if (repeatedIds is null)
+            return null;
+
+        ids.Clear();
+        var locations = new HashSet<DocumentKey>();
+        foreach (var outcome in run.AsSpan())
+        {
+            string id = outcome.Item.Key.Id;
+            if (!repeatedIds.Contains(id) || ids.Contains(id))
+                continue;
+
+            // Different routes can share a shard, and request index names can be aliases. Only successful
+            // responses from distinct concrete indexes prove that repeated IDs address independent documents.
+            if (outcome.Result.Outcome is not WriteOutcome.Succeeded || String.IsNullOrEmpty(outcome.Result.Index)
+                || !locations.Add(new DocumentKey(outcome.Result.Index, id)))
+                ids.Add(id);
+        }
+
+        return ids.Count > 0 ? ids : null;
+    }
+
+    private async Task InvalidateRepeatedWritesAndCacheAsync(HashSet<string> repeatedIds, ICollection<FindHit<T>> hits, ICommandOptions options)
+    {
+        // ID keys contain all locations for that ID, so an ambiguous location must not leave a partial group cached.
+        await Cache.RemoveAllAsync(repeatedIds).AnyContext();
+        if (hits.Count > 0)
+            await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
     }
 
     /// <summary>
@@ -170,11 +227,14 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <c>if_seq_no</c>/<c>if_primary_term</c> unless the check is skipped; a document with no version can't be checked
     /// (a delete can't fall back to create), so it throws before anything is deleted.
     /// </summary>
-    private List<DeleteItem> CreateDeleteItems(IReadOnlyCollection<T> documents, ICommandOptions options)
+    private List<DeleteItem> CreateDeleteItems(IReadOnlyCollection<T> documents, ICommandOptions options, Dictionary<T, (DocumentKey Key, string? Routing)>? locations)
     {
         bool checkVersion = HasVersion && !options.ShouldSkipVersionCheck();
         return documents.Select(d =>
         {
+            if (locations is not null && locations.TryGetValue(d, out var location))
+                return new DeleteItem(location.Key, d, location.Routing, ElasticDocumentVersion.Empty);
+
             var key = new DocumentKey(ElasticIndex.GetIndex(d), d.Id);
             var version = checkVersion ? ((IVersioned)d).GetElasticVersion() : ElasticDocumentVersion.Empty;
             if (checkVersion && version.IsEmpty)

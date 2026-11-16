@@ -95,7 +95,11 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 `PatchAllAsync` sends notifications incrementally per batch as documents are processed. Subscribers may receive messages while the operation is still running. Design handlers to be idempotent.
 :::
 
-If an opt-in update-by-query task has an unknown outcome (for example, its status disappears or submission times out), the repository sends query-level notifications before throwing. These notifications tell subscribers to refresh; they do not confirm that any particular document changed.
+Completed opt-in update-by-query tasks use the final response's counters; interim task-status counters do not replace them. Missing, unreadable, negative, fractional or out-of-range counters, including an overflow when adding affected counts, leave the result unknown.
+
+If an opt-in update-by-query task has an unknown outcome (for example, its status disappears, submission times out, a submission/status response cannot be parsed, or final counters are invalid), the repository sends query-level notifications before throwing. These notifications tell subscribers to refresh; they do not confirm that any particular document changed. An unknown result is not reported as zero, and the task is not resubmitted. Unexpected response failures retain their cause in `DocumentException`; repository disposal surfaces as `OperationCanceledException`, including cancellation wrapped by the native transport.
+
+Add, save, remove and client-side patch notifications retain the completed write's ID even when a post-write handler mutates the model's `Id` or replaces a `ModifiedDocument.Value`. Handlers continue seeing their model changes. Soft-delete change classification and notification batching still use the complete modified-document group.
 
 ::: warning
 Only `PatchAllAsync` with the opt-in `o.UseUpdateByQuery()` and a filter-only query (no explicit IDs) sends an `EntityChanged` message with `Id = null`. Every other `PatchAllAsync` path sends per-ID notifications for each modified document. Subscribers that depend on `msg.Id` should handle the `null` case if your code opts into update-by-query, for example by re-querying the affected documents.

@@ -145,7 +145,11 @@ o.Cache(false).ReadCache(false)
 
 ### Source Projections
 
-ID reads requested with caller `Include`, `Exclude`, `IncludeMask`, or `ExcludeMask` command options do not populate the shared document-ID cache. This applies even without a custom cache key, so a later unfiltered read does not receive an incomplete document. `FindOneAsync` and `GetByIdsAsync` discovery also check the effective search request, including projections introduced by repository query hooks. A projected response can still be cached under its own explicit cache key. Repository default exclusions define the normal document shape and do not, by themselves, disable ID caching.
+ID reads requested with caller `Include`, `Exclude`, `IncludeMask`, or `ExcludeMask` command options bypass shared document-ID cache reads and do not populate those entries. A warm full-document entry therefore cannot bypass the requested projection, and a later unfiltered read cannot receive an incomplete document. `FindOneAsync` and `GetByIdsAsync` discovery also check the effective search request, including projections introduced by repository query hooks. A projected response can still be read and written under its own explicit cache key. Repository default exclusions define the normal document shape and do not, by themselves, disable ID caching.
+
+Projections retain repository-required fields, including the native `IsDeleted` source field on readonly and writable soft-delete repositories. Required-field registrations are deduplicated when command options or their shallow clones are reused, while preserving caller-required fields. An exact exclusion of a required field keeps the existing required-field precedence. A wildcard or parent-path exclusion that would remove a required native field throws `ArgumentException` during source-filter preparation, before the filtered read request is sent. For example, `Exclude("is_*")` conflicts with a required field named `is_deleted`. Use an include projection or narrower explicit exclusions; the repository does not silently drop the broader exclusion and expose other fields.
+
+When `GetByIdsAsync` combines real-time multi-get results with search discovery, eventual or projected discovery results stay out of the shared ID cache, including negative results. Independent real-time results remain eligible. If both kinds of result share one raw ID under different routes or indexes, that entire ID group is excluded because those locations share a cache entry. An explicit key can still cache the complete requested response.
 
 ## Automatic Cache Invalidation
 
@@ -178,6 +182,12 @@ await repository.SaveAsync(employee, o => o.Cache());
 
 When `DefaultPipeline` is configured, `AddAsync` and `SaveAsync` do not populate the cache from the submitted model: Elasticsearch may have transformed that document. `SaveAsync` retains its normal ID-cache invalidation; `AddAsync` retains its existing behavior of not removing ID entries. When write caching is requested, the operation's explicit cache key is removed. A later read from Elasticsearch obtains the transformed source and can cache it normally. Versioned models receive the new version metadata, but submitted models are not reloaded with pipeline-transformed field values.
 
+### Repeated IDs in Write Batches
+
+Before populating results from a cached bulk write, the repository checks every attempted outcome for each repeated raw ID. That ID group is eligible only when all its writes succeeded and each response names a distinct, nonempty concrete index. Different routing values can reach the same shard, and different request index names can be aliases for one index; neither proves that the writes were independent. Input order also cannot identify the final source when retries finish later or a failed response hides an applied write.
+
+The repository evicts an unsafe ID group and skips populating it; other eligible ID groups can still be cached. If an explicit cache key was requested, that key and the successful write ID entries are evicted, and population for the write is skipped so the key cannot contain an incomplete result. These checks include failed attempts as well as confirmed successes.
+
 ### Post-write Handlers
 
 Cache invalidation and eligible Add/Save cache population finish before post-write handlers or notifications run, including population under an explicit cache key. A handler may save the same model or a fresh instance; the nested write performs its own cache handling, and the outer write does not overwrite that result afterward. The repository's default cache clones values, so mutating a model in a post-write handler does not change the already-cached persisted source. Custom cache clients retain their own cloning and serialization behavior. Remove also invalidates its cache entries before `DocumentsRemoved`, so a throwing handler cannot leave the deleted source cached.
@@ -193,7 +203,7 @@ When a bulk `AddAsync` or `SaveAsync` partially fails, cache changes follow the 
 | Document Status | Cache Action |
 |-----------------|--------------|
 | Succeeded | Normal operation-specific handling: Add may populate; Save invalidates and may repopulate. Pipeline inputs are not cached |
-| Failed (any error) | Cache entry **unchanged**; an ambiguous failure may still have changed Elasticsearch |
+| Failed (any error) | Cache entry **unchanged** unless the repeated-ID protection above evicts its ID group; an ambiguous failure may still have changed Elasticsearch |
 
 A definitive rejection, such as a version conflict or rate limit, does not confirm a change by this call. Successful writes run their operation-specific cache handling and send `EntityChanged` notifications. Gateway failures and timeouts can leave the write outcome unknown; a failure does not prove the stored document or a cached copy is unchanged. Re-read with `o.Cache(false)` before deciding whether to retry an ambiguous write.
 
@@ -692,15 +702,18 @@ public class UserRepository : ElasticRepositoryBase<User>
 }
 ```
 
-Required fields are automatically injected when caller-specified source filtering is active: added to the include set when includes are present, or removed from the exclude set when only excludes are present. This applies to all source-filtered operations: `GetByIdAsync`, `GetByIdsAsync`, `FindAsync`, `RemoveAllAsync`, and `PatchAllAsync`.
+Required fields are automatically injected when caller-specified source filtering is active: added to the include set when includes are present, or removed from exact exclusions when only excludes are present. Conflicting wildcard or parent-path exclusions throw `ArgumentException`; use an include projection or narrower exclusions. This applies to all source-filtered operations: `GetByIdAsync`, `GetByIdsAsync`, `FindAsync`, `RemoveAllAsync`, and `PatchAllAsync`.
 
 See [Required Fields](querying.md#required-fields) for full details on injection behavior, precedence rules, and interactions with default excludes.
 
 ### Default Required Fields
 
 The repository automatically registers these as required fields:
-- `Id` (always required)
-- `CreatedUtc` (if entity implements `IHaveCreatedDate`)
+
+- `IsDeleted` on both read-only and writable repositories when the entity implements `ISupportSoftDeletes`, so projections preserve `ActiveOnly` and `DeletedOnly` filtering
+- `Id` on writable repositories
+- `CreatedUtc` on writable repositories when the entity implements `IHaveCreatedDate`
+- `UpdatedUtc` on writable repositories when the entity implements `IHaveDates`
 
 ### Use Cases
 

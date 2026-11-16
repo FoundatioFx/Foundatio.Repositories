@@ -82,6 +82,32 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task SaveWithCache_WhenDifferentRoutesShareOneShard_ReturnsTheFinalPersistedChild()
+    {
+        // ParentChildIndex explicitly configures one primary shard, so both parent routes select the same shard.
+        var firstParent = await _parentRepository.AddAsync(ParentGenerator.Generate(), options => options.ImmediateConsistency());
+        var secondParent = await _parentRepository.AddAsync(ParentGenerator.Generate(), options => options.ImmediateConsistency());
+        const string childId = "same-child-id";
+        var first = new Child { Id = childId, ParentId = firstParent.Id, ChildProperty = "first source" };
+        var second = new Child { Id = childId, ParentId = secondParent.Id, ChildProperty = "second source" };
+
+        await _childRepository.SaveAsync(new[] { first, second }, options => options.SkipVersionCheck().Cache().ImmediateConsistency().Retry(0));
+
+        foreach (string routing in new[] { firstParent.Id, secondParent.Id })
+        {
+            var id = new Id(childId, routing);
+            var persisted = await _childRepository.GetByIdAsync(id, options => options.Cache(false));
+            Assert.NotNull(persisted);
+            Assert.Equal(secondParent.Id, persisted.ParentId);
+            Assert.Equal("second source", persisted.ChildProperty);
+            var cached = await _childRepository.GetByIdAsync(id, options => options.Cache());
+            Assert.NotNull(cached);
+            Assert.Equal(persisted.ParentId, cached.ParentId);
+            Assert.Equal(persisted.ChildProperty, cached.ChildProperty);
+        }
+    }
+
+    [Fact]
     public async Task DeletedParentWillFilterChild()
     {
         var parent = ParentGenerator.Default;
