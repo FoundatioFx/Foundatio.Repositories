@@ -99,6 +99,8 @@ Completed opt-in update-by-query tasks use the final response's counters; interi
 
 If an opt-in update-by-query task has an unknown outcome (for example, its status disappears, submission times out, a submission/status response cannot be parsed, or final counters are invalid), the repository sends query-level notifications before throwing. These notifications tell subscribers to refresh; they do not confirm that any particular document changed. An unknown result is not reported as zero, and the task is not resubmitted. Unexpected response failures retain their cause in `DocumentException`; repository disposal surfaces as `OperationCanceledException`, including cancellation wrapped by the native transport.
 
+Per-ID pipeline script requests use the same distinction between confirmed changes and unknown completion. An ambiguous response or transport failure invalidates the attempted ID and sends a per-ID refresh hint before the operation throws. `DocumentsChanged` can therefore fire with an empty document collection for an uncertain server-side write. Unknown outcomes do not invoke `UpdateCallback`, which remains limited to confirmed updates; future IDs whose requests were not attempted receive no refresh hint.
+
 Add, save, remove and client-side patch notifications retain the completed write's ID even when a post-write handler mutates the model's `Id` or replaces a `ModifiedDocument.Value`. Handlers continue seeing their model changes. Soft-delete change classification and notification batching still use the complete modified-document group.
 
 ::: warning

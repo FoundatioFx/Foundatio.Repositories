@@ -429,10 +429,10 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
     }
 
     /// <summary>
-    /// Invalidates the cache, fires the change event, sends notifications and calls the updated-ids callback once for
-    /// documents that were patched. Server-side patches pass no documents.
+    /// Invalidates the cache, fires the change event, sends notifications and calls the updated-ids callback for confirmed
+    /// changes. Unknown outcomes skip that callback but still send refresh hints. Server-side patches pass no documents.
     /// </summary>
-    private async Task OnPatchedAsync(IReadOnlyCollection<string> modifiedIds, IReadOnlyCollection<T>? modifiedDocuments, ICommandOptions options)
+    private async Task OnPatchedAsync(IReadOnlyCollection<string> modifiedIds, IReadOnlyCollection<T>? modifiedDocuments, ICommandOptions options, bool includeUpdatedIds = true)
     {
         if (modifiedIds.Count is 0)
             return;
@@ -474,7 +474,8 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
 
         try
         {
-            options.GetUpdatedIdsCallback()?.Invoke(modifiedIds.ToList());
+            if (includeUpdatedIds)
+                options.GetUpdatedIdsCallback()?.Invoke(modifiedIds.ToList());
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -246,6 +247,7 @@ public sealed class QueryWriteFailureTests
         using var configuration = new TestConfiguration(("_update_by_query", 200, QueryResponse(deleted: 0, timedOut, itemFailure, updated: 1)));
         using var repository = new TestRepository(configuration, usePipeline: true);
         int changed = 0;
+        var updatedIds = new List<string>();
         repository.DocumentsChanged.AddHandler((_, args) =>
         {
             changed++;
@@ -253,11 +255,406 @@ public sealed class QueryWriteFailureTests
         });
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"), o => o.Retry(1)));
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"),
+            o => o.Retry(1).UpdateCallback(updatedIds.AddRange)));
 
         // Assert
         Assert.Equal(1, configuration.Invoker.Requests);
         Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, updatedIds);
+    }
+
+    [Theory]
+    [InlineData("""{}""")]
+    [InlineData("""{"updated":0,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":0,"deleted":0}""")]
+    [InlineData("""{"total":-1,"updated":0,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":-1,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":0,"deleted":-1,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":0,"deleted":0,"version_conflicts":-1}""")]
+    [InlineData("""{"updated":1,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"timed_out":true,"total":1,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":0,"updated":1,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":2,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":0,"deleted":2,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":1,"deleted":1,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"updated":1,"deleted":0,"version_conflicts":1}""")]
+    [InlineData("""{"total":9223372036854775807,"updated":9223372036854775807,"deleted":1,"version_conflicts":0}""")]
+    public async Task PatchAsync_WithPipelineAndInvalidCompletionCounters_InvalidatesAndNotifiesUnknownOutcome(string response)
+    {
+        using var configuration = new TestConfiguration(("_update_by_query", 200, response));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        int changed = 0;
+        var updatedIds = new List<string>();
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one",
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1).UpdateCallback(updatedIds.AddRange)));
+
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+        Assert.Empty(updatedIds);
+    }
+
+    [Theory]
+    [InlineData("<html>upstream response</html>")]
+    [InlineData("")]
+    public async Task PatchAsync_WithPipelineAndUnreadableSuccessfulResponse_InvalidatesAndNotifiesUnknownOutcome(string response)
+    {
+        using var configuration = new TestConfiguration(("_update_by_query", 200, response));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one",
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1)));
+
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData("""{"total":2,"deleted":0,"version_conflicts":1}""")]
+    [InlineData("""{"total":2,"updated":-1,"deleted":0,"version_conflicts":1}""")]
+    [InlineData("""{"total":0,"updated":0,"deleted":0,"version_conflicts":1}""")]
+    [InlineData("""{"total":1,"updated":0,"deleted":0,"version_conflicts":2}""")]
+    public async Task PatchAsync_WithPipelineAndUnknownAppliedCount_DoesNotRetryReportedConflicts(string response)
+    {
+        using var configuration = new TestConfiguration(
+            ("_update_by_query", 200, response),
+            ("_refresh", 200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
+            ("_update_by_query", 200, QueryResponse(0, false, false, updated: 1)));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        var failure = await Record.ExceptionAsync(async () =>
+        {
+            _ = await repository.PatchAsync("one", new ScriptPatch("ctx._source.count++"),
+                options => options.Consistency(Consistency.Eventual).Retry(1));
+        });
+
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        var exception = Assert.IsType<DocumentException>(failure);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData("0.5")]
+    [InlineData("9223372036854775808")]
+    public async Task PatchAsync_WithPipelineAndUnreadableCompletionCounter_NotifiesOnlyTheDispatchedId(string updated)
+    {
+        string response = $$"""
+            {"took":1,"timed_out":false,"total":1,"updated":{{updated}},"deleted":0,"version_conflicts":0,"noops":0,"failures":[]}
+            """;
+        using var configuration = new TestConfiguration(("_update_by_query", 200, response));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync(new Ids("one", "two"),
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1)));
+
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.IsType<UnexpectedTransportException>(exception.InnerException);
+        Exception? cause = exception.InnerException;
+        while (cause is not null && cause is not JsonException)
+            cause = cause.InnerException;
+        Assert.IsAssignableFrom<JsonException>(cause);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPipelineAndRequestJsonFailure_ConservativelyNotifiesOnlyTheAttemptedId()
+    {
+        using var configuration = new SerializationFailureConfiguration();
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        var updatedIds = new List<string>();
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+        var parameter = new FailingScriptParameter();
+        var patch = new ScriptPatch("ctx._source.count++") { Params = new Dictionary<string, object> { ["value"] = parameter } };
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync(new Ids("one", "two"), patch,
+            options => options.Consistency(Consistency.Eventual).Retry(1).UpdateCallback(updatedIds.AddRange)));
+
+        Assert.Equal(0, configuration.HttpRequests);
+        Assert.Equal(1, parameter.SerializationAttempts);
+        Assert.IsType<UnexpectedTransportException>(exception.InnerException);
+        Assert.Contains("injected request JSON failure", exception.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+        Assert.Empty(updatedIds);
+    }
+
+    [Theory]
+    [InlineData(408)]
+    [InlineData(500)]
+    [InlineData(503)]
+    [InlineData(504)]
+    public async Task PatchAsync_WithPipelineAndUnknownHttpFailure_InvalidatesWithoutRetrying(int status)
+    {
+        string response = status is 503 or 504
+            ? "<html>injected gateway failure</html>"
+            : $$"""{"error":{"type":"exception","reason":"injected request failure"},"status":{{status}}}""";
+        using var configuration = new TestConfiguration(("_update_by_query", status, response));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one",
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1)));
+
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPipelineAndNativeTimeout_InvalidatesWithoutRetrying()
+    {
+        var failure = new TaskCanceledException("injected request timeout", new TimeoutException("injected timeout cause"));
+        using var configuration = new NativeTransportFailureConfiguration(failure);
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one",
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1)));
+
+        Assert.Equal(1, configuration.HttpRequests);
+        Assert.Same(failure.InnerException, exception.GetBaseException());
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPipelineAndNativeTransportException_NotifiesOnlyTheAttemptedId()
+    {
+        var failure = new IOException("injected response stream failure");
+        using var configuration = new NativeTransportFailureConfiguration(failure);
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync(new Ids("one", "two"),
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1)));
+
+        Assert.Equal(1, configuration.HttpRequests);
+        Assert.IsType<UnexpectedTransportException>(exception.InnerException);
+        Assert.Same(failure, exception.GetBaseException());
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPipelineAndCancellationAfterDispatch_NotifiesOnlyTheAttemptedId()
+    {
+        using var configuration = new TestConfiguration(("_update_by_query", 200, QueryResponse(0, false, false, updated: 1)));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        int completedRequests = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+        configuration.RequestCompleted = details =>
+        {
+            if (details.Uri?.AbsolutePath.Contains("_update_by_query", StringComparison.Ordinal) is not true)
+                return;
+
+            Assert.Equal(200, details.HttpStatusCode);
+            completedRequests++;
+            repository.Dispose();
+            // The native completion callback propagates cancellation directly, after a response was received.
+            throw new OperationCanceledException("injected cancellation after the pipeline write completed");
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.PatchAsync(new Ids("one", "two"),
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1)));
+
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.Equal(1, completedRequests);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPipelineAndCancellationBetweenIds_NotifiesOnlyTheCompletedId()
+    {
+        using var configuration = new TestConfiguration(("_update_by_query", 200, QueryResponse(0, false, false, updated: 1)));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        int completedRequests = 0;
+        var updatedIds = new List<string>();
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+        configuration.RequestCompleted = details =>
+        {
+            if (details.Uri?.AbsolutePath.Contains("_update_by_query", StringComparison.Ordinal) is not true)
+                return;
+
+            Assert.Equal(200, details.HttpStatusCode);
+            completedRequests++;
+            repository.Dispose();
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.PatchAsync(new Ids("one", "two"),
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1).UpdateCallback(updatedIds.AddRange)));
+
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.Equal(1, completedRequests);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(1, changed);
+        Assert.Equal(new[] { "one" }, updatedIds);
+        Assert.Equal(new[] { "one" }, repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WithPipelineAndCancellationBeforeDispatch_PreservesCacheWithoutNotifying()
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("two");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+        repository.Dispose();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.PatchAsync(new Ids("one", "two"),
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(1)));
+
+        Assert.Empty(configuration.Invoker.RequestPaths);
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("two"));
+        Assert.Equal(0, changed);
+        Assert.Empty(repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task PatchAsync_WithPipelineAndNativeConnectionFailure_PreservesCacheWithoutNotifying(int retries)
+    {
+        var failure = new HttpRequestException(HttpRequestError.ConnectionError, "injected connection failure before the write was sent");
+        using var configuration = new NativeTransportFailureConfiguration(failure);
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync("one",
+            new ScriptPatch("ctx._source.count++"), options => options.Consistency(Consistency.Eventual).Retry(retries)));
+
+        Assert.Equal(retries + 1, configuration.HttpRequests);
+        Assert.Same(failure, exception.GetBaseException());
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.Equal(0, changed);
+        Assert.Empty(repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    public async Task PatchAsync_WithPipelineAndKnownUnmodifiedOutcome_PreservesCacheWithoutNotifying(bool noop, int retries)
+    {
+        int count = noop ? 1 : 0;
+        string response = $$"""
+            {"took":1,"timed_out":false,"total":{{count}},"updated":0,"deleted":0,"version_conflicts":0,"noops":{{count}},"failures":[]}
+            """;
+        using var configuration = new TestConfiguration(("_update_by_query", 200, response));
+        using var repository = new TestRepository(configuration, usePipeline: true, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        int changed = 0;
+        repository.DocumentsChanged.AddSyncHandler((_, _) => changed++);
+
+        if (noop)
+            Assert.False(await repository.PatchAsync("one", new ScriptPatch("ctx.op = 'noop'"),
+                options => options.Consistency(Consistency.Eventual).Retry(retries)));
+        else
+            await Assert.ThrowsAsync<DocumentNotFoundException>(() => repository.PatchAsync("one", new ScriptPatch("ctx.op = 'noop'"),
+                options => options.Consistency(Consistency.Eventual).Retry(retries)));
+
+        Assert.Contains("_update_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.Equal(0, changed);
+        Assert.Empty(repository.DocumentNotificationIds);
+        Assert.Equal(0, repository.QueryNotifications);
     }
 
     [Theory]
@@ -747,7 +1144,7 @@ public sealed class QueryWriteFailureTests
 
     private sealed class TestRepository : ElasticRepositoryBase<TestDocument>
     {
-        public TestRepository(TestConfiguration configuration, bool usePipeline = false, bool cacheEnabled = false) : base(new TestIndex(configuration))
+        public TestRepository(ElasticConfiguration configuration, bool usePipeline = false, bool cacheEnabled = false) : base(new TestIndex(configuration))
         {
             if (!cacheEnabled)
                 DisableCache();
@@ -794,15 +1191,64 @@ public sealed class QueryWriteFailureTests
         }
     }
 
-    private sealed class TestIndex(TestConfiguration configuration) : Index<TestDocument>(configuration, "query-tests")
+    private sealed class TestIndex(ElasticConfiguration configuration) : Index<TestDocument>(configuration, "query-tests")
     {
         public override Task EnsureIndexAsync(object? target) => Task.CompletedTask;
+    }
+
+    private sealed class SerializationFailureConfiguration : ElasticConfiguration
+    {
+        public int HttpRequests { get; private set; }
+
+        protected override IRequestInvoker CreateRequestInvoker() =>
+            new HttpRequestInvoker((handler, _) => new UnexpectedHttpRequestHandler(handler, () => HttpRequests++));
+    }
+
+    private sealed class NativeTransportFailureConfiguration(Exception failure) : ElasticConfiguration
+    {
+        public int HttpRequests { get; private set; }
+
+        protected override IRequestInvoker CreateRequestInvoker() =>
+            new HttpRequestInvoker((handler, _) => new FailingHttpRequestHandler(handler, failure, () => HttpRequests++));
+    }
+
+    private sealed class FailingHttpRequestHandler(HttpMessageHandler inner, Exception failure, Action requestSent) : DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            requestSent();
+            throw failure;
+        }
+    }
+
+    private sealed class UnexpectedHttpRequestHandler(HttpMessageHandler inner, Action requestSent) : DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            requestSent();
+            throw new InvalidOperationException("The request should fail during JSON serialization before HTTP dispatch.");
+        }
+    }
+
+    private sealed class FailingScriptParameter
+    {
+        internal int SerializationAttempts { get; private set; }
+
+        public string Value
+        {
+            get
+            {
+                SerializationAttempts++;
+                throw new JsonException("injected request JSON failure");
+            }
+        }
     }
 
     private sealed class TestConfiguration(params (string Path, int Status, string Body)[] responses) : ElasticConfiguration
     {
         public CannedResponseInvoker Invoker { get; } = new(responses);
         public bool ThrowOnErrors { get; init; }
+        public Action<ApiCallDetails>? RequestCompleted { get; set; }
 
         protected override IRequestInvoker CreateRequestInvoker() => Invoker;
 
@@ -810,6 +1256,7 @@ public sealed class QueryWriteFailureTests
         {
             base.ConfigureSettings(settings);
             settings.ThrowExceptions(ThrowOnErrors);
+            settings.OnRequestCompleted(details => RequestCompleted?.Invoke(details));
         }
     }
 

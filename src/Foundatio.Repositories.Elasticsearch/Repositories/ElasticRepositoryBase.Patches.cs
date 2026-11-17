@@ -26,6 +26,13 @@ public abstract partial class ElasticRepositoryBase<T>
     /// the caller's <c>IfVersion</c>, or empty.</summary>
     private sealed record UpdateItem(DocumentKey Key, string? Routing, ElasticDocumentVersion Version) : IWriteItem;
 
+    private enum QueryWriteApplication
+    {
+        None,
+        Applied,
+        Unknown
+    }
+
     private ClientPatchApplier<T>? _clientPatchApplier;
     private ClientPatchApplier<T> ClientPatches => _clientPatchApplier ??= new ClientPatchApplier<T>(
         _client.ElasticsearchClientSettings.SourceSerializer,
@@ -390,6 +397,7 @@ public abstract partial class ElasticRepositoryBase<T>
     {
         var patchedIndexes = new HashSet<string>(StringComparer.Ordinal);
         var partiallyPatchedIds = new List<string>();
+        List<string>? unknownIds = null;
         WriteRunResult<UpdateItem> run;
         try
         {
@@ -398,26 +406,39 @@ public abstract partial class ElasticRepositoryBase<T>
                 var results = new List<WriteItemResult>(pending.Count);
                 foreach (var item in pending)
                 {
+                    if (ct.IsCancellationRequested)
+                    {
+                        results.AddRange(Enumerable.Repeat(WriteItemResult.Cancelled, pending.Count - results.Count));
+                        break;
+                    }
+
                     try
                     {
-                        var (result, applied) = await UpdateByIdQueryAsync(item, script, options, ct).AnyContext();
-                        if (applied)
+                        var (result, application) = await UpdateByIdQueryAsync(item, script, options, ct).AnyContext();
+                        if (application is not QueryWriteApplication.None)
                         {
                             patchedIndexes.Add(item.Key.Index);
-                            if (result.Outcome is not WriteOutcome.Succeeded)
+                            if (application is QueryWriteApplication.Unknown)
+                                (unknownIds ??= []).Add(item.Key.Id);
+                            else if (result.Outcome is not WriteOutcome.Succeeded)
                                 partiallyPatchedIds.Add(item.Key.Id);
                         }
 
                         results.Add(result);
                     }
-                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                    {
-                        results.AddRange(Enumerable.Repeat(WriteItemResult.Cancelled, pending.Count - results.Count));
-                        break;
-                    }
                     catch (Exception ex)
                     {
-                        var failure = new WriteItemResult(WriteOutcome.Fatal, Reason: ex.Message, Exception: ex);
+                        bool outcomeUnknown = !WriteOutcomeClassifier.IsNotSent(ex);
+                        if (outcomeUnknown)
+                        {
+                            // This is a refresh hint: the transport cannot distinguish every local encoding failure from response decoding.
+                            patchedIndexes.Add(item.Key.Index);
+                            (unknownIds ??= []).Add(item.Key.Id);
+                        }
+
+                        var failure = new WriteItemResult(WriteOutcome.Fatal,
+                            Reason: outcomeUnknown ? "Update by query failed, so whether the document was patched is unknown." : ex.Message,
+                            Exception: ex);
                         results.AddRange(Enumerable.Repeat(failure, pending.Count - results.Count));
                         break;
                     }
@@ -445,6 +466,18 @@ public abstract partial class ElasticRepositoryBase<T>
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error invalidating the cache or sending notifications after a partially completed update by query");
+            }
+        }
+
+        if (unknownIds is { Count: > 0 })
+        {
+            try
+            {
+                await OnPatchedAsync(unknownIds, null, options, includeUpdatedIds: false).AnyContext();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error invalidating the cache or sending notifications after an update by query with unknown outcome");
             }
         }
 
@@ -521,7 +554,7 @@ public abstract partial class ElasticRepositoryBase<T>
     /// Runs a script patch through update-by-query on one id so the default pipeline is applied. A version conflict means
     /// the document changed during the request and nothing was written, so it is safe to run it again.
     /// </summary>
-    private async Task<(WriteItemResult Result, bool Applied)> UpdateByIdQueryAsync(UpdateItem item, ScriptPatch scriptOperation, ICommandOptions options, CancellationToken cancellationToken)
+    private async Task<(WriteItemResult Result, QueryWriteApplication Application)> UpdateByIdQueryAsync(UpdateItem item, ScriptPatch scriptOperation, ICommandOptions options, CancellationToken cancellationToken)
     {
         var request = new UpdateByQueryRequest(item.Key.Index)
         {
@@ -537,22 +570,39 @@ public abstract partial class ElasticRepositoryBase<T>
 
         var response = await WriteClient.UpdateByQueryAsync(request, cancellationToken).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
-        bool applied = (response.Updated ?? 0) > 0 || (response.Deleted ?? 0) > 0;
-        if (GetQueryFailureReason(response.TimedOut, response.Failures, response.ApiCallDetails?.ResponseBodyInBytes) is { } failure)
-            return (new WriteItemResult(WriteOutcome.Fatal, response.ApiCallDetails?.HttpStatusCode, Reason: failure, Exception: response.OriginalException()), applied);
+        int? status = response.ApiCallDetails?.HttpStatusCode;
+        // Compare each count with the remaining total so validation cannot overflow a sum of counters.
+        if (status is >= 200 and < 300
+            && (!response.IsValidResponse
+                || response.Total is not >= 0 || response.Updated is not >= 0 || response.Deleted is not >= 0 || response.VersionConflicts is not >= 0
+                || response.Updated > response.Total
+                || response.Deleted > response.Total - response.Updated
+                || response.VersionConflicts > response.Total - response.Updated - response.Deleted))
+            return (new WriteItemResult(WriteOutcome.Fatal, status,
+                Reason: "Update by query returned an incomplete or invalid completion response, so whether the document was patched is unknown.",
+                Exception: response.OriginalException()), QueryWriteApplication.Unknown);
 
-        if (!response.IsValidResponse || response.ApiCallDetails?.HttpStatusCode is 404)
+        bool applied = response.Updated is > 0 || response.Deleted is > 0;
+        var application = applied ? QueryWriteApplication.Applied : QueryWriteApplication.None;
+        string? failure = GetQueryFailureReason(response.TimedOut, response.Failures, response.ApiCallDetails?.ResponseBodyInBytes);
+        if (failure is not null || !response.IsValidResponse || status is 404)
         {
-            var result = ToWriteResult(response, ElasticDocumentVersion.Empty);
-            return (applied ? result with { Outcome = WriteOutcome.Fatal } : result, applied);
+            var result = failure is not null
+                ? new WriteItemResult(WriteOutcome.Fatal, status, Reason: failure, Exception: response.OriginalException())
+                : ToWriteResult(response, ElasticDocumentVersion.Empty);
+            if (!applied && !response.IsValidResponse
+                && (status is null or (>= 200 and < 300) or 408 or >= 500)
+                && result.Outcome is WriteOutcome.Fatal)
+                application = QueryWriteApplication.Unknown;
+            return (applied ? result with { Outcome = WriteOutcome.Fatal } : result, application);
         }
 
-        if ((response.VersionConflicts ?? 0) > 0)
-            return (new WriteItemResult(applied ? WriteOutcome.Fatal : WriteOutcome.Conflict, 409, Reason: "The document changed during the update-by-query request."), applied);
+        if (response.VersionConflicts is > 0)
+            return (new WriteItemResult(applied ? WriteOutcome.Fatal : WriteOutcome.Conflict, 409, Reason: "The document changed during the update-by-query request."), application);
 
-        if ((response.Total ?? 0) is 0)
-            return (new WriteItemResult(WriteOutcome.Missing, 404), false);
+        if (response.Total is 0)
+            return (new WriteItemResult(WriteOutcome.Missing, 404), QueryWriteApplication.None);
 
-        return (new WriteItemResult(applied ? WriteOutcome.Succeeded : WriteOutcome.Noop), applied);
+        return (new WriteItemResult(applied ? WriteOutcome.Succeeded : WriteOutcome.Noop), application);
     }
 }

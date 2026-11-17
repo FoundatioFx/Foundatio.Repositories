@@ -249,6 +249,8 @@ Multi-ID pipeline partial patches also bound real-time reads and bulk writes wit
 
 By-query completion uses the effective configured query for invalidation and notifications. Completed asynchronous update-by-query counts come from the final response, not interim task status. Require readable, nonnegative integer `total`, `created`, `updated`, `deleted` and `version_conflicts` counters within `Int64` range; the affected-count sum must not overflow. Missing or invalid counters leave the outcome unknown: notify the effective query and throw `DocumentException`, without reporting zero or resubmitting the task. An externally canceled Elasticsearch operation also throws after accounting for any applied changes; it must not return a success count or replay a partially applied request.
 
+Synchronous per-ID pipeline script completion requires `total`, `updated`, `deleted` and `version_conflicts`, with nonnegative counters that do not exceed the total; `created` is not required. Unknown completion and ambiguous transport failures are terminal and issue a conservative cache invalidation/refresh hint for the attempted ID, without implying that it changed or notifying future undispatched IDs. These unknown outcomes do not invoke `UpdateCallback`; confirmed changes retain that callback even when other writes fail. Native serialization failures can require the same hint when dispatch cannot be distinguished. Pipeline script selection is search-based even for one ID: wait for a preceding write's refresh when the script must see it; the patch's final refresh does not make initial selection real-time.
+
 ## Remove and Fetch
 
 ```csharp
