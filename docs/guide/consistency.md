@@ -198,24 +198,25 @@ This is appropriate for small, correctness-critical indices (migration state, fi
 Search-based operations (`FindAsync`, `CountAsync`, `ExistsAsync(query)`, `FindOneAsync`) call `RefreshForConsistency` before executing the search. This is essential for:
 
 1. **Cross-process consistency**: Process A writes with Eventual consistency, Process B reads with Immediate -- the read-side refresh ensures B sees A's write.
-2. **Batch pagination correctness**: `RemoveAllAsync` and `PatchAllAsync` intentionally downgrade inner writes to Eventual for performance, then rely on the read-side refresh between pages to prevent reprocessing.
+2. **Initial batch selection**: A batch operation with Immediate or Wait consistency can select recently written documents. `PatchAllAsync` then keeps that selection in a point-in-time or scroll snapshot, so later refreshes do not change the documents being paged.
 
 ### Batch Processing and Consistency
 
-`BatchProcessAsAsync` (used by `RemoveAllAsync` and `PatchAllAsync` when listeners/cache are active) uses this pattern:
+`BatchProcessAsAsync` reads a page, invokes the processing callback, and continues through the remaining pages. It applies the requested read consistency before searches and performs a final `RefreshForConsistency` after processing completes. Its default search-after paging uses live search results; callers can request a point-in-time or scroll snapshot.
 
-1. Refresh (via `FindAsAsync`) → search for page 1
-2. Process batch (inner writes use Eventual for performance)
-3. Refresh (via next `FindAsAsync`) → search for page 2 (correctly skips processed docs)
-4. Repeat until done
-5. Final `RefreshForConsistency` for the last batch
+`PatchAllAsync` and multi-ID client-side patch operations that discover documents by search always use snapshot paging: a point in time by default, or a scroll snapshot when `SnapshotPaging()` is supplied. Their batched execution follows this pattern:
 
-The inner writes are downgraded to Eventual to avoid the cost of per-write refresh during bulk operations. The inter-page refresh makes the completed batch invisible to subsequent queries, preventing infinite loops or double-processing.
+1. Apply the requested read consistency and open the selection snapshot.
+2. Read and patch each selected page, notifying successful writes before reading the next page.
+3. Continue from the same snapshot until all selected pages are processed.
+4. Refresh for the requested consistency after batch processing completes.
+
+`PatchAllAsync` and multi-ID JSON/action patches use Eventual consistency for their inner writes to avoid per-write refreshes. The snapshot prevents a changed sort field from moving an already-patched document beyond the paging cursor, including with Eventual consistency. Documents that start matching after the snapshot opens are not added to that operation. The opt-in `UseUpdateByQuery()` script path uses Elasticsearch's own query snapshot instead of repository batch paging.
 
 ### Known Limitations
 
 - **`UpdateByQuery` and `DeleteByQuery`**: These ES APIs only accept `bool?` for their refresh parameter (not the `Refresh` enum). `Consistency.Wait` is treated identically to `Immediate` for these operations.
-- **Non-idempotent scripts**: If using `PatchAllAsync` with a non-idempotent script (e.g., counter increment) and Eventual consistency, a document could theoretically be processed twice between page refreshes. Use `ImmediateConsistency` for non-idempotent patches.
+- **Concurrent or repeated patch calls**: Snapshot paging prevents an operation from selecting the same document again after changing its sort fields. Separate `PatchAllAsync` calls can still select the same document and apply a non-idempotent script more than once. Use an idempotent script when callers may repeat or overlap the operation.
 - **Exceptions bypass final refresh**: If an exception occurs during batch processing, the final refresh is skipped. Partially-processed writes may not be immediately visible.
 
 ## Next Steps
