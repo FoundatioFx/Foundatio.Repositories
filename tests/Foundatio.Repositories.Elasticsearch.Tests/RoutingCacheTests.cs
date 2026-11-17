@@ -170,6 +170,57 @@ public sealed class RoutingCacheTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task GetByIdsAsync_WithInvalidRoutedId_ReturnsEmptyWithoutReadingElasticsearch(string? id)
+    {
+        using var configuration = new TestConfiguration([]);
+        using var repository = new TestRepository(configuration);
+        var invalidId = new Id(id!, "parent");
+
+        Assert.Null(await repository.GetByIdAsync(invalidId, new CommandOptions().Cache(false)));
+        var results = await repository.GetByIdsAsync(new Ids(invalidId), new CommandOptions().Cache(false));
+
+        Assert.Empty(results);
+        Assert.Empty(configuration.Invoker.ReadLocations);
+        Assert.Empty(repository.SearchedIds);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    public async Task GetByIdsAsync_WithInvalidRoutedIdAndValidId_ReadsOnlyTheValidId(string? id, bool cached)
+    {
+        var stored = new StoredDocument("valid", "parent", "value", 1, 11);
+        using var configuration = new TestConfiguration([stored]);
+        using var repository = new TestRepository(configuration);
+        if (cached)
+            await repository.SeedAsync(stored.Id, [stored.ToHit()]);
+        var invalidId = new Id(id!, stored.Routing);
+        var validId = new Id(stored.Id, stored.Routing);
+        var ids = new Ids(invalidId, validId);
+        Id[]? observedIds = null;
+        repository.BeforeGet.AddHandler((_, args) =>
+        {
+            observedIds = args.Ids.ToArray();
+            return Task.CompletedTask;
+        });
+
+        var results = await repository.GetByIdsAsync(ids, new CommandOptions().Cache());
+
+        AssertDocument(Assert.Single(results), stored);
+        Assert.Equal(new[] { validId }, observedIds);
+        Assert.Equal(new[] { invalidId, validId }, ids);
+        if (cached)
+            Assert.Empty(configuration.Invoker.ReadLocations);
+        else
+            Assert.Equal(validId, Assert.Single(configuration.Invoker.ReadLocations));
+        Assert.Empty(repository.SearchedIds);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -195,6 +246,75 @@ public sealed class RoutingCacheTests
             Assert.Empty(configuration.Invoker.ReadLocations);
         else
             Assert.Equal(new Id(second.Id, second.Routing), Assert.Single(configuration.Invoker.ReadLocations));
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithSharedRawCacheKey_PreservesRoutedDocumentsAndCloneIsolation()
+    {
+        var first = new StoredDocument("same", "first", "first value", 1, 11);
+        var second = new StoredDocument("same", "second", "second value", 2, 22);
+        var third = new StoredDocument("same", "third", "third value", 3, 33);
+        var unrelated = new StoredDocument("other", "parent", "unrelated value", 4, 44);
+        StoredDocument[] stored = [first, second, third, unrelated];
+        using var configuration = new TestConfiguration(stored);
+        using var repository = new TestRepository(configuration);
+        await repository.SeedAsync(first.Id, [first.ToHit(), second.ToHit(), third.ToHit()]);
+        await repository.SeedAsync(unrelated.Id, [unrelated.ToHit()]);
+        var ids = new Ids(stored.Select(document => new Id(document.Id, document.Routing)));
+
+        var results = await repository.GetByIdsAsync(ids, new CommandOptions().Cache());
+
+        Assert.Equal(stored.Length, results.Count);
+        foreach (var expected in stored)
+            AssertDocument(Assert.Single(results, document => document.Id == expected.Id && document.Route == expected.Routing), expected);
+
+        var changed = Assert.Single(results, document => document.Route == first.Routing);
+        changed.Id = "changed-id";
+        changed.Route = "changed-route";
+        changed.Value = "changed-value";
+        ((IVersioned)changed).Version = "99:99";
+        var reread = await repository.GetByIdsAsync(ids, new CommandOptions().Cache());
+
+        Assert.Equal(stored.Length, reread.Count);
+        foreach (var expected in stored)
+            AssertDocument(Assert.Single(reread, document => document.Id == expected.Id && document.Route == expected.Routing), expected);
+        Assert.Empty(configuration.Invoker.ReadLocations);
+        Assert.Empty(repository.SearchedIds);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetByIdsAsync_WhenBeforeGetMutatesEventIds_PreservesRequestedIds(bool cached)
+    {
+        var stored = new StoredDocument("selected", "parent", "selected value", 1, 11);
+        var other = new StoredDocument("other", "parent", "other value", 2, 22);
+        using var configuration = new TestConfiguration([stored, other]);
+        using var repository = new TestRepository(configuration);
+        if (cached)
+            await repository.SeedAsync(stored.Id, [stored.ToHit()]);
+        var selectedId = new Id(stored.Id, stored.Routing);
+        var ids = new Ids(selectedId);
+        int callbacks = 0;
+        repository.BeforeGet.AddHandler((_, args) =>
+        {
+            callbacks++;
+            Assert.Equal(selectedId, Assert.Single(args.Ids));
+            args.Ids.Clear();
+            args.Ids.Add(new Id(other.Id, other.Routing));
+            return Task.CompletedTask;
+        });
+
+        var results = await repository.GetByIdsAsync(ids, new CommandOptions().Cache());
+
+        Assert.Equal(1, callbacks);
+        AssertDocument(Assert.Single(results), stored);
+        Assert.Equal(selectedId, Assert.Single(ids));
+        if (cached)
+            Assert.Empty(configuration.Invoker.ReadLocations);
+        else
+            Assert.Equal(selectedId, Assert.Single(configuration.Invoker.ReadLocations));
+        Assert.Empty(repository.SearchedIds);
     }
 
     [Theory]

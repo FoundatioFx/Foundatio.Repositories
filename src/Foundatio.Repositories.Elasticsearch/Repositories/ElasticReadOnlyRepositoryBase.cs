@@ -158,7 +158,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         options = ConfigureOptions(options?.As<T>());
 
-        await OnBeforeGetAsync(new Ids(id), options, typeof(T)).AnyContext();
+        if (BeforeGet.HasHandlers)
+            await OnBeforeGetAsync(new Ids(id), options, typeof(T)).AnyContext();
 
         // we don't have the parent id so we have to do a query
         if (HasParent && id.Routing == null)
@@ -224,7 +225,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             options = options!.Clone();
             options.Values.Remove(ReadHitCallbackKey);
         }
-        var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
+        var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i.Value)).ToList();
         if (idList == null || idList.Count == 0)
             return EmptyList;
 
@@ -235,7 +236,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         options = ConfigureOptions(options?.As<T>());
 
-        await OnBeforeGetAsync(new Ids(idList), options, typeof(T)).AnyContext();
+        if (BeforeGet.HasHandlers)
+            await OnBeforeGetAsync(new Ids(idList), options, typeof(T)).AnyContext();
 
         var hits = IsCacheEnabled && options.ShouldReadCache() && (options.HasCacheKey() || !HasCallerSourceProjection(options))
             ? await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext()
@@ -1655,7 +1657,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await Cache.SetAllAsync(findHitsById, options.GetExpiresIn()).AnyContext();
 
-        _logger.LogTrace("Add documents to cache: type={EntityType} ids={Ids}", EntityTypeName, String.Join(", ", findHitsById.Keys));
+        if (_logger.IsEnabled(LogLevel.Trace))
+            _logger.LogTrace("Add documents to cache: type={EntityType} ids={Ids}", EntityTypeName, String.Join(", ", findHitsById.Keys));
     }
 
     protected Task AddDocumentsToCacheWithKeyAsync(IDictionary<string, T> documents, TimeSpan expiresIn)
