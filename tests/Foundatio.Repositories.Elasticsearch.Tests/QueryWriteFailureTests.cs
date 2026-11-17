@@ -321,15 +321,19 @@ public sealed class QueryWriteFailureTests
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task RemoveAllAsync_WithInvalidLaterPass_PreservesConfirmedEffectsAndEffectiveQuery(int deleted)
+    [InlineData(0, 200, "{}")]
+    [InlineData(1, 200, "{}")]
+    [InlineData(1, 500, """{"total":1,"deleted":-1,"version_conflicts":0,"failures":[]}""")]
+    [InlineData(1, 500, """{"total":9223372036854775807,"deleted":9223372036854775807,"version_conflicts":0,"failures":[]}""")]
+    [InlineData(1, 503, """{"total":1,"deleted":0,"version_conflicts":-1,"failures":[]}""")]
+    [InlineData(1, 503, """{"total":1,"deleted":1,"version_conflicts":1,"failures":[]}""")]
+    public async Task RemoveAllAsync_WithInvalidLaterPass_PreservesConfirmedEffectsAndEffectiveQuery(int deleted, int status, string response)
     {
         string firstResponse = $$"""{"took":1,"timed_out":false,"total":{{deleted + 1}},"deleted":{{deleted}},"version_conflicts":1,"failures":[]}""";
         using var configuration = new TestConfiguration(
             ("_delete_by_query", 200, firstResponse),
             ("_refresh", 200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
-            ("_delete_by_query", 200, "{}"));
+            ("_delete_by_query", status, response));
         using var repository = new TestRepository(configuration, cacheEnabled: true)
         {
             ReplacementQuery = new RepositoryQuery<TestDocument>().Id("effective")
@@ -353,12 +357,37 @@ public sealed class QueryWriteFailureTests
             repository.RemoveAllAsync(query => query.Id("original"), options => options.Cache(false).Retry(2)));
 
         Assert.Equal(3, configuration.Invoker.Requests);
-        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(deleted, removedEvents);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Null(await repository.GetCachedDocumentAsync("effective"));
         Assert.NotNull(await repository.GetCachedDocumentAsync("original"));
         Assert.Equal(new[] { "effective" }, repository.QueryInvalidationIds);
         Assert.Equal(new[] { "effective" }, repository.QueryNotificationIds);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(429)]
+    [InlineData(503)]
+    public async Task RemoveAllAsync_WithTransientFailureWithoutCompletionCounters_RetriesWithoutNotifyingRejection(int status)
+    {
+        string errorType = status is 503 ? "unavailable_shards_exception" : "es_rejected_execution_exception";
+        using var configuration = new TestConfiguration(
+            ("_delete_by_query", status, $$"""{"error":{"type":"{{errorType}}","reason":"injected"},"status":{{status}}}"""),
+            ("_delete_by_query", 200, """{"took":1,"timed_out":false,"total":1,"deleted":1,"version_conflicts":0,"failures":[]}"""))
+        { ThrowOnErrors = true };
+        using var repository = new TestRepository(configuration, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+
+        Assert.Equal(1, await repository.RemoveAllAsync(query => query.Id("one"), options => options.Cache(false).Retry(1)));
+
+        Assert.True(configuration.Client.ElasticsearchClientSettings.ThrowExceptions);
+        Assert.Equal(2, configuration.Invoker.Requests);
+        Assert.All(configuration.Invoker.RequestPaths, path => Assert.Contains("_delete_by_query", path, StringComparison.Ordinal));
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.Equal(new[] { "one" }, repository.QueryInvalidationIds);
+        Assert.Equal(new[] { "one" }, repository.QueryNotificationIds);
         Assert.Equal(1, repository.QueryNotifications);
     }
 

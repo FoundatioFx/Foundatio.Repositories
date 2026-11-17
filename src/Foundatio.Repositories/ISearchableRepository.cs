@@ -61,7 +61,7 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <para>The Elasticsearch provider applies <c>BeforeQuery</c>, system filters and <c>ConfigureQuery</c> before
     /// preparing delete-by-query, preserving repository selection filters on the server-side path.</para>
     /// <para>An incomplete or invalid delete-by-query completion response leaves the outcome unknown and is not
-    /// retried. The effective query is invalidated and notified as a refresh hint before a
+    /// retried. Invalidation and notification of the effective query are attempted as refresh hints before a
     /// <see cref="Exceptions.DocumentException"/> is thrown; only confirmed deletions raise removal events.</para>
     /// </remarks>
     Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null);

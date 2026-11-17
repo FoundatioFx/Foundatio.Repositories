@@ -74,12 +74,13 @@ public abstract partial class ElasticRepositoryBase<T>
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             int? status = response.ApiCallDetails?.HttpStatusCode;
-            if (status is >= 200 and < 300
-                && (!response.IsValidResponse
-                    || response.Total is not >= 0 || response.Deleted is not >= 0 || response.VersionConflicts is not >= 0
-                    || response.Deleted > response.Total
-                    || response.VersionConflicts > response.Total - response.Deleted
-                    || response.Deleted > Int64.MaxValue - deleted))
+            // Failed responses can include partial counts; malformed counts must not erase earlier successes.
+            if ((status is >= 200 and < 300
+                    && (!response.IsValidResponse || response.Total is null || response.Deleted is null || response.VersionConflicts is null))
+                || response.Total is < 0 || response.Deleted is < 0 || response.VersionConflicts is < 0
+                || response.Deleted > response.Total
+                || response.VersionConflicts > response.Total - response.Deleted.GetValueOrDefault()
+                || response.Deleted > Int64.MaxValue - deleted)
             {
                 outcomeUnknown = true;
                 return [new WriteItemResult(WriteOutcome.Fatal, status,

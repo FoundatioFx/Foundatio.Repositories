@@ -215,7 +215,7 @@ When no event listeners are registered and caching is disabled, `RemoveAllAsync`
 
 The returned count is the cumulative number of documents deleted across all passes. If conflicts persist after the retry budget, a `VersionConflictDocumentException` with the counts is thrown. Set `o.ProceedOnQueryConflicts()` to log a warning and return the partial count instead.
 
-A successful HTTP response must include valid, nonnegative `total`, `deleted`, and `version_conflicts` counters. Missing, unreadable, or inconsistent counters leave the result unknown: the repository does not retry or report zero deletions. It invalidates the effective query and sends a refresh hint before throwing `DocumentException`. Confirmed deletions from earlier passes retain their completion effects; an unknown result alone does not raise document-removal events. A notification failure does not replace the original unknown-outcome error.
+A successful HTTP response must include valid, nonnegative `total`, `deleted`, and `version_conflicts` counters. Any counters supplied in an error response are also validated before accumulation, so they cannot erase earlier confirmed deletions. Missing required, unreadable, or inconsistent counters leave the result unknown: the repository does not retry or report zero deletions. It attempts to invalidate the effective query and send a refresh hint before throwing `DocumentException`. Confirmed deletions from earlier passes retain their completion effects; an unknown result alone does not raise document-removal events. A notification failure does not replace the original unknown-outcome error.
 :::
 
 ### Soft Delete vs Hard Delete
