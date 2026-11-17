@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.MGet;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -22,7 +24,8 @@ namespace Foundatio.Repositories.Benchmarks;
 /// </summary>
 /// <remarks>
 /// <para>Before the first bulk write of each operation a concurrent writer bumps every document with update-by-query, so
-/// every document conflicts exactly once in both benchmarks. The documents are reset before each iteration.</para>
+/// every document conflicts exactly once in both benchmarks. The documents are reset before each iteration. Untimed
+/// cleanup verifies the injection, request count, returned count, and preserved concurrent changes.</para>
 /// <para>Requires Elasticsearch. Set <c>ELASTICSEARCH_URL</c> (defaults to <c>http://localhost:9200</c>). Run with
 /// <c>dotnet run -c Release --project benchmarks/Foundatio.Repositories.Benchmarks -- --filter *ConflictRetry* --job short</c>.</para>
 /// </remarks>
@@ -32,6 +35,11 @@ public class ConflictRetryBenchmarks
     private BenchmarkConfiguration _configuration = null!;
     private BenchmarkRepository _repository = null!;
     private List<BenchmarkDocument> _documents = null!;
+    private UpdateByQueryResponse? _conflictInjectionResponse;
+    private RefreshResponse? _refreshResponse;
+    private int _conflictInjections;
+    private long _patchedDocuments;
+    private int _expectedBulkRequests;
     private static readonly JsonPatch _patch = new(new PatchDocument(new ReplaceOperation { Path = "name", Value = "patched" }));
 
     [Params(10, 100, 500)]
@@ -57,7 +65,53 @@ public class ConflictRetryBenchmarks
         }
 
         _repository.SaveAsync(_documents, o => o.SkipVersionCheck().ImmediateConsistency()).GetAwaiter().GetResult();
+        _conflictInjectionResponse = null;
+        _refreshResponse = null;
+        _conflictInjections = 0;
+        _patchedDocuments = -1;
+        _expectedBulkRequests = 0;
         _configuration.Invoker.BeforeNextBulk(BumpEveryDocumentAsync);
+    }
+
+    [IterationCleanup]
+    public void IterationCleanup()
+    {
+        ValidateIterationAsync().GetAwaiter().GetResult();
+    }
+
+    private async Task ValidateIterationAsync()
+    {
+        if (_conflictInjections is not 1
+            || _conflictInjectionResponse is not { IsValidResponse: true, TimedOut: false, VersionConflicts: 0, Noops: 0, Deleted: 0 } injection
+            || injection.Total != ConflictingDocuments || injection.Updated != ConflictingDocuments
+            || injection.Failures is { Count: > 0 })
+            throw new InvalidOperationException($"Conflict injection did not update exactly {ConflictingDocuments} documents once.");
+
+        if (_patchedDocuments != ConflictingDocuments)
+            throw new InvalidOperationException($"The benchmark reported {_patchedDocuments} patched documents instead of {ConflictingDocuments}.");
+
+        if (_configuration.Invoker.IsBulkHookPending || _configuration.Invoker.BulkRequests != _expectedBulkRequests)
+            throw new InvalidOperationException($"The benchmark sent {_configuration.Invoker.BulkRequests} bulk requests instead of {_expectedBulkRequests}.");
+
+        if (_refreshResponse is { } refresh && (!refresh.IsValidResponse || refresh.Shards is not { Failed: 0 }))
+            throw new InvalidOperationException("The per-ID benchmark refresh did not complete successfully.");
+
+        var response = await _configuration.Client.MultiGetAsync<BenchmarkDocument>(new MultiGetRequestDescriptor()
+            .Docs(_documents.Select(document => new MultiGetOperation(document.Id) { Index = _configuration.Index.Name }).ToList()));
+        if (!response.IsValidResponse || response.Docs.Count != _documents.Count)
+            throw new InvalidOperationException("The benchmark could not verify every document after patching.");
+
+        int index = 0;
+        foreach (var item in response.Docs)
+        {
+            string expectedId = _documents[index++].Id;
+            bool valid = item.Match(
+                result => result is { Found: true } && result.Id == expectedId && result.Index == _configuration.Index.Name
+                    && result.Source is { Name: "patched", Counter: 1 } document && document.Id == expectedId,
+                _ => false);
+            if (!valid)
+                throw new InvalidOperationException($"Document {expectedId} did not retain both the patch and the concurrent update.");
+        }
     }
 
     [GlobalCleanup]
@@ -69,7 +123,12 @@ public class ConflictRetryBenchmarks
     }
 
     [Benchmark(Baseline = true)]
-    public async Task<long> PerIdRetry()
+    public Task<long> PerIdRetry()
+    {
+        return RecordResultAsync(PerIdRetryAsync(), ConflictingDocuments + 1);
+    }
+
+    private async Task<long> PerIdRetryAsync()
     {
         try
         {
@@ -85,7 +144,7 @@ public class ConflictRetryBenchmarks
                     patched++;
             }
 
-            await _configuration.Client.Indices.RefreshAsync(_configuration.Index.Name);
+            _refreshResponse = await _configuration.Client.Indices.RefreshAsync(_configuration.Index.Name);
             return patched;
         }
     }
@@ -93,12 +152,20 @@ public class ConflictRetryBenchmarks
     [Benchmark]
     public Task<long> GroupedRetry()
     {
-        return _repository.PatchAllAsync(q => q, _patch, o => o.ImmediateConsistency());
+        return RecordResultAsync(_repository.PatchAllAsync(q => q, _patch, o => o.ImmediateConsistency()), 2);
     }
 
-    private Task BumpEveryDocumentAsync()
+    private async Task<long> RecordResultAsync(Task<long> operation, int expectedBulkRequests)
     {
-        return _configuration.Client.UpdateByQueryAsync<BenchmarkDocument>(_configuration.Index.Name, u => u
+        _expectedBulkRequests = expectedBulkRequests;
+        _patchedDocuments = await operation;
+        return _patchedDocuments;
+    }
+
+    private async Task BumpEveryDocumentAsync()
+    {
+        _conflictInjections++;
+        _conflictInjectionResponse = await _configuration.Client.UpdateByQueryAsync<BenchmarkDocument>(_configuration.Index.Name, u => u
             .Script(s => s.Source("ctx._source.counter += 1;"))
             .Refresh());
     }
@@ -144,16 +211,27 @@ public sealed class BenchmarkConfiguration : ElasticConfiguration
 public sealed class BulkHookRequestInvoker(IRequestInvoker inner) : IRequestInvoker
 {
     private Func<Task>? _beforeNextBulk;
+    private int _bulkRequests;
 
     public ResponseFactory ResponseFactory => inner.ResponseFactory;
+    public int BulkRequests => Volatile.Read(ref _bulkRequests);
+    public bool IsBulkHookPending => Volatile.Read(ref _beforeNextBulk) is not null;
 
-    public void BeforeNextBulk(Func<Task> action) => _beforeNextBulk = action;
+    public void BeforeNextBulk(Func<Task> action)
+    {
+        Interlocked.Exchange(ref _bulkRequests, 0);
+        _beforeNextBulk = action;
+    }
 
     public async Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
         where TResponse : TransportResponse, new()
     {
-        if (endpoint.PathAndQuery.Contains("_bulk", StringComparison.Ordinal) && Interlocked.Exchange(ref _beforeNextBulk, null) is { } beforeBulk)
-            await beforeBulk().ConfigureAwait(false);
+        if (endpoint.PathAndQuery.Contains("_bulk", StringComparison.Ordinal))
+        {
+            Interlocked.Increment(ref _bulkRequests);
+            if (Interlocked.Exchange(ref _beforeNextBulk, null) is { } beforeBulk)
+                await beforeBulk().ConfigureAwait(false);
+        }
 
         return await inner.RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken).ConfigureAwait(false);
     }
