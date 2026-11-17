@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Transport;
+using Foundatio.AsyncEx;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
@@ -736,7 +738,7 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAsyncIds_ScriptPatchWithPipelineWhenRepositoryDisposedBetweenDocuments_NotifiesPatchedDocumentsAndThrowsCancelled()
+    public async Task PatchAsyncIds_ScriptPatchWithPipelineWhenRepositoryDisposedDuringRequest_NotifiesAttemptedDocumentsAndThrowsCancelled()
     {
         // Arrange
         const string pipelineId = "write-failure-tests-dispose-pipeline";
@@ -747,7 +749,7 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
             var invoker = new FaultInjectingRequestInvoker(new HttpRequestInvoker());
             using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
             var repository = new EmployeeWithPipelineRepository(configuration.Employees, pipelineId);
-            var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+            var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1", companyName: "Original");
             await repository.AddAsync(employees, o => o.ImmediateConsistency());
             invoker.BeforeNthRequest(2, HttpMethod.POST, "_update_by_query", () =>
             {
@@ -756,13 +758,36 @@ public sealed class WriteFailureTests : ElasticRepositoryTestBase
             });
             var updatedIds = new List<string>();
             _messageBus.ResetMessagesSent();
+            var receivedIds = new System.Collections.Concurrent.ConcurrentBag<string>();
+            var notifications = new AsyncCountdownEvent(2);
+            await _messageBus.SubscribeAsync<EntityChanged>((message, _) =>
+            {
+                Assert.Equal(nameof(Employee), message.Type);
+                Assert.Equal(ChangeType.Saved, message.ChangeType);
+                receivedIds.Add(Assert.IsType<string>(message.Id));
+                notifications.Signal();
+                return Task.CompletedTask;
+            }, TestCancellationToken);
 
             // Act
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.PatchAsync(employees.Select(e => e.Id).ToArray(), new ScriptPatch("ctx._source.companyName = 'Patched';"), o => o.ImmediateConsistency().UpdateCallback(updatedIds.AddRange)));
 
             // Assert
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await notifications.WaitAsync(cancellation.Token);
             Assert.Equal([employees[0].Id], updatedIds);
-            Assert.Equal(1, _messageBus.MessagesSent);
+            Assert.Equal(2, invoker.CountRequests(HttpMethod.POST, "_update_by_query"));
+            Assert.Equal(2, _messageBus.MessagesSent);
+            Assert.Equal(employees.Take(2).Select(employee => employee.Id).Order(), receivedIds.Order());
+
+            // Cancellation inside the native attempt cannot prove to the repository whether that write was sent.
+            // The second notification is a refresh hint; this fixture cancels before its HTTP dispatch.
+            foreach (var employee in employees)
+            {
+                var stored = await _employeeRepository.GetByIdAsync(employee.Id, options => options.Cache(false));
+                Assert.NotNull(stored);
+                Assert.Equal(employee.Id == employees[0].Id ? "Patched" : "Original", stored.CompanyName);
+            }
         }
         finally
         {
