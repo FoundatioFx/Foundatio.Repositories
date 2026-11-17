@@ -158,8 +158,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         options = ConfigureOptions(options?.As<T>());
 
-        if (BeforeGet.HasHandlers)
-            await OnBeforeGetAsync(new Ids(id), options, typeof(T)).AnyContext();
+        await OnBeforeGetAsync(new Ids(id), options, typeof(T)).AnyContext();
 
         // we don't have the parent id so we have to do a query
         if (HasParent && id.Routing == null)
@@ -236,8 +235,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         options = ConfigureOptions(options?.As<T>());
 
-        if (BeforeGet.HasHandlers)
-            await OnBeforeGetAsync(new Ids(idList), options, typeof(T)).AnyContext();
+        await OnBeforeGetAsync(new Ids(idList), options, typeof(T)).AnyContext();
 
         var hits = IsCacheEnabled && options.ShouldReadCache() && (options.HasCacheKey() || !HasCallerSourceProjection(options))
             ? await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext()
