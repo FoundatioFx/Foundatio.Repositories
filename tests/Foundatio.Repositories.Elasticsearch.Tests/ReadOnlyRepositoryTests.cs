@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.Search;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
@@ -256,6 +258,86 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(2, _cache.Count);
         Assert.Equal(3, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithNativeIncludes_DoesNotPopulateFullDocumentCache()
+    {
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Projected employee", companyName: "Full company"), o => o.ImmediateConsistency());
+        using var repository = new NativeSourceEmployeeRepository(_configuration)
+        {
+            ConfigureNativeGet = request => request.SourceIncludes = new Field[] { "id", "name" }
+        };
+
+        var projected = await repository.GetByIdAsync(employee.Id, o => o.Cache());
+
+        Assert.NotNull(projected);
+        Assert.Equal(employee.Name, projected.Name);
+        Assert.Null(projected.CompanyName);
+        Assert.Equal(0, _cache.Count);
+
+        var full = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache());
+        Assert.Equal(employee, full);
+        _cache.ResetStats();
+
+        Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache()));
+        Assert.Equal(1, _cache.Hits);
+        Assert.Equal(0, _cache.Misses);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithNativeDocumentSourceOverride_CachesOnlyCompleteDocument()
+    {
+        var projectedEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Projected employee", companyName: "First company"), o => o.ImmediateConsistency());
+        var completeEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Complete employee", companyName: "Second company"), o => o.ImmediateConsistency());
+        using var repository = new NativeSourceEmployeeRepository(_configuration)
+        {
+            ConfigureNativeMultiGet = request =>
+            {
+                request.SourceExcludes(new Field[] { "companyName" });
+                MultiGetRequest configured = request;
+                var document = Assert.Single(configured.Docs!, document => _configuration.Client.Infer.Resolve(document.Id) == completeEmployee.Id);
+                document.Source = new SourceConfig(true);
+            }
+        };
+
+        var documents = await repository.GetByIdsAsync(new[] { projectedEmployee.Id, completeEmployee.Id }, o => o.Cache());
+
+        Assert.Equal(2, documents.Count);
+        var projected = Assert.Single(documents, document => document.Id == projectedEmployee.Id);
+        Assert.Equal(projectedEmployee.Name, projected.Name);
+        Assert.Null(projected.CompanyName);
+        Assert.Equal(completeEmployee, Assert.Single(documents, document => document.Id == completeEmployee.Id));
+        _cache.ResetStats();
+
+        Assert.Equal(completeEmployee, await _employeeRepository.GetByIdAsync(completeEmployee.Id, o => o.Cache()));
+        Assert.Equal(1, _cache.Hits);
+        Assert.Equal(0, _cache.Misses);
+
+        Assert.Equal(projectedEmployee, await _employeeRepository.GetByIdAsync(projectedEmployee.Id, o => o.Cache()));
+        Assert.Equal(1, _cache.Hits);
+        Assert.Equal(1, _cache.Misses);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithNativeStoredFieldsAndEnabledSource_CachesCompleteDocument()
+    {
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Stored-fields employee", companyName: "Full company"), o => o.ImmediateConsistency());
+        using var repository = new NativeSourceEmployeeRepository(_configuration)
+        {
+            ConfigureNativeGet = request =>
+            {
+                request.StoredFields = new Field[] { "name" };
+                request.Source = new SourceConfigParam(true);
+            }
+        };
+
+        Assert.Equal(employee, await repository.GetByIdAsync(employee.Id, o => o.Cache()));
+        _cache.ResetStats();
+
+        Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache()));
+        Assert.Equal(1, _cache.Hits);
+        Assert.Equal(0, _cache.Misses);
     }
 
     [Fact]
@@ -1951,5 +2033,23 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Empty(results.Documents);
         Assert.Null(results.Hits.First().Document);
         Assert.NotNull(results.Hits.First().Id);
+    }
+
+    private sealed class NativeSourceEmployeeRepository(MyAppElasticConfiguration configuration) : EmployeeRepository(configuration)
+    {
+        public Action<GetRequest>? ConfigureNativeGet { get; init; }
+        public Action<MultiGetRequestDescriptor>? ConfigureNativeMultiGet { get; init; }
+
+        protected override void ConfigureGetRequest(GetRequest request, ICommandOptions options)
+        {
+            base.ConfigureGetRequest(request, options);
+            ConfigureNativeGet?.Invoke(request);
+        }
+
+        protected override void ConfigureMultiGetRequest(MultiGetRequestDescriptor request, ICommandOptions options)
+        {
+            base.ConfigureMultiGetRequest(request, options);
+            ConfigureNativeMultiGet?.Invoke(request);
+        }
     }
 }

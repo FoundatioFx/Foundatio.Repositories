@@ -180,7 +180,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             }
         }
 
-        var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+        string indexName = ElasticIndex.GetIndex(id);
+        var request = new GetRequest(indexName, id.Value);
 
         if (id.Routing != null)
             request.Routing = id.Routing;
@@ -195,7 +196,16 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var findHit = response.Found ? response.ToFindHit() : null;
 
         if (IsCacheEnabled && options.ShouldUseCache())
-            await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id.Value, null, 0, routing: id.Routing), options, false).AnyContext();
+        {
+            bool unverifiedMiss = !response.Found
+                && (!String.Equals(Infer.Resolve(request.Id), id.Value, StringComparison.Ordinal)
+                    || !String.Equals(request.Routing is null ? null : Infer.Resolve(request.Routing), id.Routing, StringComparison.Ordinal)
+                    || !String.Equals(Infer.IndexName(request.Index), indexName, StringComparison.Ordinal));
+            var cacheOptions = unverifiedMiss || HasSourceProjection(request.Source, request.SourceIncludes, request.SourceExcludes, request.StoredFields, options)
+                ? options.Clone().BuildOption(SkipIdCacheKey, true)
+                : options;
+            await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id.Value, null, 0, routing: id.Routing), cacheOptions, request.Realtime is false).AnyContext();
+        }
 
         var doc = findHit?.Document;
         return ShouldReturnDocument(doc, options) ? doc : null;
@@ -246,6 +256,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count == 0)
             return GetDocuments(hits, options, captureHit, captureIds);
 
+        HashSet<string>? skipIdCacheIds = null;
+        HashSet<(Id Id, string Index)>? nativeMissingLocations = null;
+
         // Build MultiGetOperation objects for each ID
         var itemsForMultiGet = itemsToFind.Where(i => i.Routing != null || !HasParent).ToList();
         if (itemsForMultiGet.Count > 0)
@@ -278,6 +291,37 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 throw new DocumentException("The multi-get response did not contain one result per requested document.");
 
             var foundHits = multiGetResults.ToFindHits(_logger);
+            if (IsCacheEnabled && options.ShouldUseCache() && !HasCallerSourceProjection(options))
+            {
+                bool isDirtyRead = configuredRequest.Realtime is false;
+                bool skipRequestIdCache = isDirtyRead || HasSourceProjection(configuredRequest.Source, configuredRequest.SourceIncludes,
+                    configuredRequest.SourceExcludes, configuredRequest.StoredFields, options);
+                bool hasSourceContext = configuredRequest.Source is not null || configuredRequest.SourceIncludes is not null || configuredRequest.SourceExcludes is not null;
+                if (configuredRequest.Docs is not null)
+                {
+                    foreach (var document in configuredRequest.Docs)
+                    {
+                        bool skipDocumentIdCache = skipRequestIdCache;
+                        if (!isDirtyRead && document.Source is not null)
+                            skipDocumentIdCache = HasSourceProjection(document.Source, options);
+                        else if (!isDirtyRead && !hasSourceContext && document.StoredFields is not null)
+                            skipDocumentIdCache = HasStoredFieldsWithoutSource(document.StoredFields);
+
+                        if (skipDocumentIdCache)
+                            (skipIdCacheIds ??= new(StringComparer.Ordinal)).Add(Infer.Resolve(document.Id));
+                    }
+                }
+                if (configuredRequest.Ids is not null && skipRequestIdCache)
+                {
+                    // Native ID lists are opaque; include rewritten response IDs and misses from the original selection.
+                    (skipIdCacheIds ??= new(StringComparer.Ordinal)).UnionWith(itemsForMultiGet.Select(id => id.Value));
+                    foreach (var hit in foundHits)
+                    {
+                        if (hit.Id is not null)
+                            skipIdCacheIds.Add(hit.Id);
+                    }
+                }
+            }
             hits.AddRange(foundHits);
             if (requestLocations is not null)
             {
@@ -299,12 +343,44 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 foreach (var hit in foundHits)
                     itemsToFind.Remove(new Id(hit.Id!, hit.Routing));
             }
+
+            if (itemsToFind.Count > 0 && IsCacheEnabled && options.ShouldUseCache())
+            {
+                if (configuredRequest.Ids is null && configuredRequest.Docs is not null)
+                {
+                    foreach (var (document, result) in configuredRequest.Docs.Zip(multiGetResults.Docs))
+                    {
+                        if (!result.Match(static item => item is { Found: false }, static _ => false))
+                            continue;
+
+                        var index = document.Index ?? configuredRequest.Index;
+                        if (index is null)
+                            continue;
+                        var routing = document.Routing ?? configuredRequest.Routing;
+                        var location = new Id(Infer.Resolve(document.Id), routing is null ? null : Infer.Resolve(routing));
+                        (nativeMissingLocations ??= new()).Add((location, Infer.IndexName(index)));
+                    }
+                }
+                else if (configuredRequest.Ids is not null && configuredRequest.Docs is not { Count: > 0 } && configuredRequest.Index is { } defaultIndex)
+                {
+                    string indexName = Infer.IndexName(defaultIndex);
+                    string? routing = configuredRequest.Routing is null ? null : Infer.Resolve(configuredRequest.Routing);
+                    foreach (var result in multiGetResults.Docs)
+                    {
+                        string? missingId = result.Match<string?>(static document => document is { Found: false } ? document.Id : null, static _ => null);
+                        if (missingId is not null)
+                            (nativeMissingLocations ??= new()).Add((new Id(missingId, routing), indexName));
+                    }
+                }
+            }
         }
 
         // fallback to doing a find
+        HashSet<Id>? discoveryRequestedIds = null;
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
             var requestedIds = itemsToFind.ToHashSet();
+            discoveryRequestedIds = requestedIds;
             var foundLocations = hits.Select(hit => (hit.GetIndex(), hit.Id, hit.Routing)).ToHashSet();
             var findOptions = options.Clone().Cache(false).ReadCache(false);
             var discoveryCache = IsCacheEnabled && options.ShouldUseCache() ? new DiscoveryCacheState() : null;
@@ -330,15 +406,22 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 && (findOptions.GetConsistency(DefaultConsistency) is Consistency.Eventual || discoveryCache?.HasUnsafeResults is true))
             {
                 // Discovery can be stale or projected, including misses. Keep those raw-ID groups out of the realtime cache.
-                options = options.Clone().BuildOption(SkipIdCacheIdsKey, requestedIds.Select(id => id.Value).ToHashSet(StringComparer.Ordinal));
+                (skipIdCacheIds ??= new(StringComparer.Ordinal)).UnionWith(requestedIds.Select(id => id.Value));
             }
         }
 
         if (IsCacheEnabled && options.ShouldUseCache())
         {
-            // Add null markers for IDs that were not found (to cache the "not found" result)
+            if (skipIdCacheIds is not null)
+                options = options.Clone().BuildOption(SkipIdCacheIdsKey, skipIdCacheIds);
+
+            // Native hooks can replace targets; cache only misses established for the original selection.
             foreach (var id in itemsToFind)
-                hits.Add(new FindHit<T>(id.Value, null, 0, routing: id.Routing));
+            {
+                if (discoveryRequestedIds?.Contains(id) is true
+                    || nativeMissingLocations?.Contains((id, ElasticIndex.GetIndex(id))) is true)
+                    hits.Add(new FindHit<T>(id.Value, null, 0, routing: id.Routing));
+            }
 
             await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
         }
@@ -1486,18 +1569,54 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (request.Source is null)
             return request.StoredFields?.Any() is true;
-        if (request.Source.TryGetBool(out bool? enabled))
+        return HasSourceProjection(request.Source, options);
+    }
+
+    private bool HasSourceProjection(SourceConfigParam? source, Fields? includes, Fields? excludes, Fields? storedFields, ICommandOptions options)
+    {
+        if (source?.Match(static enabled => enabled is false, static _ => false) is true)
+            return true;
+
+        var effectiveIncludes = includes ?? source?.Match<Fields?>(static _ => null, static fields => fields);
+        if (effectiveIncludes?.Any() is true || HasNonDefaultSourceExcludes(excludes, options))
+            return true;
+
+        return source is null && includes is null && excludes is null && HasStoredFieldsWithoutSource(storedFields);
+    }
+
+    private bool HasSourceProjection(SourceConfig source, ICommandOptions options)
+    {
+        if (source.TryGetBool(out bool? enabled))
             return enabled is false;
-        if (!request.Source.TryGetSourceFilter(out var filter))
+        if (!source.TryGetSourceFilter(out var filter))
             return true;
         if (filter.Includes?.Any() is true || filter.ExcludeVectors is not null)
             return true;
-        if (filter.Excludes?.Any() is not true)
+        return HasNonDefaultSourceExcludes(filter.Excludes, options);
+    }
+
+    private bool HasNonDefaultSourceExcludes(Fields? excludes, ICommandOptions options)
+    {
+        if (excludes?.Any() is not true)
             return false;
 
         // Compare the effective request, including replacement query hooks, with the repository's normal ID-read shape.
         var (_, defaultExcludes) = GetResolvedIncludesAndExcludes(options);
-        return !filter.Excludes.Select(Infer.Field).ToHashSet(StringComparer.Ordinal).SetEquals(defaultExcludes.Select(Infer.Field));
+        return !excludes.Select(Infer.Field).ToHashSet(StringComparer.Ordinal).SetEquals(defaultExcludes.Select(Infer.Field));
+    }
+
+    private bool HasStoredFieldsWithoutSource(Fields? storedFields)
+    {
+        if (storedFields is null)
+            return false;
+
+        foreach (var field in storedFields)
+        {
+            if (Infer.Field(field) is "_source")
+                return false;
+        }
+
+        return true;
     }
 
     private static bool HasCallerSourceProjection(ICommandOptions options)

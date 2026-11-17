@@ -8,6 +8,8 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.MGet;
+using Elastic.Clients.Elasticsearch.Core.Search;
 using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Models;
@@ -75,6 +77,590 @@ public sealed class ProjectionCacheTests
         Assert.NotNull(cachedFull);
         Assert.Equal("full detail", cachedFull.Detail);
         Assert.Equal(2, configuration.Invoker.Reads);
+    }
+
+    [Theory]
+    [InlineData("Include", false, false)]
+    [InlineData("Include", false, true)]
+    [InlineData("Include", true, false)]
+    [InlineData("Include", true, true)]
+    [InlineData("Exclude", false, false)]
+    [InlineData("Exclude", false, true)]
+    [InlineData("Exclude", true, false)]
+    [InlineData("Exclude", true, true)]
+    public async Task IdRead_WithNativeRequestSourceFiltering_DoesNotPopulateUnfilteredIdCache(string restriction, bool multipleIds, bool customCacheKey)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration) { NativeIdSourceProjection = restriction };
+        using var fullRepository = new TestRepository(configuration);
+        var options = new CommandOptions().Cache();
+        if (customCacheKey)
+            options.CacheKey("native-projection");
+
+        IReadOnlyCollection<TestDocument> projected = multipleIds
+            ? await repository.GetByIdsAsync(new Ids("one", "two"), options)
+            : [Assert.IsType<TestDocument>(await repository.GetByIdAsync("one", options))];
+
+        Assert.Equal(multipleIds ? 2 : 1, projected.Count);
+        Assert.All(projected, document =>
+        {
+            Assert.Equal("full name", document.Name);
+            Assert.Null(document.Detail);
+            Assert.Equal("3:10", document.Version);
+        });
+        if (customCacheKey)
+        {
+            IReadOnlyCollection<TestDocument> cachedProjection = multipleIds
+                ? await repository.GetByIdsAsync(new Ids("one", "two"), options)
+                : [Assert.IsType<TestDocument>(await repository.GetByIdAsync("one", options))];
+            Assert.Equal(projected.Count, cachedProjection.Count);
+            Assert.All(cachedProjection, document => Assert.Null(document.Detail));
+            Assert.Equal(1, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+        }
+
+        var full = await fullRepository.GetByIdAsync("one", new CommandOptions().Cache());
+
+        Assert.NotNull(full);
+        Assert.Equal("full detail", full.Detail);
+        Assert.Equal("3:10", full.Version);
+        Assert.Equal(2, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+        var cachedFull = await fullRepository.GetByIdAsync("one", new CommandOptions().Cache());
+        Assert.NotNull(cachedFull);
+        Assert.Equal("full detail", cachedFull.Detail);
+        Assert.Equal(2, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+    }
+
+    [Theory]
+    [InlineData("Include", false)]
+    [InlineData("Include", true)]
+    [InlineData("Exclude", false)]
+    [InlineData("Exclude", true)]
+    [InlineData("Disabled", false)]
+    [InlineData("Disabled", true)]
+    public async Task GetByIdsAsync_WithPerDocumentSourceFiltering_CachesOnlyCompleteIdGroups(string restriction, bool customCacheKey)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration) { NativeMultiGetDocumentProjection = restriction };
+        using var fullRepository = new TestRepository(configuration);
+        var options = new CommandOptions().Cache();
+        if (customCacheKey)
+            options.CacheKey("mixed-native-projection");
+
+        var documents = await repository.GetByIdsAsync(new Ids("one", "two"), options);
+
+        Assert.Equal(restriction is "Disabled" ? 1 : 2, documents.Count);
+        if (restriction is not "Disabled")
+        {
+            var projected = Assert.Single(documents, document => document.Id is "one");
+            Assert.Equal("full name", projected.Name);
+            Assert.Null(projected.Detail);
+        }
+        Assert.Equal("full detail", Assert.Single(documents, document => document.Id is "two").Detail);
+        if (customCacheKey)
+        {
+            var explicitlyCached = await repository.GetCachedHitsAsync("mixed-native-projection");
+            Assert.Equal(2, explicitlyCached.Count);
+            Assert.Null(Assert.Single(explicitlyCached, hit => hit.Id is "one").Document?.Detail);
+            Assert.Equal("full detail", Assert.Single(explicitlyCached, hit => hit.Id is "two").Document?.Detail);
+        }
+        Assert.False(await repository.CacheContainsAsync("one"));
+
+        var full = await fullRepository.GetByIdAsync("one", new CommandOptions().Cache());
+        var cachedComplete = await fullRepository.GetByIdAsync("two", new CommandOptions().Cache());
+
+        Assert.NotNull(full);
+        Assert.Equal("full detail", full.Detail);
+        Assert.NotNull(cachedComplete);
+        Assert.Equal("full detail", cachedComplete.Detail);
+        Assert.Equal(1, configuration.Invoker.Reads);
+        Assert.Equal(1, configuration.Invoker.MultiGets);
+    }
+
+    [Theory]
+    [InlineData("Include")]
+    [InlineData("Exclude")]
+    public async Task GetByIdsAsync_WithNativeProjectionAndEventualDiscovery_KeepsBothIdGroupsOutOfRealtimeCache(string restriction)
+    {
+        using var configuration = new TestConfiguration();
+        configuration.Invoker.SearchIds = ["two"];
+        configuration.Invoker.SearchRouting = "discovered-parent";
+        configuration.Invoker.SearchName = "stale name";
+        configuration.Invoker.RealtimeName = "current name";
+        configuration.Invoker.RealtimeSequenceNumber = 11;
+        using var repository = new TestRepository(configuration, hasParent: true) { NativeMultiGetDocumentProjection = restriction };
+        using var fullRepository = new TestRepository(configuration, hasParent: true);
+        var ids = new Ids(new Id("one", "known-parent"), new Id("two"));
+
+        var documents = await repository.GetByIdsAsync(ids, new CommandOptions().Cache("mixed-native-discovery"));
+
+        Assert.Equal(2, documents.Count);
+        var projected = Assert.Single(documents, document => document.Id is "one");
+        Assert.Equal("current name", projected.Name);
+        Assert.Null(projected.Detail);
+        Assert.Equal("stale name", Assert.Single(documents, document => document.Id is "two").Name);
+        Assert.False(await repository.CacheContainsAsync("one"));
+        Assert.False(await repository.CacheContainsAsync("two"));
+        var explicitlyCached = await repository.GetCachedHitsAsync("mixed-native-discovery");
+        Assert.Equal(2, explicitlyCached.Count);
+        Assert.Null(Assert.Single(explicitlyCached, hit => hit.Id is "one").Document?.Detail);
+        Assert.Equal("stale name", Assert.Single(explicitlyCached, hit => hit.Id is "two").Document?.Name);
+
+        var complete = await fullRepository.GetByIdAsync(new Id("one", "known-parent"), new CommandOptions().Cache());
+        var current = await fullRepository.GetByIdAsync(new Id("two", "discovered-parent"), new CommandOptions().Cache());
+
+        Assert.NotNull(complete);
+        Assert.Equal("full detail", complete.Detail);
+        Assert.NotNull(current);
+        Assert.Equal("current name", current.Name);
+        Assert.Equal("3:11", current.Version);
+        Assert.Equal(2, configuration.Invoker.Reads);
+        Assert.Equal(1, configuration.Invoker.MultiGets);
+        Assert.Equal(1, configuration.Invoker.Searches);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task IdRead_WithNativeSourceSwitch_OnlyCachesCompleteIdResults(bool enabled, bool multipleIds, bool customCacheKey)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration) { NativeIdSourceProjection = enabled ? "Enabled" : "Disabled" };
+        using var fullRepository = new TestRepository(configuration);
+        var options = new CommandOptions().Cache();
+        if (customCacheKey)
+            options.CacheKey("native-source-switch");
+
+        if (multipleIds)
+        {
+            var documents = await repository.GetByIdsAsync(new Ids("one", "two"), options);
+            Assert.Equal(enabled ? 2 : 0, documents.Count);
+            Assert.Equal(enabled, await repository.CacheContainsAsync("two"));
+        }
+        else
+        {
+            var document = await repository.GetByIdAsync("one", options);
+            Assert.Equal(enabled, document is not null);
+        }
+        Assert.Equal(enabled, await repository.CacheContainsAsync("one"));
+        if (customCacheKey)
+        {
+            var explicitlyCached = await repository.GetCachedHitsAsync("native-source-switch");
+            Assert.Equal(multipleIds ? 2 : 1, explicitlyCached.Count);
+            Assert.All(explicitlyCached, hit => Assert.Equal(enabled, hit.Document is not null));
+        }
+
+        var full = await fullRepository.GetByIdAsync("one", new CommandOptions().Cache());
+
+        Assert.NotNull(full);
+        Assert.Equal("full detail", full.Detail);
+        Assert.Equal(enabled ? 1 : 2, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task IdRead_WithNativeRealtimeDisabled_DoesNotPopulateRealtimeIdCache(bool multipleIds, bool customCacheKey, bool immediateConsistency)
+    {
+        using var configuration = new TestConfiguration();
+        configuration.Invoker.SearchName = "stale name";
+        configuration.Invoker.RealtimeName = "current name";
+        configuration.Invoker.RealtimeSequenceNumber = 11;
+        using var repository = new TestRepository(configuration) { NativeRealtime = false };
+        using var realtimeRepository = new TestRepository(configuration);
+        var options = new CommandOptions().Cache();
+        if (customCacheKey)
+            options.CacheKey("near-realtime-result");
+        if (immediateConsistency)
+            options.ImmediateConsistency();
+
+        IReadOnlyCollection<TestDocument> documents = multipleIds
+            ? await repository.GetByIdsAsync(new Ids("one", "two"), options)
+            : [Assert.IsType<TestDocument>(await repository.GetByIdAsync("one", options))];
+
+        Assert.Equal(multipleIds ? 2 : 1, documents.Count);
+        Assert.All(documents, document =>
+        {
+            Assert.Equal("stale name", document.Name);
+            Assert.Equal("3:10", document.Version);
+        });
+        if (customCacheKey)
+        {
+            IReadOnlyCollection<TestDocument> cached = multipleIds
+                ? await repository.GetByIdsAsync(new Ids("one", "two"), options)
+                : [Assert.IsType<TestDocument>(await repository.GetByIdAsync("one", options))];
+            Assert.Equal(documents.Count, cached.Count);
+            Assert.All(cached, document => Assert.Equal("stale name", document.Name));
+            Assert.Equal(1, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+        }
+
+        var current = await realtimeRepository.GetByIdAsync("one", new CommandOptions().Cache());
+
+        Assert.NotNull(current);
+        Assert.Equal("current name", current.Name);
+        Assert.Equal("3:11", current.Version);
+        Assert.Equal(2, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+        var cachedCurrent = await realtimeRepository.GetByIdAsync("one", new CommandOptions().Cache());
+        Assert.NotNull(cachedCurrent);
+        Assert.Equal("current name", cachedCurrent.Name);
+        Assert.Equal("3:11", cachedCurrent.Version);
+        Assert.Equal(2, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+    }
+
+    [Theory]
+    [InlineData("Empty", false, false)]
+    [InlineData("Empty", true, false)]
+    [InlineData("Named", false, false)]
+    [InlineData("Named", true, false)]
+    [InlineData("StoredSource", false, true)]
+    [InlineData("StoredSource", true, true)]
+    [InlineData("EnabledSource", false, true)]
+    [InlineData("EnabledSource", true, true)]
+    [InlineData("DefaultExclude", false, true)]
+    [InlineData("DefaultExclude", true, true)]
+    public async Task IdRead_WithNativeStoredFields_PreservesSourceAndCacheEligibility(string setting, bool multipleIds, bool returnsSource)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration, defaultExclude: setting is "DefaultExclude")
+        {
+            NativeStoredFields = setting switch
+            {
+                "Empty" => [],
+                "StoredSource" => ["_source"],
+                _ => ["name"]
+            },
+            NativeIdSourceProjection = setting is "EnabledSource" ? "Enabled" : null
+        };
+        using var fullRepository = new TestRepository(configuration, defaultExclude: setting is "DefaultExclude");
+        var options = new CommandOptions().Cache("native-stored-fields");
+
+        IReadOnlyCollection<TestDocument> documents;
+        if (multipleIds)
+            documents = await repository.GetByIdsAsync(new Ids("one", "two"), options);
+        else
+        {
+            var document = await repository.GetByIdAsync("one", options);
+            documents = document is not null ? [document] : [];
+        }
+
+        Assert.Equal(returnsSource ? (multipleIds ? 2 : 1) : 0, documents.Count);
+        Assert.All(documents, document =>
+        {
+            Assert.Equal("full name", document.Name);
+            Assert.Equal(setting is "DefaultExclude" ? null : "full detail", document.Detail);
+        });
+        Assert.Equal(returnsSource, await repository.CacheContainsAsync("one"));
+        if (multipleIds)
+            Assert.Equal(returnsSource, await repository.CacheContainsAsync("two"));
+        var explicitlyCached = await repository.GetCachedHitsAsync("native-stored-fields");
+        Assert.Equal(multipleIds ? 2 : 1, explicitlyCached.Count);
+        Assert.All(explicitlyCached, hit => Assert.Equal(returnsSource, hit.Document is not null));
+
+        var full = await fullRepository.GetByIdAsync("one", new CommandOptions().Cache());
+
+        Assert.NotNull(full);
+        Assert.Equal(setting is "DefaultExclude" ? null : "full detail", full.Detail);
+        Assert.Equal(returnsSource ? 1 : 2, configuration.Invoker.Reads + configuration.Invoker.MultiGets);
+    }
+
+    [Theory]
+    [InlineData("Exclude", "Enabled", true, false)]
+    [InlineData("Disabled", "Enabled", true, false)]
+    [InlineData("Enabled", "Fields", true, true)]
+    [InlineData("Fields", "StoredSource", true, false)]
+    [InlineData("StoredSource", "Fields", false, true)]
+    [InlineData("Disabled", "StoredSource", false, false)]
+    public async Task GetByIdsAsync_WithNativeDocumentSourceOverrides_PreservesCompleteGroups(string requestSetting, string documentSetting, bool firstComplete, bool secondComplete)
+    {
+        using var configuration = new TestConfiguration();
+        using var repository = new TestRepository(configuration)
+        {
+            NativeIdSourceProjection = requestSetting,
+            NativeStoredFields = requestSetting switch
+            {
+                "Fields" => ["name"],
+                "StoredSource" => ["_source"],
+                _ => null
+            },
+            NativeMultiGetDocumentProjection = documentSetting is "Enabled" ? "Enabled" : null,
+            NativeMultiGetDocumentStoredFields = documentSetting switch
+            {
+                "Fields" => ["name"],
+                "StoredSource" => ["_source"],
+                _ => null
+            }
+        };
+        using var fullRepository = new TestRepository(configuration);
+
+        var documents = await repository.GetByIdsAsync(new Ids("one", "two"), new CommandOptions().Cache("native-document-overrides"));
+
+        var first = documents.SingleOrDefault(document => document.Id is "one");
+        Assert.Equal(firstComplete, first is not null);
+        if (firstComplete)
+            Assert.Equal("full detail", first!.Detail);
+        var second = documents.SingleOrDefault(document => document.Id is "two");
+        if (requestSetting is "Exclude")
+        {
+            Assert.NotNull(second);
+            Assert.Equal("full name", second.Name);
+            Assert.Null(second.Detail);
+        }
+        else
+        {
+            Assert.Equal(secondComplete, second is not null);
+            if (secondComplete)
+                Assert.Equal("full detail", second!.Detail);
+        }
+        Assert.Equal(firstComplete, await repository.CacheContainsAsync("one"));
+        Assert.Equal(secondComplete, await repository.CacheContainsAsync("two"));
+        Assert.Equal(2, (await repository.GetCachedHitsAsync("native-document-overrides")).Count);
+
+        var full = await fullRepository.GetByIdsAsync(new Ids("one", "two"), new CommandOptions().Cache());
+
+        Assert.Equal(2, full.Count);
+        Assert.All(full, document => Assert.Equal("full detail", document.Detail));
+        Assert.Equal(firstComplete && secondComplete ? 1 : 2, configuration.Invoker.MultiGets);
+        Assert.Equal(0, configuration.Invoker.Searches);
+    }
+
+    [Theory]
+    [InlineData("Include", false)]
+    [InlineData("Include", true)]
+    [InlineData("Exclude", false)]
+    [InlineData("Exclude", true)]
+    [InlineData("SourceFields", false)]
+    [InlineData("SourceFields", true)]
+    [InlineData("Disabled", false)]
+    [InlineData("Disabled", true)]
+    [InlineData("NearRealtime", false)]
+    [InlineData("NearRealtime", true)]
+    [InlineData("Enabled", false)]
+    [InlineData("Enabled", true)]
+    public async Task GetByIdsAsync_WithNativeIdsRequest_CachesOnlyCompleteRealtimeDocuments(string setting, bool customCacheKey)
+    {
+        using var configuration = new TestConfiguration();
+        configuration.Invoker.SearchName = "stale name";
+        configuration.Invoker.RealtimeName = "current name";
+        configuration.Invoker.RealtimeSequenceNumber = 11;
+        using var repository = new TestRepository(configuration)
+        {
+            NativeMultiGetUsesIds = true,
+            NativeIdSourceProjection = setting,
+            NativeRealtime = setting is "NearRealtime" ? false : null
+        };
+        using var fullRepository = new TestRepository(configuration);
+        var options = new CommandOptions().Cache();
+        if (customCacheKey)
+            options.CacheKey("native-ids-result");
+
+        var documents = await repository.GetByIdsAsync(new Ids("one", "two"), options);
+
+        Assert.Equal(setting is "Disabled" ? 0 : 2, documents.Count);
+        Assert.All(documents, document =>
+        {
+            Assert.Equal(setting is "NearRealtime" ? "stale name" : "current name", document.Name);
+            Assert.Equal(setting is "Include" or "Exclude" or "SourceFields" ? null : "full detail", document.Detail);
+        });
+        Assert.Equal(1, configuration.Invoker.NativeIdsRequests);
+        Assert.Equal(setting is "Enabled", await repository.CacheContainsAsync("one"));
+        Assert.Equal(setting is "Enabled", await repository.CacheContainsAsync("two"));
+        if (customCacheKey)
+        {
+            var explicitlyCached = await repository.GetCachedHitsAsync("native-ids-result");
+            Assert.Equal(2, explicitlyCached.Count);
+            Assert.All(explicitlyCached, hit => Assert.Equal(setting is not "Disabled", hit.Document is not null));
+            if (setting is not "Disabled")
+            {
+                var cached = await repository.GetByIdsAsync(new Ids("one", "two"), options);
+                Assert.Equal(2, cached.Count);
+                Assert.Equal(1, configuration.Invoker.MultiGets);
+            }
+        }
+
+        var full = await fullRepository.GetByIdsAsync(new Ids("one", "two"), new CommandOptions().Cache());
+
+        Assert.Equal(2, full.Count);
+        Assert.All(full, document =>
+        {
+            Assert.Equal("current name", document.Name);
+            Assert.Equal("full detail", document.Detail);
+            Assert.Equal("3:11", document.Version);
+        });
+        Assert.Equal(setting is "Enabled" ? 1 : 2, configuration.Invoker.MultiGets);
+        Assert.Equal(1, configuration.Invoker.NativeIdsRequests);
+        Assert.Equal(0, configuration.Invoker.Searches);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetByIdsAsync_WithNativeIdOverride_PreservesTheUnrequestedCachedDocument(bool useNativeIds)
+    {
+        using var configuration = new TestConfiguration();
+        using var fullRepository = new TestRepository(configuration);
+        var original = await fullRepository.GetByIdAsync("one", new CommandOptions().Cache());
+        Assert.NotNull(original);
+        using var repository = new TestRepository(configuration)
+        {
+            NativeMultiGetIdOverride = "two",
+            NativeMultiGetUsesIds = useNativeIds
+        };
+
+        var documents = await repository.GetByIdsAsync(new Ids("one"), new CommandOptions().Cache("native-id-override").ReadCache(false));
+
+        var selected = Assert.Single(documents);
+        Assert.Equal("two", selected.Id);
+        Assert.Equal("full detail", selected.Detail);
+        var cachedSelected = Assert.Single(await repository.GetCachedHitsAsync("two"));
+        Assert.NotNull(cachedSelected.Document);
+        Assert.Equal("full detail", cachedSelected.Document.Detail);
+        var explicitlyCached = Assert.Single(await repository.GetCachedHitsAsync("native-id-override"), hit => hit.Id is "two");
+        Assert.NotNull(explicitlyCached.Document);
+
+        var cachedOriginal = Assert.Single(await fullRepository.GetByIdsAsync(new Ids("one"), new CommandOptions().Cache()));
+
+        Assert.Equal("one", cachedOriginal.Id);
+        Assert.Equal("full detail", cachedOriginal.Detail);
+        Assert.Equal(1, configuration.Invoker.Reads);
+        Assert.Equal(1, configuration.Invoker.MultiGets);
+        Assert.Equal(useNativeIds ? 1 : 0, configuration.Invoker.NativeIdsRequests);
+        Assert.Equal(0, configuration.Invoker.Searches);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetByIdsAsync_WithNativeRoutingOverride_CachesTheOriginalMissOnlyAfterDiscovery(bool discoverOriginalMiss)
+    {
+        using var configuration = new TestConfiguration();
+        var originalId = new Id("one", "original-parent");
+        using var fullRepository = new TestRepository(configuration, hasParent: discoverOriginalMiss);
+        Assert.NotNull(await fullRepository.GetByIdAsync(originalId, new CommandOptions().Cache()));
+        configuration.Invoker.MissingLocations.Add(new Id("one", "different-parent"));
+        if (discoverOriginalMiss)
+        {
+            configuration.Invoker.MissingLocations.Add(originalId);
+            configuration.Invoker.SearchReturnsNoHits = true;
+        }
+        using var repository = new TestRepository(configuration, hasParent: discoverOriginalMiss)
+        {
+            NativeMultiGetRoutingOverride = "different-parent"
+        };
+
+        var documents = await repository.GetByIdsAsync(new Ids(originalId), new CommandOptions()
+            .Cache("native-routing-override").ReadCache(false).ImmediateConsistency());
+
+        Assert.Empty(documents);
+        Assert.Equal(discoverOriginalMiss ? 1 : 0, configuration.Invoker.Searches);
+        if (discoverOriginalMiss)
+        {
+            var missing = Assert.Single(await repository.GetCachedHitsAsync("one"));
+            Assert.Null(missing.Document);
+            Assert.Equal("original-parent", missing.Routing);
+            var explicitlyCached = Assert.Single(await repository.GetCachedHitsAsync("native-routing-override"));
+            Assert.Null(explicitlyCached.Document);
+            Assert.Equal("original-parent", explicitlyCached.Routing);
+        }
+        else
+        {
+            var original = Assert.Single(await fullRepository.GetByIdsAsync(new Ids(originalId), new CommandOptions().Cache()));
+            Assert.Equal("one", original.Id);
+            Assert.Equal("full detail", original.Detail);
+        }
+        Assert.Equal(1, configuration.Invoker.Reads);
+        Assert.Equal(1, configuration.Invoker.MultiGets);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithNativeMissingDocument_RetainsTheMissMarkerAndRetriesLaterReads()
+    {
+        using var configuration = new TestConfiguration();
+        configuration.Invoker.MissingLocations.Add(new Id("missing"));
+        using var repository = new TestRepository(configuration);
+
+        var documents = await repository.GetByIdsAsync(new Ids("missing"), new CommandOptions().Cache("native-missing"));
+
+        Assert.Empty(documents);
+        var missing = Assert.Single(await repository.GetCachedHitsAsync("missing"));
+        Assert.Equal("missing", missing.Id);
+        Assert.Null(missing.Document);
+        var explicitlyCached = Assert.Single(await repository.GetCachedHitsAsync("native-missing"));
+        Assert.Equal("missing", explicitlyCached.Id);
+        Assert.Null(explicitlyCached.Document);
+
+        Assert.Empty(await repository.GetByIdsAsync(new Ids("missing"), new CommandOptions().Cache()));
+        Assert.Equal(2, configuration.Invoker.MultiGets);
+        Assert.Equal(0, configuration.Invoker.Searches);
+    }
+
+    [Theory]
+    [InlineData("Id")]
+    [InlineData("Routing")]
+    [InlineData("Index")]
+    public async Task GetByIdAsync_WithNativeTargetOverride_PreservesTheUnrequestedCachedDocument(string target)
+    {
+        using var configuration = new TestConfiguration();
+        var originalId = new Id("one", target is "Routing" ? "original-parent" : null);
+        using var fullRepository = new TestRepository(configuration);
+        Assert.NotNull(await fullRepository.GetByIdAsync(originalId, new CommandOptions().Cache()));
+        if (target is "Index")
+            configuration.Invoker.MissingIndexLocations.Add(("different-index", originalId));
+        else
+            configuration.Invoker.MissingLocations.Add(target is "Id" ? new Id("two") : new Id("one", "different-parent"));
+        using var repository = new TestRepository(configuration)
+        {
+            NativeGetIdOverride = target is "Id" ? "two" : null,
+            NativeGetRoutingOverride = target is "Routing" ? "different-parent" : null,
+            NativeGetIndexOverride = target is "Index" ? "different-index" : null
+        };
+
+        var missing = await repository.GetByIdAsync(originalId, new CommandOptions().Cache("native-get-override").ReadCache(false));
+
+        Assert.Null(missing);
+        var explicitlyCached = Assert.Single(await repository.GetCachedHitsAsync("native-get-override"));
+        Assert.Null(explicitlyCached.Document);
+
+        var original = await fullRepository.GetByIdAsync(originalId, new CommandOptions().Cache());
+
+        Assert.NotNull(original);
+        Assert.Equal("one", original.Id);
+        Assert.Equal("full detail", original.Detail);
+        Assert.Equal(2, configuration.Invoker.Reads);
+        Assert.Equal(0, configuration.Invoker.MultiGets);
+        Assert.Equal(0, configuration.Invoker.Searches);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithNativeMissingDocument_RetainsTheMissMarkerAndRetriesLaterReads()
+    {
+        using var configuration = new TestConfiguration();
+        configuration.Invoker.MissingLocations.Add(new Id("missing"));
+        using var repository = new TestRepository(configuration);
+
+        Assert.Null(await repository.GetByIdAsync("missing", new CommandOptions().Cache("native-get-missing")));
+
+        var missing = Assert.Single(await repository.GetCachedHitsAsync("missing"));
+        Assert.Equal("missing", missing.Id);
+        Assert.Null(missing.Document);
+        var explicitlyCached = Assert.Single(await repository.GetCachedHitsAsync("native-get-missing"));
+        Assert.Equal("missing", explicitlyCached.Id);
+        Assert.Null(explicitlyCached.Document);
+
+        Assert.Null(await repository.GetByIdAsync("missing", new CommandOptions().Cache()));
+        Assert.Equal(2, configuration.Invoker.Reads);
+        Assert.Equal(0, configuration.Invoker.MultiGets);
+        Assert.Equal(0, configuration.Invoker.Searches);
     }
 
     [Theory]
@@ -760,6 +1346,17 @@ public sealed class ProjectionCacheTests
         public bool CloneOptions { get; set; }
         public int? PageLimitOverride { get; set; }
         public string? NativeSourceProjection { get; set; }
+        public string? NativeIdSourceProjection { get; set; }
+        public string? NativeMultiGetDocumentProjection { get; set; }
+        public Field[]? NativeStoredFields { get; set; }
+        public Field[]? NativeMultiGetDocumentStoredFields { get; set; }
+        public bool NativeMultiGetUsesIds { get; set; }
+        public string? NativeMultiGetIdOverride { get; set; }
+        public string? NativeMultiGetRoutingOverride { get; set; }
+        public string? NativeGetIdOverride { get; set; }
+        public string? NativeGetRoutingOverride { get; set; }
+        public string? NativeGetIndexOverride { get; set; }
+        public bool? NativeRealtime { get; set; }
         public int ProjectionStartingPage { get; set; } = 1;
 
         public Task<bool> CacheContainsAsync(string key) => Cache.ExistsAsync(key);
@@ -782,6 +1379,102 @@ public sealed class ProjectionCacheTests
             if (PageLimitOverride is { } limit)
                 configured.PageLimit(limit);
             return configured;
+        }
+
+        protected override void ConfigureGetRequest(GetRequest request, ICommandOptions options)
+        {
+            base.ConfigureGetRequest(request, options);
+            if (NativeGetIdOverride is not null)
+                request.Id = NativeGetIdOverride;
+            if (NativeGetRoutingOverride is not null)
+                request.Routing = NativeGetRoutingOverride;
+            if (NativeGetIndexOverride is not null)
+                request.Index = NativeGetIndexOverride;
+            if (NativeRealtime is { } realtime)
+                request.Realtime = realtime;
+            if (NativeStoredFields is not null)
+                request.StoredFields = NativeStoredFields;
+            switch (NativeIdSourceProjection)
+            {
+                case "Include":
+                    request.SourceIncludes = new Field[] { "id", "name" };
+                    break;
+                case "Exclude":
+                    request.SourceExcludes = new Field[] { "detail" };
+                    break;
+                case "SourceFields":
+                    request.Source = new SourceConfigParam(new Field[] { "id", "name" });
+                    break;
+                case "Enabled":
+                case "Disabled":
+                    request.Source = new SourceConfigParam(NativeIdSourceProjection is "Enabled");
+                    break;
+            }
+        }
+
+        protected override void ConfigureMultiGetRequest(MultiGetRequestDescriptor request, ICommandOptions options)
+        {
+            base.ConfigureMultiGetRequest(request, options);
+            if (NativeRealtime is { } realtime)
+                request.Realtime(realtime);
+            if (NativeStoredFields is not null)
+                request.StoredFields(NativeStoredFields);
+            switch (NativeIdSourceProjection)
+            {
+                case "Include":
+                    request.SourceIncludes(new Field[] { "id", "name" });
+                    break;
+                case "Exclude":
+                    request.SourceExcludes(new Field[] { "detail" });
+                    break;
+                case "SourceFields":
+                    request.Source(new SourceConfigParam(new Field[] { "id", "name" }));
+                    break;
+                case "Enabled":
+                case "Disabled":
+                    request.Source(new SourceConfigParam(NativeIdSourceProjection is "Enabled"));
+                    break;
+            }
+
+            if (NativeMultiGetDocumentProjection is not null)
+            {
+                MultiGetRequest configured = request;
+                var document = Assert.Single(configured.Docs!, document => Infer.Resolve(document.Id) is "one");
+                document.Source = NativeMultiGetDocumentProjection switch
+                {
+                    "Include" => new SourceConfig(new SourceFilter { Includes = new Field[] { "id", "name" } }),
+                    "Exclude" => new SourceConfig(new SourceFilter { Excludes = new Field[] { "detail" } }),
+                    "Enabled" => new SourceConfig(true),
+                    "Disabled" => new SourceConfig(false),
+                    _ => throw new ArgumentException("Unknown source restriction.")
+                };
+            }
+
+            if (NativeMultiGetDocumentStoredFields is not null)
+            {
+                MultiGetRequest configured = request;
+                var document = Assert.Single(configured.Docs!, document => Infer.Resolve(document.Id) is "one");
+                document.StoredFields = NativeMultiGetDocumentStoredFields;
+            }
+
+            if (NativeMultiGetIdOverride is not null || NativeMultiGetRoutingOverride is not null)
+            {
+                MultiGetRequest configured = request;
+                foreach (var document in configured.Docs!)
+                {
+                    if (NativeMultiGetIdOverride is not null)
+                        document.Id = NativeMultiGetIdOverride;
+                    if (NativeMultiGetRoutingOverride is not null)
+                        document.Routing = NativeMultiGetRoutingOverride;
+                }
+            }
+
+            if (NativeMultiGetUsesIds)
+            {
+                MultiGetRequest configured = request;
+                string[] ids = configured.Docs!.Select(document => Infer.Resolve(document.Id)).ToArray();
+                request.Docs((ICollection<MultiGetOperation>?)null).Index("projection-cache-tests").Ids(ids);
+            }
         }
 
         protected override async Task<SearchRequestDescriptor<TestDocument>> ConfigureSearchDescriptorAsync(SearchRequestDescriptor<TestDocument> search, IRepositoryQuery query, ICommandOptions options)
@@ -817,6 +1510,7 @@ public sealed class ProjectionCacheTests
         public ResponseFactory ResponseFactory => _owner.ResponseFactory;
         public int Reads { get; private set; }
         public int MultiGets { get; private set; }
+        public int NativeIdsRequests { get; private set; }
         public int Searches { get; private set; }
         public bool SearchReturnsNoHits { get; set; }
         public string[] SearchIds { get; set; } = ["one"];
@@ -825,6 +1519,8 @@ public sealed class ProjectionCacheTests
         public string RealtimeName { get; set; } = "full name";
         public long RealtimeSequenceNumber { get; set; } = 10;
         public HashSet<string> DeletedIds { get; } = [];
+        public HashSet<Id> MissingLocations { get; } = [];
+        public HashSet<(string Index, Id Id)> MissingIndexLocations { get; } = [];
         public string[] LastSourceExcludes { get; private set; } = [];
         public string? LastSearchPath { get; private set; }
         public List<JsonElement> WrittenSources { get; } = [];
@@ -894,14 +1590,36 @@ public sealed class ProjectionCacheTests
                 using var requestStream = new MemoryStream();
                 postData.Write(requestStream, boundConfiguration.ConnectionSettings, false);
                 using var request = JsonDocument.Parse(requestStream.ToArray());
-                var includes = parameters.TryGetValue("_source_includes", out string? include) ? include.Split(',').ToHashSet() : [];
-                var excludes = parameters.TryGetValue("_source_excludes", out string? exclude) ? exclude.Split(',').ToHashSet() : [];
-                var docs = request.RootElement.GetProperty("docs").EnumerateArray().Select(document =>
+                bool realtime = parameters.GetValueOrDefault("realtime") is not "false";
+                var docs = new List<object>();
+                if (request.RootElement.TryGetProperty("docs", out var documentOperations))
                 {
-                    string id = document.GetProperty("_id").GetString()!;
-                    string? routing = document.TryGetProperty("routing", out var route) ? route.GetString() : null;
-                    return new { _index = "projection-cache-tests", _id = id, _routing = routing, found = true, _seq_no = RealtimeSequenceNumber, _primary_term = 3, _source = FilterSource(includes, excludes, id, RealtimeName) };
-                }).ToArray();
+                    foreach (var document in documentOperations.EnumerateArray())
+                    {
+                        string id = document.GetProperty("_id").GetString()!;
+                        string? routing = document.TryGetProperty("routing", out var route) ? route.GetString() : parameters.GetValueOrDefault("routing");
+                        if (MissingLocations.Contains(new Id(id, routing)))
+                        {
+                            docs.Add(new { _index = "projection-cache-tests", _id = id, found = false });
+                            continue;
+                        }
+                        docs.Add(new { _index = "projection-cache-tests", _id = id, _routing = routing, found = true, _seq_no = realtime ? RealtimeSequenceNumber : 10, _primary_term = 3, _source = GetIdSource(parameters, document, id, realtime ? RealtimeName : SearchName) });
+                    }
+                }
+                if (request.RootElement.TryGetProperty("ids", out var ids))
+                {
+                    NativeIdsRequests++;
+                    foreach (var value in ids.EnumerateArray())
+                    {
+                        string id = value.GetString()!;
+                        if (MissingLocations.Contains(new Id(id, parameters.GetValueOrDefault("routing"))))
+                        {
+                            docs.Add(new { _index = "projection-cache-tests", _id = id, found = false });
+                            continue;
+                        }
+                        docs.Add(new { _index = "projection-cache-tests", _id = id, _routing = parameters.GetValueOrDefault("routing"), found = true, _seq_no = realtime ? RealtimeSequenceNumber : 10, _primary_term = 3, _source = GetIdSource(parameters, default, id, realtime ? RealtimeName : SearchName) });
+                    }
+                }
                 response = new { docs };
             }
             else if (endpoint.PathAndQuery.Contains("_search", StringComparison.Ordinal))
@@ -928,16 +1646,47 @@ public sealed class ProjectionCacheTests
                 const string documentMarker = "/_doc/";
                 int documentOffset = path.IndexOf(documentMarker, StringComparison.Ordinal);
                 Assert.True(documentOffset >= 0);
+                string index = Uri.UnescapeDataString(path[..documentOffset].Trim('/'));
                 string id = Uri.UnescapeDataString(path[(documentOffset + documentMarker.Length)..]);
                 Reads++;
-                var includes = parameters.TryGetValue("_source_includes", out string? include) ? include.Split(',').ToHashSet() : [];
-                var excludes = parameters.TryGetValue("_source_excludes", out string? exclude) ? exclude.Split(',').ToHashSet() : [];
-                response = new { _index = "projection-cache-tests", _id = id, _routing = parameters.GetValueOrDefault("routing"), found = true, _seq_no = RealtimeSequenceNumber, _primary_term = 3, _source = FilterSource(includes, excludes, id, RealtimeName) };
+                bool realtime = parameters.GetValueOrDefault("realtime") is not "false";
+                var location = new Id(id, parameters.GetValueOrDefault("routing"));
+                response = MissingLocations.Contains(location) || MissingIndexLocations.Contains((index, location))
+                    ? (object)new { _index = index, _id = id, found = false }
+                    : new { _index = index, _id = id, _routing = location.Routing, found = true, _seq_no = realtime ? RealtimeSequenceNumber : 10, _primary_term = 3, _source = GetIdSource(parameters, default, id, realtime ? RealtimeName : SearchName) };
             }
 
             byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(response);
             using var stream = new MemoryStream(bytes);
             return ResponseFactory.Create<TResponse>(endpoint, boundConfiguration, postData, null, 200, _headers, stream, "application/json", bytes.Length, null, null);
+        }
+
+        private Dictionary<string, object>? GetIdSource(Dictionary<string, string> parameters, JsonElement document, string id, string name)
+        {
+            string? source = parameters.GetValueOrDefault("_source");
+            bool hasSourceContext = source is not null || parameters.ContainsKey("_source_includes") || parameters.ContainsKey("_source_excludes");
+            bool sourceEnabled = source is not "false";
+            var includes = parameters.TryGetValue("_source_includes", out string? include)
+                ? include.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet()
+                : source is not null and not "true" and not "false" ? source.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet() : [];
+            var excludes = parameters.TryGetValue("_source_excludes", out string? exclude) ? exclude.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet() : [];
+            HashSet<string>? storedFields = parameters.TryGetValue("stored_fields", out string? fields) ? fields.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet() : null;
+            if (document.ValueKind is JsonValueKind.Object)
+            {
+                if (document.TryGetProperty("_source", out var documentSource))
+                {
+                    hasSourceContext = true;
+                    sourceEnabled = documentSource.ValueKind is not JsonValueKind.False;
+                    includes = ReadFields(documentSource, "includes");
+                    excludes = ReadFields(documentSource, "excludes");
+                }
+                if (document.TryGetProperty("stored_fields", out _))
+                    storedFields = ReadFields(document, "stored_fields");
+            }
+            if (!hasSourceContext && storedFields is not null && !storedFields.Contains("_source"))
+                sourceEnabled = false;
+
+            return sourceEnabled ? FilterSource(includes, excludes, id, name) : null;
         }
 
         private Dictionary<string, object> FilterSource(HashSet<string> includes, HashSet<string> excludes, string id, string name)
@@ -954,7 +1703,7 @@ public sealed class ProjectionCacheTests
         }
 
         private static bool MatchesField(string pattern, string field) =>
-            Regex.IsMatch(field, "\\A" + Regex.Escape(pattern).Replace("\\*", ".*", StringComparison.Ordinal) + "\\z", RegexOptions.CultureInvariant | RegexOptions.Singleline);
+            Regex.IsMatch(field, "\\A" + Regex.Escape(pattern).Replace("\\*", ".*", StringComparison.Ordinal) + "\\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Singleline);
 
         private static HashSet<string> ReadFields(JsonElement sourceFilter, string name)
         {
