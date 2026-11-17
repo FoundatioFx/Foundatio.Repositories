@@ -32,6 +32,7 @@ public static class ElasticIndexExtensions
     {
         var asyncSearchRequest = new SubmitAsyncSearchRequest(searchRequest.Indices)
         {
+            AllowPartialSearchResults = searchRequest.AllowPartialSearchResults,
             Aggregations = searchRequest.Aggregations,
             Collapse = searchRequest.Collapse,
             DocvalueFields = searchRequest.DocvalueFields,

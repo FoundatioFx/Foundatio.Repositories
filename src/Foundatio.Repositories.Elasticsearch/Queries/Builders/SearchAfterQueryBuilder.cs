@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -30,6 +31,22 @@ namespace Foundatio.Repositories
         internal const string RepoOwnedPointInTimeKey = "@RepoOwnedPointInTime";
         internal const string UnstableSortWarnedKey = "@SearchAfterUnstableSortWarned";
 
+        internal sealed class PointInTimeContext(string id)
+        {
+            private string? _id = id;
+
+            internal string? Id => Volatile.Read(ref _id);
+
+            internal void Update(string id)
+            {
+                string? current = Id;
+                if (current is not null)
+                    Interlocked.CompareExchange(ref _id, id, current);
+            }
+
+            internal string? Release() => Interlocked.Exchange(ref _id, null);
+        }
+
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
             return options.BuildOption(SearchAfterPagingKey, enabled);
@@ -43,7 +60,7 @@ namespace Foundatio.Repositories
 
         public static T PointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
         {
-            options.RepoOwnedPointInTime(false);
+            options.Values.Remove(RepoOwnedPointInTimeKey);
             if (!String.IsNullOrEmpty(pointInTimeId))
                 options.Values.Set(PointInTimeIdKey, pointInTimeId);
             else
@@ -52,9 +69,25 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        internal static T RepoOwnedPointInTime<T>(this T options, bool repoOwned = true) where T : ICommandOptions
+        internal static T RepoOwnedPointInTime<T>(this T options, string pointInTimeId) where T : ICommandOptions
         {
-            return options.BuildOption(RepoOwnedPointInTimeKey, repoOwned);
+            return options.BuildOption(RepoOwnedPointInTimeKey, new PointInTimeContext(pointInTimeId));
+        }
+
+        internal static void UpdatePointInTimeId(this ICommandOptions options, string? pointInTimeId)
+        {
+            if (String.IsNullOrEmpty(pointInTimeId))
+                return;
+
+            if (options.SafeGetOption<PointInTimeContext>(RepoOwnedPointInTimeKey) is { } context)
+                context.Update(pointInTimeId);
+            else
+                options.Values.Set(PointInTimeIdKey, pointInTimeId);
+        }
+
+        internal static string? ReleasePointInTime(this ICommandOptions options)
+        {
+            return options.SafeGetOption<PointInTimeContext>(RepoOwnedPointInTimeKey)?.Release();
         }
 
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions
@@ -144,6 +177,9 @@ namespace Foundatio.Repositories.Options
 
         public static string? GetPointInTimeId(this ICommandOptions options)
         {
+            if (options.SafeGetOption<SearchAfterQueryExtensions.PointInTimeContext>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey) is { } context)
+                return context.Id;
+
             return options.SafeGetOption<string?>(SearchAfterQueryExtensions.PointInTimeIdKey);
         }
 
@@ -154,7 +190,7 @@ namespace Foundatio.Repositories.Options
 
         internal static bool IsRepoOwnedPointInTime(this ICommandOptions options)
         {
-            return options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey, false);
+            return options.SafeGetOption<SearchAfterQueryExtensions.PointInTimeContext>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey)?.Id is not null;
         }
 
         public static object[]? GetSearchAfter(this ICommandOptions options)

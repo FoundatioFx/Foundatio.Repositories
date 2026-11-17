@@ -510,7 +510,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         options = ConfigureOptions(options?.As<T>());
         ThrowIfExpectedVersion(options);
         var locations = new Dictionary<T, (DocumentKey Key, string? Routing)>(ReferenceEqualityComparer.Instance);
-        var readOptions = options.Clone();
+        var readOptions = options.Clone().BuildOption(RequireCompleteSearchResultsKey, true);
         if (IsCacheEnabled)
             readOptions.ReadCache(options.ShouldReadCache(true));
         var readCapture = new ReadHitCapture(ids, HasParent, hit => AddDeleteLocation(locations, hit));
@@ -922,6 +922,7 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         if (!options.HasPageLimit())
             options.PageLimit(500);
 
+        options = options.Clone().BuildOption(RequireCompleteSearchResultsKey, true);
         long recordsProcessed = 0;
         var results = await FindAsAsync<TResult>(query, options).AnyContext();
         try
@@ -942,30 +943,17 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
         }
         finally
         {
-            await CloseAbandonedPointInTimeAsync(results, options).AnyContext();
+            if (results.HasMore)
+            {
+                await CloseOwnedPointInTimeAsync(options).AnyContext();
+                await ClearScrollAsync(results.GetScrollId(), options).AnyContext();
+            }
         }
 
         await RefreshForConsistency(query, options).AnyContext();
 
         _logger.LogTrace("{Processed} records processed", recordsProcessed);
         return recordsProcessed;
-    }
-
-    private async Task CloseAbandonedPointInTimeAsync<TResult>(FindResults<TResult> results, ICommandOptions options) where TResult : class
-    {
-        if (!results.HasMore || !options.IsRepoOwnedPointInTime())
-            return;
-
-        options.PointInTimeId(null);
-        try
-        {
-            if (!await ClosePointInTimeAsync(results).AnyContext())
-                _logger.LogWarning("Failed to close repository-owned point in time after paging stopped; it will expire after its keep-alive window");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error closing repository-owned point in time after paging stopped");
-        }
     }
 
     /// <summary>

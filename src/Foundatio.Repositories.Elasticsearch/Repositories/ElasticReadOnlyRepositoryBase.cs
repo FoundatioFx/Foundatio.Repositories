@@ -52,6 +52,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicy _resiliencePolicy;
 
     internal const string FullDocumentSourceKey = "@FullDocumentSource";
+    private protected const string RequireCompleteSearchResultsKey = "@RequireCompleteSearchResults";
     private protected const string ReadHitCallbackKey = "@ReadHitCallback";
     // An overriding reader can make several base calls; capture only the requested selection until it returns.
     private protected sealed class ReadHitCapture(Ids ids, bool hasParent, Action<FindHit<T>> callback)
@@ -542,7 +543,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         options = ConfigureOptions(options?.As<T>());
         var pagingStrategy = GetPagingStrategy(options);
         // don't use caching with paged modes.
-        bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal;
+        bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal
+            && !options.SafeGetOption<bool>(RequireCompleteSearchResultsKey);
 
         await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
@@ -562,7 +564,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             }
         }
 
-        string? pointInTimeId = null;
+        string? activeScrollId = options.GetSnapshotScrollId();
         try
         {
             if (options.HasAsyncQueryId())
@@ -583,6 +585,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                     throw new AsyncQueryNotFoundException(queryId);
 
+                options.UpdatePointInTimeId(response.Response?.PitId);
+                activeScrollId = response.Response?.ScrollId?.ToString() ?? activeScrollId;
+                ThrowIfIncompleteSearch(options, response.Response?.TimedOut is true, response.Response?.Shards?.Failed ?? 0, response.IsPartial || response.IsRunning);
                 result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
             else if (options.HasSnapshotScrollId())
@@ -590,6 +595,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()!) { Scroll = options.GetSnapshotLifetime() };
                 var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
+                activeScrollId = response.ScrollId?.ToString() ?? activeScrollId;
+                if (response.ApiCallDetails?.HttpStatusCode is 404)
+                    throw new DocumentException(response.GetErrorMessage("The scroll is no longer available"), response.OriginalException());
+                ThrowIfIncompleteSearch(options, response.TimedOut, response.Shards?.Failed ?? 0);
                 result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
             else
@@ -606,9 +615,15 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                         searchDescriptor.Scroll(options.GetSnapshotLifetime());
                         break;
                     case PagingStrategy.SearchAfterPointInTime:
-                        pointInTimeId = await ConfigurePointInTimeAsync(searchDescriptor, query, options, pointInTimeIndexes).AnyContext();
+                        await ConfigurePointInTimeAsync(searchDescriptor, query, options, pointInTimeIndexes).AnyContext();
+                        if (!ReferenceEquals(incomingOptions, options)
+                            && options.SafeGetOption<SearchAfterQueryExtensions.PointInTimeContext>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey) is { } context)
+                            incomingOptions?.BuildOption(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey, context);
                         break;
                 }
+
+                if (options.SafeGetOption<bool>(RequireCompleteSearchResultsKey))
+                    searchDescriptor.AllowPartialSearchResults(false);
 
                 if (options.SafeGetOption<bool>(FullDocumentSourceKey))
                     searchDescriptor.Source(true).SourceIncludes((Fields?)null).SourceExcludes((Fields?)null);
@@ -630,49 +645,41 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
                     var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
                     _logger.LogRequest(response, options.GetQueryLogLevel());
+                    options.UpdatePointInTimeId(response.Response?.PitId);
+                    activeScrollId = response.Response?.ScrollId?.ToString() ?? activeScrollId;
+                    if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && response.ApiCallDetails?.HttpStatusCode is 404)
+                        throw new DocumentException(response.GetErrorMessage("The point in time is no longer available"), response.OriginalException());
+                    ThrowIfIncompleteSearch(options, response.Response?.TimedOut is true, response.Response?.Shards?.Failed ?? 0, response.IsPartial || response.IsRunning);
                     result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
                 }
                 else
                 {
                     var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
                     _logger.LogRequest(response, options.GetQueryLogLevel());
+                    options.UpdatePointInTimeId(response.PitId);
+                    activeScrollId = response.ScrollId?.ToString() ?? activeScrollId;
+                    if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && response.ApiCallDetails?.HttpStatusCode is 404)
+                        throw new DocumentException(response.GetErrorMessage("The point in time is no longer available"), response.OriginalException());
+                    ThrowIfIncompleteSearch(options, response.TimedOut, response.Shards?.Failed ?? 0);
                     result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
                 }
             }
 
-            pointInTimeId = result.GetPointInTimeId() ?? pointInTimeId;
             await OnAfterQueryAsync(query, options, result).AnyContext();
         }
         catch
         {
             options.Values.Remove(PointInTimeIndexesKey);
-            bool ownsPointInTime = !String.IsNullOrEmpty(pointInTimeId) && options.IsRepoOwnedPointInTime();
-            await CloseFailedPointInTimeAsync(pointInTimeId, options).AnyContext();
-            if (ownsPointInTime && !ReferenceEquals(incomingOptions, options))
-                incomingOptions?.PointInTimeId(null);
+            await CloseOwnedPointInTimeAsync(options).AnyContext();
+            await ClearScrollAsync(activeScrollId, options).AnyContext();
             throw;
         }
 
         if (pagingStrategy is PagingStrategy.Snapshot && !result.HasMore)
-        {
-            // clear the scroll
-            string? scrollId = result.GetScrollId();
-            if (!String.IsNullOrEmpty(scrollId))
-            {
-                var response = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            }
-        }
+            await ClearScrollAsync(activeScrollId, options).AnyContext();
 
         if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && !result.HasMore && options.IsRepoOwnedPointInTime())
-        {
-            options.PointInTimeId(null);
-            if (!ReferenceEquals(incomingOptions, options))
-                incomingOptions?.PointInTimeId(null);
-            bool closed = await ClosePointInTimeAsync(result).AnyContext();
-            if (!closed)
-                _logger.LogWarning("Failed to close repository-owned point in time after paging completed; it will expire after its keep-alive window");
-        }
+            await CloseOwnedPointInTimeAsync(options).AnyContext();
 
         if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
             await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
@@ -680,6 +687,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options);
 
         return result;
+    }
+
+    private static void ThrowIfIncompleteSearch(ICommandOptions options, bool timedOut, long failedShards, bool partial = false)
+    {
+        if (options.SafeGetOption<bool>(RequireCompleteSearchResultsKey) && (timedOut || failedShards > 0 || partial))
+            throw new DocumentException($"Batch selection requires complete search results (timed out: {timedOut}, failed shards: {failedShards}, partial: {partial}).");
     }
 
     public async Task RemoveQueryAsync(string queryId)
@@ -695,40 +708,49 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         string? scrollId = previousResults.GetScrollId();
         if (!String.IsNullOrEmpty(scrollId))
         {
-            var scrollRequest = new ScrollRequest(scrollId) { Scroll = options.GetSnapshotLifetime() };
-            var scrollResponse = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
-            _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
-
-            var results = scrollResponse.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
-            ((IFindResults<TResult>)results).Page = previousResults.Page + 1;
-
-            // clear the scroll
-            if (!results.HasMore)
+            try
             {
-                var clearScrollResponse = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
-                _logger.LogRequest(clearScrollResponse, options.GetQueryLogLevel());
-            }
+                var scrollRequest = new ScrollRequest(scrollId) { Scroll = options.GetSnapshotLifetime() };
+                var scrollResponse = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
+                _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
+                scrollId = scrollResponse.ScrollId?.ToString() ?? scrollId;
 
-            return results;
+                if (scrollResponse.ApiCallDetails?.HttpStatusCode is 404)
+                    throw new DocumentException(scrollResponse.GetErrorMessage("The scroll is no longer available"), scrollResponse.OriginalException());
+                ThrowIfIncompleteSearch(options, scrollResponse.TimedOut, scrollResponse.Shards?.Failed ?? 0);
+                var results = scrollResponse.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
+                ((IFindResults<TResult>)results).Page = previousResults.Page + 1;
+
+                if (!results.HasMore)
+                    await ClearScrollAsync(scrollId, options).AnyContext();
+
+                return results;
+            }
+            catch
+            {
+                ((IFindResults<TResult>)previousResults).HasMore = false;
+                await ClearScrollAsync(scrollId, options).AnyContext();
+                throw;
+            }
         }
 
+        bool ownsPointInTime = options.IsRepoOwnedPointInTime();
         try
         {
             if (options.ShouldUseSearchAfterPaging())
                 options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
             if (options.ShouldUseSearchAfterPagingPointInTime())
-            {
-                bool repoOwned = options.IsRepoOwnedPointInTime();
-                options.PointInTimeId(previousResults.GetPointInTimeId()).RepoOwnedPointInTime(repoOwned);
-            }
+                options.UpdatePointInTimeId(previousResults.GetPointInTimeId());
 
             options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
             return await FindAsAsync<TResult>(query, options).AnyContext();
         }
         catch
         {
-            await CloseFailedPointInTimeAsync(previousResults.GetPointInTimeId(), options).AnyContext();
+            if (ownsPointInTime)
+                ((IFindResults<TResult>)previousResults).HasMore = false;
+            await CloseOwnedPointInTimeAsync(options).AnyContext();
             throw;
         }
     }
@@ -1018,27 +1040,46 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             // The repository opened this point-in-time, so it owns its lifecycle and must auto-close it once paging completes.
             // A caller-supplied point-in-time id is owned by the caller and is never auto-closed.
             pointInTimeId = await OpenPointInTimeAsync(configuredIndexes ?? ElasticIndex.GetIndexesByQuery(query), options).AnyContext();
-            options.RepoOwnedPointInTime();
+            options.RepoOwnedPointInTime(pointInTimeId);
         }
 
         search.Pit(new PointInTimeReference(pointInTimeId) { KeepAlive = options.GetSnapshotLifetime().ToElasticDuration() });
         return pointInTimeId;
     }
 
-    private async Task CloseFailedPointInTimeAsync(string? pointInTimeId, ICommandOptions options)
+    private protected async Task CloseOwnedPointInTimeAsync(ICommandOptions options)
     {
-        if (!options.IsRepoOwnedPointInTime() || String.IsNullOrEmpty(pointInTimeId))
+        string? pointInTimeId = options.ReleasePointInTime();
+        if (String.IsNullOrEmpty(pointInTimeId))
             return;
 
         options.PointInTimeId(null);
         try
         {
             if (!await ClosePointInTimeAsync(pointInTimeId).AnyContext())
-                _logger.LogWarning("Failed to close repository-owned point in time after a query failed; it will expire after its keep-alive window");
+                _logger.LogWarning("Failed to close repository-owned point in time; it will expire after its keep-alive window");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error closing repository-owned point in time after a query failed");
+            _logger.LogWarning(ex, "Error closing repository-owned point in time");
+        }
+    }
+
+    private protected async Task ClearScrollAsync(string? scrollId, ICommandOptions options)
+    {
+        if (String.IsNullOrEmpty(scrollId))
+            return;
+
+        try
+        {
+            var response = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
+            if (!response.IsValidResponse)
+                _logger.LogWarning("Failed to clear scroll; it will expire after its keep-alive window");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error clearing scroll");
         }
     }
 
@@ -1048,6 +1089,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var response = await _client.OpenPointInTimeAsync(index, p => p
             .IgnoreUnavailable(true)
+            .AllowPartialSearchResults(options.SafeGetOption<bool>(RequireCompleteSearchResultsKey) ? false : null)
             .KeepAlive(options.GetSnapshotLifetime().ToElasticDuration())).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 

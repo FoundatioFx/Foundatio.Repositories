@@ -410,6 +410,14 @@ var nextResults = await repository.FindAsync(
 > Note: the repository always appends the document id as a tiebreaker, so a query with no explicit
 > sort is safe. The danger is an explicit unstable sort key in `Live` mode.
 
+### Snapshot Ownership and Incomplete Selections
+
+The repository closes a point in time that it opens when paging completes or fails, and when a batch callback stops or throws. It tracks the latest ID returned by Elasticsearch across pages and option clones. An ID supplied through `PointInTimeId(...)` remains caller-owned; the repository does not close it. Replacing an ID on a cloned options instance does not transfer ownership of another instance's context.
+
+Scroll paging clears the latest scroll context on completion or failure. Batch processing also clears it when a callback stops or throws. Cleanup failures are logged and the context expires after its keep-alive window; cleanup does not discard an already fetched final page or replace the original operation exception. A failed scroll or repository-owned PIT continuation becomes terminal, so calling `NextPageAsync()` again cannot resume against a different snapshot.
+
+`BatchProcessAsync`, batched patch selection, and ID-removal discovery require complete search responses. They bypass query-result caching, request complete results from Elasticsearch, and throw `DocumentException` on a timeout or shard failure before processing that page. A missing PIT or scroll context also throws instead of looking like successful exhaustion. Writes and notifications completed for earlier pages remain applied. Ordinary reads keep their existing partial-response behavior.
+
 ## Aggregations
 
 ### Aggregation Expression
