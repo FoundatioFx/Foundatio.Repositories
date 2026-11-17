@@ -35,7 +35,7 @@ public abstract partial class ElasticRepositoryBase<T>
     /// <see cref="WriteOutcome.Cancelled"/> or a failure. Documents deleted by earlier passes are always counted.
     /// Repository query hooks and system filters run before the query and target indexes are prepared; retries reuse them.
     /// </summary>
-    private async Task<(long Deleted, long Conflicts, WriteRunResult<QueryItem> Run, IRepositoryQuery Query)> DeleteByQueryAsync(IRepositoryQuery query, ICommandOptions options)
+    private async Task<(long Deleted, long Conflicts, bool OutcomeUnknown, WriteRunResult<QueryItem> Run, IRepositoryQuery Query)> DeleteByQueryAsync(IRepositoryQuery query, ICommandOptions options)
     {
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
         query = ConfigureQuery(query.As<T>()).Unwrap();
@@ -44,20 +44,48 @@ public abstract partial class ElasticRepositoryBase<T>
         var indices = Indices.Index(indexNames);
         long deleted = 0;
         long conflicts = 0;
+        bool outcomeUnknown = false;
         int pass = 0;
 
         var run = await WriteRunner.RunAsync<QueryItem>("RemoveAll", [new QueryItem(new DocumentKey(indexNames, "*"))], options.GetRetryCount(), async (_, ct) =>
         {
+            ct.ThrowIfCancellationRequested();
             pass++;
-            var response = await WriteClient.DeleteByQueryAsync(new DeleteByQueryRequest(indices)
+            DeleteByQueryResponse response;
+            try
             {
-                Refresh = pass > 1 || options.GetRefreshMode(DefaultConsistency) != Refresh.False,
-                Conflicts = Conflicts.Proceed,
-                IgnoreUnavailable = true,
-                Query = esQuery,
-                RequestConfiguration = new RequestConfiguration { DisableDirectStreaming = true }
-            }, ct).AnyContext();
+                response = await WriteClient.DeleteByQueryAsync(new DeleteByQueryRequest(indices)
+                {
+                    Refresh = pass > 1 || options.GetRefreshMode(DefaultConsistency) != Refresh.False,
+                    Conflicts = Conflicts.Proceed,
+                    IgnoreUnavailable = true,
+                    Query = esQuery,
+                    RequestConfiguration = new RequestConfiguration { DisableDirectStreaming = true }
+                }, ct).AnyContext();
+            }
+            catch (Exception ex)
+            {
+                outcomeUnknown = !WriteOutcomeClassifier.IsNotSent(ex);
+                return [new WriteItemResult(WriteOutcome.Fatal,
+                    Reason: outcomeUnknown ? "Delete by query failed, so how many documents were deleted is unknown." : ex.Message,
+                    Exception: ex)];
+            }
+
             _logger.LogRequest(response, options.GetQueryLogLevel());
+
+            int? status = response.ApiCallDetails?.HttpStatusCode;
+            if (status is >= 200 and < 300
+                && (!response.IsValidResponse
+                    || response.Total is not >= 0 || response.Deleted is not >= 0 || response.VersionConflicts is not >= 0
+                    || response.Deleted > response.Total
+                    || response.VersionConflicts > response.Total - response.Deleted
+                    || response.Deleted > Int64.MaxValue - deleted))
+            {
+                outcomeUnknown = true;
+                return [new WriteItemResult(WriteOutcome.Fatal, status,
+                    Reason: "Delete by query returned an incomplete or invalid completion response, so how many documents were deleted is unknown.",
+                    Exception: response.OriginalException())];
+            }
 
             deleted += response.Deleted ?? 0;
             conflicts = response.VersionConflicts ?? 0;
@@ -80,7 +108,7 @@ public abstract partial class ElasticRepositoryBase<T>
             return items.Select(i => ((QueryItem?)i, (WriteItemResult?)null)).ToList();
         }, DisposedCancellationToken).AnyContext();
 
-        return (deleted, conflicts, run, query);
+        return (deleted, conflicts, outcomeUnknown, run, query);
     }
 
     /// <summary>

@@ -869,15 +869,23 @@ public abstract partial class ElasticRepositoryBase<T> : ElasticReadOnlyReposito
             }, options).AnyContext();
         }
 
-        var (deleted, conflicts, run, effectiveQuery) = await DeleteByQueryAsync(query, options).AnyContext();
+        var (deleted, conflicts, outcomeUnknown, run, effectiveQuery) = await DeleteByQueryAsync(query, options).AnyContext();
         query = effectiveQuery;
-        if (deleted > 0)
+        if (deleted > 0 || outcomeUnknown)
         {
-            if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
+            try
+            {
+                if (IsCacheEnabled)
+                    await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
-            await OnDocumentsRemovedAsync([], options).AnyContext();
-            await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
+                if (deleted > 0)
+                    await OnDocumentsRemovedAsync([], options).AnyContext();
+                await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
+            }
+            catch (Exception ex) when (outcomeUnknown)
+            {
+                _logger.LogError(ex, "Error invalidating the cache or sending notifications after a delete by query with an unknown outcome");
+            }
         }
 
         if (run.Count(WriteOutcome.Conflict) > 0)

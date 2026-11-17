@@ -225,6 +225,166 @@ public sealed class QueryWriteFailureTests
     }
 
     [Theory]
+    [InlineData("""{}""")]
+    [InlineData("""{"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"deleted":0}""")]
+    [InlineData("""{"total":-1,"deleted":0,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"deleted":-1,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"deleted":0,"version_conflicts":-1}""")]
+    [InlineData("""{"total":0,"deleted":1,"version_conflicts":0}""")]
+    [InlineData("""{"total":1,"deleted":1,"version_conflicts":1}""")]
+    [InlineData("""{"total":9223372036854775807,"deleted":9223372036854775807,"version_conflicts":1}""")]
+    [InlineData("""{"total":1,"version_conflicts":1}""")]
+    public async Task RemoveAllAsync_WithInvalidCompletionCounters_InvalidatesAndNotifiesWithoutRetrying(string response)
+    {
+        using var configuration = new TestConfiguration(
+            ("_delete_by_query", 200, response),
+            ("_refresh", 200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
+            ("_delete_by_query", 200, """{"took":1,"timed_out":false,"total":1,"deleted":1,"version_conflicts":0,"failures":[]}"""));
+        using var repository = new TestRepository(configuration, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        await repository.CacheDocumentAsync("other");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("other"));
+
+        var failure = await Record.ExceptionAsync(async () =>
+        {
+            _ = await repository.RemoveAllAsync(query => query.Id("one"), options => options.Cache(false).Retry(1));
+        });
+
+        Assert.Contains("_delete_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        var exception = Assert.IsType<DocumentException>(failure);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("other"));
+        Assert.Equal(new[] { "one" }, repository.QueryInvalidationIds);
+        Assert.Equal(new[] { "one" }, repository.QueryNotificationIds);
+        Assert.Equal(1, repository.QueryNotifications);
+        Assert.Empty(repository.DocumentNotificationIds);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task RemoveAllAsync_WithValidCompletionCounters_PreservesZeroAndConfirmedDeleteBehavior(int deleted)
+    {
+        string response = $$"""{"took":1,"timed_out":false,"total":{{deleted}},"deleted":{{deleted}},"version_conflicts":0,"failures":[]}""";
+        using var configuration = new TestConfiguration(("_delete_by_query", 200, response));
+        using var repository = new TestRepository(configuration, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+
+        Assert.Equal(deleted, await repository.RemoveAllAsync(query => query.Id("one"), options => options.Cache(false).Retry(1)));
+
+        Assert.Contains("_delete_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.Equal(deleted, repository.QueryNotifications);
+        if (deleted is 0)
+        {
+            Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+            Assert.Empty(repository.QueryInvalidationIds);
+            Assert.Empty(repository.QueryNotificationIds);
+        }
+        else
+        {
+            Assert.Null(await repository.GetCachedDocumentAsync("one"));
+            Assert.Equal(new[] { "one" }, repository.QueryInvalidationIds);
+            Assert.Equal(new[] { "one" }, repository.QueryNotificationIds);
+        }
+    }
+
+    [Theory]
+    [InlineData("0.5")]
+    [InlineData("9223372036854775808")]
+    public async Task RemoveAllAsync_WithUnreadableCompletionCounter_NotifiesUnknownOutcomeAndPreservesCause(string deleted)
+    {
+        string response = $$"""{"took":1,"timed_out":false,"total":1,"deleted":{{deleted}},"version_conflicts":0,"failures":[]}""";
+        using var configuration = new TestConfiguration(("_delete_by_query", 200, response));
+        using var repository = new TestRepository(configuration, cacheEnabled: true);
+        await repository.CacheDocumentAsync("one");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("one"));
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.RemoveAllAsync(query => query.Id("one"), options => options.Cache(false).Retry(1)));
+
+        Assert.Contains("_delete_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.IsType<UnexpectedTransportException>(exception.InnerException);
+        Exception? cause = exception.InnerException;
+        while (cause is not null && cause is not JsonException)
+            cause = cause.InnerException;
+        Assert.IsAssignableFrom<JsonException>(cause);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(await repository.GetCachedDocumentAsync("one"));
+        Assert.Equal(new[] { "one" }, repository.QueryInvalidationIds);
+        Assert.Equal(new[] { "one" }, repository.QueryNotificationIds);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task RemoveAllAsync_WithInvalidLaterPass_PreservesConfirmedEffectsAndEffectiveQuery(int deleted)
+    {
+        string firstResponse = $$"""{"took":1,"timed_out":false,"total":{{deleted + 1}},"deleted":{{deleted}},"version_conflicts":1,"failures":[]}""";
+        using var configuration = new TestConfiguration(
+            ("_delete_by_query", 200, firstResponse),
+            ("_refresh", 200, """{"_shards":{"total":1,"successful":1,"failed":0}}"""),
+            ("_delete_by_query", 200, "{}"));
+        using var repository = new TestRepository(configuration, cacheEnabled: true)
+        {
+            ReplacementQuery = new RepositoryQuery<TestDocument>().Id("effective")
+        };
+        await repository.CacheDocumentAsync("original");
+        await repository.CacheDocumentAsync("effective");
+        Assert.NotNull(await repository.GetCachedDocumentAsync("original"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("effective"));
+        int removedEvents = 0;
+        configuration.RequestCompleted = _ =>
+        {
+            if (!repository.DocumentsRemoved.HasHandlers)
+                repository.DocumentsRemoved.AddSyncHandler((_, args) =>
+                {
+                    Assert.Empty(args.Documents);
+                    removedEvents++;
+                });
+        };
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.RemoveAllAsync(query => query.Id("original"), options => options.Cache(false).Retry(2)));
+
+        Assert.Equal(3, configuration.Invoker.Requests);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(deleted, removedEvents);
+        Assert.Null(await repository.GetCachedDocumentAsync("effective"));
+        Assert.NotNull(await repository.GetCachedDocumentAsync("original"));
+        Assert.Equal(new[] { "effective" }, repository.QueryInvalidationIds);
+        Assert.Equal(new[] { "effective" }, repository.QueryNotificationIds);
+        Assert.Equal(1, repository.QueryNotifications);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemoveAllAsync_WhenUnknownOutcomeNotificationFails_PreservesWriteFailure(bool invalidationFails)
+    {
+        using var configuration = new TestConfiguration(("_delete_by_query", 200, "{}"));
+        using var repository = new TestRepository(configuration, cacheEnabled: true)
+        {
+            ThrowOnQueryInvalidation = invalidationFails,
+            ThrowOnQueryNotification = !invalidationFails
+        };
+
+        var exception = await Assert.ThrowsAsync<DocumentException>(() =>
+            repository.RemoveAllAsync(query => query.Id("one"), options => options.Cache(false).Retry(1)));
+
+        Assert.Contains("_delete_by_query", Assert.Single(configuration.Invoker.RequestPaths), StringComparison.Ordinal);
+        Assert.Contains("unknown", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("injected", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new[] { "one" }, repository.QueryInvalidationIds);
+        Assert.Equal(invalidationFails ? 0 : 1, repository.QueryNotifications);
+    }
+
+    [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
     public async Task PatchAsync_WithPipelineAndQueryFailure_ThrowsInsteadOfReportingNoop(bool timedOut, bool itemFailure)
@@ -1157,6 +1317,8 @@ public sealed class QueryWriteFailureTests
         public List<string> QueryInvalidationIds { get; } = [];
         public bool ConfigureSelectionFilter { get; init; }
         public IRepositoryQuery<TestDocument>? ReplacementQuery { get; init; }
+        public bool ThrowOnQueryInvalidation { get; init; }
+        public bool ThrowOnQueryNotification { get; init; }
 
         public Task CacheDocumentAsync(string id) =>
             AddDocumentsToCacheAsync(new TestDocument { Id = id }, new CommandOptions().Cache(), false);
@@ -1175,6 +1337,8 @@ public sealed class QueryWriteFailureTests
         {
             QueryNotifications++;
             QueryNotificationIds.AddRange(query.GetIds());
+            if (ThrowOnQueryNotification)
+                throw new InvalidOperationException("injected query notification failure");
             return Task.CompletedTask;
         }
 
@@ -1187,6 +1351,8 @@ public sealed class QueryWriteFailureTests
         protected override Task InvalidateCacheByQueryAsync(IRepositoryQuery<TestDocument> query)
         {
             QueryInvalidationIds.AddRange(query.GetIds());
+            if (ThrowOnQueryInvalidation)
+                throw new InvalidOperationException("injected query invalidation failure");
             return base.InvalidateCacheByQueryAsync(query);
         }
     }

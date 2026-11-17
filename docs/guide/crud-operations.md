@@ -214,6 +214,8 @@ With caching or remove event listeners, `RemoveAllAsync` loads and removes docum
 When no event listeners are registered and caching is disabled, `RemoveAllAsync` uses Elasticsearch's `delete_by_query`. This API snapshots document versions when it begins and skips any document modified before the delete executes, counting it as a version conflict. Because `delete_by_query` does not support `retry_on_conflict`, the repository re-runs the query up to `Retry(n)` more times (default `10`, so up to 11 passes), with exponential backoff and a refresh between passes, until no conflicts remain.
 
 The returned count is the cumulative number of documents deleted across all passes. If conflicts persist after the retry budget, a `VersionConflictDocumentException` with the counts is thrown. Set `o.ProceedOnQueryConflicts()` to log a warning and return the partial count instead.
+
+A successful HTTP response must include valid, nonnegative `total`, `deleted`, and `version_conflicts` counters. Missing, unreadable, or inconsistent counters leave the result unknown: the repository does not retry or report zero deletions. It invalidates the effective query and sends a refresh hint before throwing `DocumentException`. Confirmed deletions from earlier passes retain their completion effects; an unknown result alone does not raise document-removal events. A notification failure does not replace the original unknown-outcome error.
 :::
 
 ### Soft Delete vs Hard Delete
