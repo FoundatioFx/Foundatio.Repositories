@@ -452,6 +452,8 @@ DocumentsRemoving.AddHandler(async (sender, args) =>
 
 #### Query Filtering
 
+`BeforeQuery`, query `SystemFilter` values, and repository `ConfigureQuery` overrides also apply to server-side `RemoveAllAsync` delete-by-query and `PatchAllAsync` with `UseUpdateByQuery()`. Switching between batched and server-side query writes preserves these selection filters. The server-side request is prepared after the hooks run, and retries reuse that prepared query.
+
 ```csharp
 BeforeQuery.AddHandler((sender, args) =>
 {

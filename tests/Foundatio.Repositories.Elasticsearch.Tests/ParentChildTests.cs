@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -79,6 +80,65 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
         var resultsWithRouting = await _childRepository.GetByIdsAsync(idsWithRouting);
         Assert.NotNull(resultsWithRouting);
         Assert.Equal(2, resultsWithRouting.Count);
+    }
+
+    [Fact]
+    public async Task SaveWithCache_WhenDifferentRoutesShareOneShard_ReturnsTheFinalPersistedChild()
+    {
+        // ParentChildIndex explicitly configures one primary shard, so both parent routes select the same shard.
+        var firstParent = await _parentRepository.AddAsync(ParentGenerator.Generate(), options => options.ImmediateConsistency());
+        var secondParent = await _parentRepository.AddAsync(ParentGenerator.Generate(), options => options.ImmediateConsistency());
+        const string childId = "same-child-id";
+        var first = new Child { Id = childId, ParentId = firstParent.Id, ChildProperty = "first source" };
+        var second = new Child { Id = childId, ParentId = secondParent.Id, ChildProperty = "second source" };
+
+        await _childRepository.SaveAsync(new[] { first, second }, options => options.SkipVersionCheck().Cache().ImmediateConsistency().Retry(0));
+
+        foreach (string routing in new[] { firstParent.Id, secondParent.Id })
+        {
+            var id = new Id(childId, routing);
+            var persisted = await _childRepository.GetByIdAsync(id, options => options.Cache(false));
+            Assert.NotNull(persisted);
+            Assert.Equal(secondParent.Id, persisted.ParentId);
+            Assert.Equal("second source", persisted.ChildProperty);
+            var cached = await _childRepository.GetByIdAsync(id, options => options.Cache());
+            Assert.NotNull(cached);
+            Assert.Equal(persisted.ParentId, cached.ParentId);
+            Assert.Equal(persisted.ChildProperty, cached.ChildProperty);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveById_WhenRequestedRouteSharesStoredShard_DeletesMetadataIdentityAndPreservesUnrelatedChild()
+    {
+        // ParentChildIndex has one primary shard: a read through either parent route reaches the same child ID.
+        var firstParent = await _parentRepository.AddAsync(ParentGenerator.Generate(), options => options.ImmediateConsistency());
+        var secondParent = await _parentRepository.AddAsync(ParentGenerator.Generate(), options => options.ImmediateConsistency());
+        await _childRepository.AddAsync(new[]
+        {
+            new Child { Id = "one", ParentId = secondParent.Id, ChildProperty = "selected source" },
+            new Child { Id = "two", ParentId = secondParent.Id, ChildProperty = "unrelated source" }
+        }, options => options.ImmediateConsistency());
+        Assert.True(await _childRepository.PatchAsync(new Id("one", secondParent.Id), new PartialPatch(new { id = "two" }),
+            options => options.ImmediateConsistency().Retry(0)));
+
+        var selected = await _childRepository.GetByIdAsync(new Id("one", firstParent.Id), options => options.Cache(false));
+        Assert.NotNull(selected);
+        Assert.Equal("two", selected.Id);
+        Assert.Equal(secondParent.Id, selected.ParentId);
+        Assert.Equal("selected source", selected.ChildProperty);
+        _childRepository.DocumentsRemoving.AddSyncHandler((_, args) => Assert.Equal("two", Assert.Single(args.Documents).Id));
+        _childRepository.DocumentsRemoved.AddSyncHandler((_, args) => Assert.Equal("two", Assert.Single(args.Documents).Id));
+
+        await _childRepository.RemoveAsync(new Id("one", firstParent.Id),
+            options => options.ReadCache(false).ImmediateConsistency().Retry(0));
+
+        Assert.Null(await _childRepository.GetByIdAsync(new Id("one", secondParent.Id), options => options.Cache(false)));
+        var unrelated = await _childRepository.GetByIdAsync(new Id("two", secondParent.Id), options => options.Cache(false));
+        Assert.NotNull(unrelated);
+        Assert.Equal("two", unrelated.Id);
+        Assert.Equal(secondParent.Id, unrelated.ParentId);
+        Assert.Equal("unrelated source", unrelated.ChildProperty);
     }
 
     [Fact]

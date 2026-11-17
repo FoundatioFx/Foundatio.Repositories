@@ -410,6 +410,14 @@ var nextResults = await repository.FindAsync(
 > Note: the repository always appends the document id as a tiebreaker, so a query with no explicit
 > sort is safe. The danger is an explicit unstable sort key in `Live` mode.
 
+### Snapshot Ownership and Incomplete Selections
+
+The repository closes a point in time that it opens when paging completes or fails, and when a batch callback stops or throws. It tracks the latest ID returned by Elasticsearch across pages and option clones. An ID supplied through `PointInTimeId(...)` remains caller-owned; the repository does not close it. Replacing an ID on a cloned options instance does not transfer ownership of another instance's context.
+
+Scroll paging clears the latest scroll context on completion or failure. Batch processing also clears it when a callback stops or throws. Cleanup failures are logged and the context expires after its keep-alive window; cleanup does not discard an already fetched final page or replace the original operation exception. A failed scroll or repository-owned PIT continuation becomes terminal, so calling `NextPageAsync()` again cannot resume against a different snapshot.
+
+`BatchProcessAsync`, batched patch selection, and ID-removal discovery require complete search responses. They bypass query-result caching, request complete results from Elasticsearch, and throw `DocumentException` on a timeout or shard failure before processing that page. A missing PIT or scroll context also throws instead of looking like successful exhaustion. Writes and notifications completed for earlier pages remain applied. Ordinary reads keep their existing partial-response behavior.
+
 ## Aggregations
 
 ### Aggregation Expression
@@ -784,18 +792,20 @@ public class StackRepository : ElasticRepositoryBase<Stack>
 
 Required fields are **only injected when field restrictions are active** — i.e., when any includes, excludes, masks, or default excludes are present. When no restrictions exist at all, the full `_source` is returned and required fields have no effect.
 
-When repository-internal `AddDefaultExclude()` registrations are the only excludes present, required field injection runs but is effectively a no-op — default excludes never overlap with required fields like `Id` or `CreatedUtc`, so no fields are added or removed. If a field is registered as both a required field and a default exclude, the required field takes precedence — the field will be removed from the exclude set.
+Repository-internal `AddDefaultExclude()` registrations follow the same rules: exact required-field exclusions are removed, while remaining wildcard or parent-path exclusions that would remove a required field are rejected. Required-field registrations are deduplicated when command options or shallow clones are reused, preserving caller-required fields.
 
 #### How Required Fields Are Applied
 
 The behavior depends on what the caller specified:
 
-- **Caller has includes** (with or without excludes): Required fields are added to the include set. This ensures they appear in the narrowed result alongside the caller's selected fields.
-- **Caller has only excludes**: Required fields are removed from the exclude set. This preserves the "return everything except X" semantics while ensuring required fields cannot be excluded. All other non-excluded fields remain present.
+- **Caller has includes** (with or without excludes): Required fields are added to the include set, and identical resolved include/exclude entries retain include precedence.
+- **Caller has only excludes**: Exact required-field exclusions are removed. Unrelated exclusions remain unchanged.
 
 #### Precedence Rules
 
-When the caller specifies both includes and excludes, and a required field appears in both sets, the **include takes precedence** — the field is returned. This mirrors how systems like OData and GraphQL handle mandatory fields in projections: identity and authorization fields are always present regardless of what the client requests.
+An exact exclusion of a required native field keeps the existing **required-field precedence**. After this precedence is applied, a remaining wildcard or parent-path exclusion that would remove a required field throws `ArgumentException` during source-filter preparation, before the filtered read request is sent. For example, `Exclude("is_*")` conflicts with a required native field named `is_deleted`, and excluding `metadata` conflicts with a required `metadata.tenantId` field. Matching is case-sensitive, with `*` as the only wildcard; `?` is literal.
+
+Use an include projection or narrower explicit exclusions. The repository does not silently drop a broader exclusion, which could expose other fields the caller intended to omit. Nonconflicting exclusions and filters with no required fields retain their existing behavior.
 
 #### Affected Operations
 

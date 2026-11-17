@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
@@ -111,7 +113,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         employee = await _employeeRepository.SaveAsync(employee);
         Assert.Equal("1:1", employee.Version);
 
-        string version = employeeCopy.Version;
+        string? version = employeeCopy.Version;
         await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
         Assert.Equal(version, employeeCopy.Version);
 
@@ -217,7 +219,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         Assert.Equal(employees.First(e => e.CompanyId == "2"), results.Documents.First());
 
         var company2Employees = results.Documents.ToList();
-        string company2EmployeesVersion = company2Employees.First().Version;
+        string? company2EmployeesVersion = company2Employees.First().Version;
         Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeedAsync(company2Employees.Select(e => e.Id).ToArray()));
 
         results = await _employeeRepository.GetAllByCompanyAsync("2");
@@ -493,13 +495,13 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         // Act
         var patch = new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "PatchedAll" });
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(patch), o => o.ImmediateConsistency());
+        long patched = await _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(patch), o => o.ImmediateConsistency()).WaitAsync(TimeSpan.FromSeconds(30), TestCancellationToken);
 
         // Assert
-        var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
-        Assert.Equal(task, completedTask);
-        cts.Cancel();
+        Assert.Equal(3, patched);
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
+        Assert.All(results, e => Assert.Equal("PatchedAll", e.CompanyName));
+        Assert.True(results.Single(e => e.Id == emp1.Id).GetElasticVersion() > emp1.GetElasticVersion());
     }
 
     [Fact]
@@ -514,13 +516,12 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
 
         // Act
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "PatchedAll"), o => o.ImmediateConsistency());
+        long patched = await _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "PatchedAll"), o => o.ImmediateConsistency()).WaitAsync(TimeSpan.FromSeconds(30), TestCancellationToken);
 
         // Assert
-        var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
-        Assert.Equal(task, completedTask);
-        cts.Cancel();
+        Assert.Equal(3, patched);
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray(), o => o.Cache(false));
+        Assert.All(results, e => Assert.Equal("PatchedAll", e.CompanyName));
     }
 
     [Fact]
@@ -599,5 +600,209 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.True(_employeeRepository.DocumentsChangedCount > countBefore);
+    }
+
+    private async Task<IReadOnlyDictionary<string, object?>> GetRawSourceAsync(string id)
+    {
+        var response = await _client.GetAsync<Dictionary<string, object?>>(new GetRequest(_configuration.Employees.Name, id), TestCancellationToken);
+        Assert.True(response.IsValidResponse);
+        Assert.NotNull(response.Source);
+        return response.Source;
+    }
+
+    [Fact]
+    public async Task WriteOperations_WithPublicVersion_PreserveTheSourceProperty()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1"), o => o.ImmediateConsistency());
+        Assert.Null((await GetRawSourceAsync(employee.Id))["version"]);
+
+        // Act & Assert
+        employee.CompanyName = "saved";
+        string? versionBeforeSave = employee.Version;
+        await _employeeRepository.SaveAsync(employee, o => o.ImmediateConsistency());
+        Assert.Equal(versionBeforeSave, (await GetRawSourceAsync(employee.Id))["version"]);
+        Assert.NotEqual(versionBeforeSave, employee.Version);
+
+        await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.ImmediateConsistency());
+        Assert.Equal(versionBeforeSave, (await GetRawSourceAsync(employee.Id))["version"]);
+
+        await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { CompanyName = "partial" }), o => o.ImmediateConsistency());
+        Assert.Equal(versionBeforeSave, (await GetRawSourceAsync(employee.Id))["version"]);
+
+        await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "json" })), o => o.ImmediateConsistency());
+        Assert.Contains("version", (await GetRawSourceAsync(employee.Id)).Keys);
+
+        await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.CompanyName = "action"), o => o.ImmediateConsistency());
+        Assert.Contains("version", (await GetRawSourceAsync(employee.Id)).Keys);
+
+        await _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "json-all" })), o => o.ImmediateConsistency());
+        await _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "action-all"), o => o.ImmediateConsistency());
+        await _employeeRepository.PatchAllAsync(q => q.Company("1"), new PartialPatch(new { CompanyName = "partial-all" }), o => o.ImmediateConsistency());
+        await _employeeRepository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.ImmediateConsistency());
+
+        var source = await GetRawSourceAsync(employee.Id);
+        Assert.Contains("version", source.Keys);
+        Assert.Equal("partial-all", source["companyName"]);
+        var reloaded = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(reloaded);
+        Assert.NotEqual(source["version"], reloaded.Version);
+    }
+
+    [Fact]
+    public Task WriteOperations_WithExplicitVersion_KeepBusinessVersionAndUseMetadata()
+    {
+        return AssertModelOwnedVersionAsync<ExplicitVersionDocument>("business-7");
+    }
+
+    [Fact]
+    public Task WriteOperations_WithIgnoredVersion_KeepMetadataOutOfSource()
+    {
+        return AssertModelOwnedVersionAsync<IgnoredVersionDocument>(null);
+    }
+
+    private async Task AssertModelOwnedVersionAsync<T>(string? sourceVersion) where T : class, IIdentity, IVersioned, new()
+    {
+        using var repository = new ModelVersionRepository<T>(_configuration.Employees);
+        var document = await repository.AddAsync(new T(), o => o.ImmediateConsistency());
+        Assert.Equal("1:0", document.Version);
+
+        var current = await repository.GetByIdAsync(document.Id);
+        var stale = await repository.GetByIdAsync(document.Id);
+        Assert.NotNull(current);
+        Assert.NotNull(stale);
+        Assert.Equal(document.Version, current.Version);
+
+        await repository.SaveAsync(current, o => o.ImmediateConsistency());
+        Assert.Equal("1:1", current.Version);
+        await repository.PatchAsync(document.Id,
+            new JsonPatch(new PatchDocument(new AddOperation { Path = "/name", Value = "patched" })),
+            o => o.ImmediateConsistency());
+
+        var patched = await repository.GetByIdAsync(document.Id);
+        Assert.NotNull(patched);
+        Assert.Equal("1:2", patched.Version);
+        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => repository.SaveAsync(stale));
+
+        var source = await GetRawSourceAsync(document.Id);
+        Assert.Equal("patched", source["name"]);
+        if (sourceVersion is null)
+            Assert.DoesNotContain("version", source.Keys);
+        else
+            Assert.Equal(sourceVersion, source["version"]);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithStaleVersionInSource_ReturnsMetadataVersion()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        var response = await _client.UpdateAsync(new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
+        {
+            Script = new Script { Source = "ctx._source.version = '112:2'" },
+            Refresh = Refresh.True
+        }, TestCancellationToken);
+        Assert.True(response.IsValidResponse);
+
+        // Act
+        var byId = await _employeeRepository.GetByIdAsync(employee.Id);
+        var byIds = await _employeeRepository.GetByIdsAsync([employee.Id]);
+        var found = await _employeeRepository.FindAsync(q => q.Id(employee.Id));
+
+        // Assert
+        Assert.NotNull(byId);
+        Assert.Equal("1:1", byId.Version);
+        Assert.Equal("1:1", Assert.Single(byIds).Version);
+        var hit = Assert.Single(found.Hits);
+        Assert.Equal("1:1", hit.Version);
+        Assert.Equal(hit.Version, hit.Document?.Version);
+
+        await _employeeRepository.SaveAsync(byId, o => o.ImmediateConsistency());
+        Assert.Equal("1:2", byId.Version);
+        Assert.Equal("1:1", (await GetRawSourceAsync(employee.Id))["version"]);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithVersionedDocuments_HitVersionMatchesDocumentVersion()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(5, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        await _employeeRepository.PatchAsync(employees[0].Id, new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.Company("1"));
+        var byIds = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToArray());
+
+        // Assert
+        Assert.Equal(5, results.Hits.Count);
+        foreach (var hit in results.Hits)
+        {
+            Assert.NotNull(hit.Version);
+            Assert.Equal(hit.Version, hit.Document?.Version);
+            Assert.Equal(hit.Version, byIds.Single(e => e.Id == hit.Id).Version);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_WithDocumentFromCache_SucceedsWithCurrentVersion()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache().ImmediateConsistency());
+        var cached = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache());
+        Assert.NotNull(cached);
+        Assert.Equal(employee.Version, cached.Version);
+        Assert.True(_cache.Hits > 0);
+
+        // Act
+        cached.CompanyName = "saved from cache";
+        var saved = await _employeeRepository.SaveAsync(cached, o => o.Cache().ImmediateConsistency());
+
+        // Assert
+        Assert.Equal("1:1", saved.Version);
+        var reloaded = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache());
+        Assert.NotNull(reloaded);
+        Assert.Equal("saved from cache", reloaded.CompanyName);
+        Assert.Equal("1:1", reloaded.Version);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_AfterPatchWithCache_DoesNotReturnStaleVersion()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache().ImmediateConsistency());
+        var cached = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache());
+        Assert.NotNull(cached);
+
+        // Act
+        await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.Cache().ImmediateConsistency());
+        var afterPatch = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache());
+
+        // Assert
+        Assert.NotNull(afterPatch);
+        Assert.Equal("1:1", afterPatch.Version);
+        Assert.Equal(cached.YearsEmployed + 1, afterPatch.YearsEmployed);
+        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _employeeRepository.SaveAsync(cached, o => o.Cache()));
+    }
+
+    private sealed class ModelVersionRepository<T>(IIndex index) : ElasticRepositoryBase<T>(index) where T : class, IIdentity, new()
+    {
+    }
+
+    private sealed class ExplicitVersionDocument : IIdentity, IVersioned
+    {
+        public string Id { get; set; } = null!;
+        public string? Name { get; set; }
+        public string? Version { get; set; } = "business-7";
+        string? IVersioned.Version { get; set; }
+    }
+
+    private sealed class IgnoredVersionDocument : IIdentity, IVersioned
+    {
+        public string Id { get; set; } = null!;
+        public string? Name { get; set; }
+
+        [JsonIgnore]
+        public string? Version { get; set; }
     }
 }

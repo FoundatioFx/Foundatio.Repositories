@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
@@ -202,6 +203,90 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task ScriptPatchAllAsync_ByQueryWithLowercasePipeline_LowercasesNames()
+    {
+        // Arrange
+        var employees = new List<Employee>
+        {
+            EmployeeGenerator.Generate(companyId: "1", name: "employee1"),
+            EmployeeGenerator.Generate(companyId: "1", name: "employee2"),
+        };
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        long patched = await _employeeRepository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(2, patched);
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.Equal(2, results.Count);
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact]
+    public async Task ScriptPatchAsync_WithPipelineAndImmediateConsistency_RefreshesOnceAfterAllDocuments()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+
+        // Act
+        long patched = await repository.PatchAsync(employees.Select(e => e.Id).ToArray(), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(3, patched);
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_update_by_query"));
+        Assert.Equal(0, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "refresh=true"));
+        Assert.Equal(1, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_refresh"));
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact]
+    public async Task ScriptPatchAsync_WithPipelineWhenOneDocumentFails_RefreshesPatchedDocumentsOnceAndThrows()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+        invoker.FailNext(1, 400, Elastic.Transport.HttpMethod.POST, "_update_by_query");
+
+        // Act
+        await Assert.ThrowsAsync<DocumentException>(() => repository.PatchAsync(employees.Select(e => e.Id).ToArray(), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency().Retry(0)));
+
+        // Assert
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_update_by_query"));
+        Assert.Equal(1, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_refresh"));
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.Equal(2, results.Count(e => e.Name is "patched"));
+    }
+
+    [Fact]
+    public async Task ScriptPatchAllAsync_WithPipeline_DoesNotRefreshPerDocument()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+
+        // Act
+        long patched = await repository.PatchAllAsync(q => q.Company("1"), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(3, patched);
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_update_by_query"));
+        Assert.Equal(0, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "refresh=true"));
+        Assert.True(invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_refresh") <= 2, "PatchAllAsync refreshes only around the batch read, never per document.");
+    }
+
+    [Fact]
     public Task ScriptPatchAsync_WithPipeline_MissingDocument_ThrowsDocumentNotFound()
     {
         // Arrange
@@ -240,6 +325,58 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         Assert.NotNull(result);
         Assert.Equal("updated", result.Name); // lowercased by pipeline
         Assert.Equal("OriginalCo", result.CompanyName);
+    }
+
+    [Theory]
+    [InlineData(409, 0)]
+    [InlineData(400, 10)]
+    public async Task PartialPatchAllAsync_WithPipelineWhenBatchItemFails_ProcessesEveryBatchAndReportsFailure(int status, int retries)
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(12, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+        var updatedIds = new List<string>();
+        invoker.FailFirstItemOfNextBulk(status, status is 409 ? "version_conflict_engine_exception" : "illegal_argument_exception", "injected failure");
+
+        // Act
+        Task Patch() => repository.PatchAllAsync(q => q.Company("1"), new PartialPatch(new { name = "PATCHED" }), o => o.PageLimit(5).Retry(retries).ImmediateConsistency().UpdateCallback(updatedIds.AddRange));
+        var exception = status is 409
+            ? await Assert.ThrowsAsync<VersionConflictDocumentException>(Patch)
+            : await Assert.ThrowsAsync<DocumentException>(Patch);
+
+        // Assert
+        string failedId = Assert.Single(invoker.FailedBulkItemIds);
+        Assert.Contains(failedId, exception.Message);
+        Assert.Equal(3, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_bulk"));
+        Assert.Equal(11, updatedIds.Count);
+        Assert.DoesNotContain(failedId, updatedIds);
+        var results = await _employeeRepository.GetByIdsAsync(updatedIds);
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact]
+    public async Task PartialPatchAllAsync_WithPipelineWhenBatchItemConflicts_RetriesAndPatchesAll()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(12, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var invoker = new FaultInjectingRequestInvoker(new Elastic.Transport.HttpRequestInvoker());
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log) { RequestInvoker = invoker };
+        var repository = new EmployeeWithPipelineRepository(configuration.Employees, PipelineId);
+        invoker.FailFirstItemOfNextBulk(409, "version_conflict_engine_exception", "injected conflict");
+
+        // Act
+        long patched = await repository.PatchAllAsync(q => q.Company("1"), new PartialPatch(new { name = "PATCHED" }), o => o.PageLimit(5).ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(12, patched);
+        Assert.Equal(4, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_bulk"));
+        Assert.Equal(1, invoker.CountRequests(Elastic.Transport.HttpMethod.POST, "_mget"));
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
     }
 
     public override async ValueTask DisposeAsync()

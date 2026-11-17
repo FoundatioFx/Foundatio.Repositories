@@ -4,6 +4,9 @@
     <Project Path="samples/Foundatio.SampleApp/Server/Foundatio.SampleApp.Server.csproj" />
     <Project Path="samples/Foundatio.SampleApp/Shared/Foundatio.SampleApp.Shared.csproj" />
   </Folder>
+  <Folder Name="/Benchmarks/">
+    <Project Path="benchmarks/Foundatio.Repositories.Benchmarks/Foundatio.Repositories.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path=".github/workflows/build.yml" />

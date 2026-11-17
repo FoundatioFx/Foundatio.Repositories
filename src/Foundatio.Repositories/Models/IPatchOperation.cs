@@ -18,12 +18,19 @@ public interface IPatchOperation { }
 /// A patch operation that updates a document using a partial document object.
 /// </summary>
 /// <remarks>
-/// Only the non-null properties of the partial document will be applied to the target document.
+/// Properties present in the serialized partial document are applied to the target document, including
+/// null values retained by the source serializer.
 /// Elasticsearch's <c>detect_noop</c> (enabled by default) automatically returns a no-op when
 /// the partial document does not change any field values. However, automatic date tracking
 /// injects <c>UpdatedUtc</c>, which typically prevents noop detection for <see cref="Models.IHaveDates"/> models.
-/// <para><b>Cache invalidation:</b> Uses ID-based invalidation only. The Update API executes
-/// server-side and does not return the modified document to the client.</para>
+/// With a default ingest pipeline, the repository reads, merges and reindexes the document instead,
+/// so the write does not use automatic noop detection.
+/// <para><b>Date tracking:</b> Automatic <c>UpdatedUtc</c> injection uses a UTC ISO 8601 value without applying
+/// converters attached to the target model member. For another stored date representation, supply a non-null
+/// timestamp in that representation using the stored field name, or use <see cref="ActionPatch{T}"/>.</para>
+/// <para><b>Cache invalidation:</b> The Update API uses ID-based invalidation because it does not return
+/// the modified document. With a default ingest pipeline, the modified document is passed to the
+/// document-based invalidation hook.</para>
 /// </remarks>
 public class PartialPatch : IPatchOperation
 {
@@ -51,6 +58,8 @@ public class PartialPatch : IPatchOperation
 /// return <c>false</c>, the write to Elasticsearch is skipped entirely (no Index call, no date
 /// tracking, no cache invalidation). Actions that use <see cref="Action{T}"/> are assumed to
 /// always modify the document.
+/// <para><b>Date tracking:</b> Dates are set on the typed model before source serialization, so the model's
+/// global and member-level date converters apply.</para>
 /// <para><b>Cache invalidation:</b> Uses document-based invalidation. The modified <typeparamref name="T"/>
 /// is passed to <c>InvalidateCacheAsync</c>, so custom cache key overrides work correctly.</para>
 /// </remarks>
@@ -116,9 +125,13 @@ public class ActionPatch<T> : IPatchOperation where T : class
 /// <remarks>
 /// Uses a get-modify-reindex pattern, so a write always occurs and <c>PatchAsync</c> always
 /// returns <c>true</c>. Empty patch documents (no operations) return <c>false</c>.
-/// <para><b>Cache invalidation:</b> Bulk operations (<c>PatchAllAsync</c>) use document-based
-/// invalidation. Single-document <c>PatchAsync</c> uses ID-based invalidation because it
-/// operates on raw JSON rather than a typed document.</para>
+/// <para><b>Date tracking:</b> Single-document patches inject <c>UpdatedUtc</c> as a UTC ISO 8601 value;
+/// the target member's source converter is not applied to that injection. Batch patches set typed model dates
+/// before serialization. <c>PatchAsync(Ids)</c> with exactly one input ID uses the single-document path.
+/// Use <see cref="ActionPatch{T}"/> for a single document whose date converter requires another representation.</para>
+/// <para><b>Cache invalidation:</b> Single-document and batch patches pass the modified document
+/// to the document-based invalidation hook. The read and write use the model's configured source
+/// serializer contract.</para>
 /// </remarks>
 public class JsonPatch : IPatchOperation
 {
@@ -142,8 +155,12 @@ public class JsonPatch : IPatchOperation
 /// </summary>
 /// <remarks>
 /// Elasticsearch does not automatically detect noops for script updates.
-/// To signal a no-op, the script must explicitly set <c>ctx.op = 'none'</c>.
-/// Painless uses <c>==</c> for equality (Java-style); <c>===</c> is not valid.
+/// To signal a no-op, the script must explicitly set <c>ctx.op = 'noop'</c>, which works with both the Update API and update-by-query.
+/// Painless uses <c>==</c> for value equality. The <c>===</c> operator compares object identity for reference values.
+/// <para><b>Date tracking:</b> The automatically added UTC timestamp parameter uses ISO 8601 by default.
+/// Source converters attached to the target model member do not control script parameters. To use another
+/// representation, provide the timestamp parameter and assign it in the script; providing that parameter
+/// suppresses the automatic timestamp assignment.</para>
 /// <para><b>Cache invalidation:</b> Uses ID-based invalidation only. Scripts execute
 /// server-side and do not return the modified document to the client.</para>
 /// </remarks>

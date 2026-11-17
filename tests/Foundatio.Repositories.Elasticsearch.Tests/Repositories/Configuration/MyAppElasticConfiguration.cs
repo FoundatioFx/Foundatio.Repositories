@@ -15,6 +15,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
 public class MyAppElasticConfiguration : ElasticConfiguration
 {
+    private static readonly IRequestInvoker _sharedRequestInvoker = new NonDisposingRequestInvoker(new HttpRequestInvoker());
+
     public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory)
         : base(workItemQueue, cacheClient, messageBus, loggerFactory: loggerFactory)
     {
@@ -46,6 +48,17 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
         var host = fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me";
         return new SingleNodePool(new Uri($"http://{host}:9200"));
+    }
+
+    /// <summary>
+    /// Overrides the request invoker for this configuration. Set before <see cref="ElasticConfiguration.Client"/> is first used.
+    /// When not set, all test configurations share one invoker so the connection pool stays bounded across the run.
+    /// </summary>
+    public IRequestInvoker? RequestInvoker { get; set; }
+
+    protected override IRequestInvoker CreateRequestInvoker()
+    {
+        return RequestInvoker ?? _sharedRequestInvoker;
     }
 
     protected override void ConfigureSettings(ElasticsearchClientSettings settings)
