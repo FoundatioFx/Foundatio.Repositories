@@ -256,6 +256,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count == 0)
             return GetDocuments(hits, options, captureHit, captureIds);
 
+        return await GetUncachedByIdsAsync(itemsToFind, hits, options, captureHit, captureIds).AnyContext();
+    }
+
+    private async ValueTask<IReadOnlyCollection<T>> GetUncachedByIdsAsync(List<Id> itemsToFind, ICollection<FindHit<T>> hits,
+        ICommandOptions options, ReadHitCapture? captureHit, HashSet<string>? captureIds)
+    {
         HashSet<string>? skipIdCacheIds = null;
         HashSet<(Id Id, string Index)>? nativeMissingLocations = null;
 
