@@ -105,7 +105,7 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
         _beforeRequests.Add(new BeforeRequest(Matches(method, pathContains), occurrence, action));
     }
 
-    /// <summary>Counts the requests sent (including injected faults) whose method and path match.</summary>
+    /// <summary>Counts the requests sent (including injected faults) whose method and path plus query string match.</summary>
     public int CountRequests(HttpMethod method, string pathContains)
     {
         return _requests.Count(r => r.Method == method && r.Path.Contains(pathContains, StringComparison.Ordinal));
@@ -113,7 +113,7 @@ public sealed class FaultInjectingRequestInvoker(IRequestInvoker inner) : IReque
 
     private static Func<Endpoint, bool> Matches(HttpMethod method, string pathContains)
     {
-        return endpoint => endpoint.Method == method && endpoint.PathAndQuery.Contains(pathContains, StringComparison.Ordinal);
+        return endpoint => endpoint.Method == method && endpoint.Uri.AbsolutePath.Contains(pathContains, StringComparison.Ordinal);
     }
 
     public async Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)

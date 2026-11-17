@@ -63,6 +63,34 @@ public sealed class FaultInjectingRequestInvokerTests
     }
 
     [Fact]
+    public async Task FailNext_WithSearchTextOnlyInQuery_WaitsForSearchPath()
+    {
+        using var invoker = new FaultInjectingRequestInvoker(new InMemoryRequestInvoker(Encoding.UTF8.GetBytes("{}"), 200));
+        invoker.FailNext(1, 500, HttpMethod.POST, "_search");
+        int beforeSearchCalls = 0;
+        invoker.BeforeNthRequest(1, HttpMethod.POST, "_search", () =>
+        {
+            beforeSearchCalls++;
+            return Task.CompletedTask;
+        });
+        ITransport transport = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker)).Transport;
+
+        var open = await transport.RequestAsync<StringResponse>(new EndpointPath(HttpMethod.POST, "test/_pit?allow_partial_search_results=false"),
+            null, null, null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(200, open.ApiCallDetails.HttpStatusCode);
+        Assert.Equal(0, invoker.InjectedCount);
+        Assert.Equal(0, beforeSearchCalls);
+
+        var search = await transport.RequestAsync<StringResponse>(new EndpointPath(HttpMethod.POST, "test/_search?allow_partial_search_results=false"),
+            null, null, null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(500, search.ApiCallDetails.HttpStatusCode);
+        Assert.Equal(1, invoker.InjectedCount);
+        Assert.Equal(1, beforeSearchCalls);
+    }
+
+    [Fact]
     public async Task RespondNext_WithElasticsearchQueryResponse_AllowsFreshClientProductCheck()
     {
         // Arrange
