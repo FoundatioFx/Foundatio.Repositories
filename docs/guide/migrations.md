@@ -197,6 +197,8 @@ public enum MigrationResult
 }
 ```
 
+`UnableToAcquireLock` means the runner could not acquire the lock on its first attempt. Once a run starts, an unconfirmed renewal or a conflicting migration-state write returns `Failed`. Elasticsearch checks its own document version when saving a loaded state record. The numeric `MigrationState.Version` identifies the migration revision.
+
 ### Dependency Injection Setup
 
 ```csharp
@@ -318,9 +320,11 @@ public class LongRunningMigration : MigrationBase
 
 ::: tip Lock Renewal Best Practices
 - Renew the lock at regular intervals (e.g., every batch or every few minutes)
-- The `MigrationManager` automatically renews locks for `VersionedAndResumable` migrations before each retry
+- The manager renews the migration lock before starting an attempt and before saving its outcome. If renewal fails, stop processing the batch. The manager returns `Failed` and leaves the record for the next lock holder.
 - For `Versioned` migrations, you must manually renew if the migration takes longer than the lock timeout (30 minutes by default)
 :::
+
+An interrupted `VersionedAndResumable` or `Repeatable` migration can run again under a fresh lock. A started `Versioned` migration requires manual recovery. Make resumable work safe to repeat, since a batch can finish before the manager records completion.
 
 ### Using the Logger
 

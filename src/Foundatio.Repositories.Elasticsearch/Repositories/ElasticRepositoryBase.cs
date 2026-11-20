@@ -1891,6 +1891,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return await IndexDocumentsBulkAsync(documents, isCreateOperation, options).AnyContext();
     }
 
+    private protected virtual ElasticDocumentVersion? GetVersionForSave(T document) => ((IVersioned)document).GetElasticVersion();
+
     private async Task<BulkResult> IndexSingleDocumentAsync(T document, bool isCreateOperation, ICommandOptions options)
     {
         var response = await _client.IndexAsync(document, i =>
@@ -1905,9 +1907,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             i.Index(ElasticIndex.GetIndex(document));
 
-            if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
+            if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck() && GetVersionForSave(document) is { } elasticVersion)
             {
-                var elasticVersion = ((IVersioned)document).GetElasticVersion();
                 i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                 i.IfSeqNo(elasticVersion.SequenceNumber);
             }
@@ -1965,9 +1966,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     if (routing != null)
                         indexOperation.Routing = routing;
                     indexOperation.Index = index;
-                    if (HasVersion && !options.ShouldSkipVersionCheck())
+                    if (HasVersion && !options.ShouldSkipVersionCheck() && GetVersionForSave(d) is { } elasticVersion)
                     {
-                        var elasticVersion = ((IVersioned)d).GetElasticVersion();
                         indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
                         indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
                     }

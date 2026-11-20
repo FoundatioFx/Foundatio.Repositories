@@ -34,7 +34,11 @@ public abstract class ElasticMigrationJobBase : JobBase
     {
         await _configuration.ConfigureIndexesAsync(null, false).AnyContext();
 
-        await _migrationManager.Value.RunMigrationsAsync().AnyContext();
+        var result = await _migrationManager.Value.RunMigrationsAsync(context.CancellationToken).AnyContext();
+        if (result is MigrationResult.Cancelled)
+            return JobResult.Cancelled;
+        if (result is not MigrationResult.Success)
+            return JobResult.FailedWithMessage($"Migrations returned {result}.");
 
         var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(ReindexIfNecessary);
         await Task.WhenAll(tasks).AnyContext();

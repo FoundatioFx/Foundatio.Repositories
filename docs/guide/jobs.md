@@ -181,7 +181,11 @@ public abstract class ElasticMigrationJobBase : JobBase
         // time-series) queue-based reindex path:
         await _configuration.ConfigureIndexesAsync(null, false);
 
-        await _migrationManager.Value.RunMigrationsAsync();
+        var result = await _migrationManager.Value.RunMigrationsAsync(context.CancellationToken);
+        if (result is MigrationResult.Cancelled)
+            return JobResult.Cancelled;
+        if (result is not MigrationResult.Success)
+            return JobResult.FailedWithMessage($"Migrations returned {result}.");
 
         // Reindexes every outdated IVersionedIndex directly (index.ReindexAsync()),
         // one index at a time internally, but all outdated indexes IN PARALLEL
