@@ -118,7 +118,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         // Arrange
         _migrationManager.AddMigration<Version3Migration>();
         var otherRepository = new MigrationStateRepository(_migrationIndex);
-        using var subscription = _migrationStateRepository.DocumentsAdding.AddHandler(async (_, _) =>
+        using var subscription = _migrationStateRepository.DocumentsChanging.AddHandler(async (_, _) =>
         {
             await otherRepository.AddAsync(new MigrationState
             {
