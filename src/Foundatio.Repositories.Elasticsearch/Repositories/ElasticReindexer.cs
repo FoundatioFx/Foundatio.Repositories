@@ -308,7 +308,7 @@ public class ElasticReindexer
 
                 // Back off before retrying so a struggling cluster (e.g. rejecting requests due to
                 // indexing pressure) isn't hammered with an immediate retry.
-                await _timeProvider.Delay(GetStatusRetryDelay(statusGetFails), cancellationToken).AnyContext();
+                await Task.Delay(GetStatusRetryDelay(statusGetFails), _timeProvider, cancellationToken).AnyContext();
                 continue;
             }
 
@@ -382,7 +382,7 @@ public class ElasticReindexer
             if ((taskStatus?.Total ?? 0) < 100)
                 timeToWait = TimeSpan.FromMilliseconds(100);
 
-            await _timeProvider.Delay(timeToWait, cancellationToken).AnyContext();
+            await Task.Delay(timeToWait, _timeProvider, cancellationToken).AnyContext();
         } while (!cancellationToken.IsCancellationRequested);
         sw.Stop();
 

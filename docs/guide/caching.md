@@ -185,6 +185,16 @@ catch (VersionConflictDocumentException)
 }
 ```
 
+## Cached Documents and Versions
+
+Cached reads return documents with the `Version` they had when they were cached. If the document has changed since, `SaveAsync` on the cached copy throws `VersionConflictDocumentException` instead of overwriting the newer data. That's the safe outcome, but it means a conflict retry should re-read with `o.Cache(false)`:
+
+```csharp
+var employee = await repository.GetByIdAsync(id, o => o.Cache(false));
+```
+
+Patches don't compare against the cached version; they invalidate the cached entry by id. See [Versioning](/guide/versioning#caching-and-versions). The race where stale data can be re-cached right after an invalidation is tracked in [#323](https://github.com/FoundatioFx/Foundatio.Repositories/issues/323).
+
 ## Cache Invalidation Gaps
 
 ::: warning Important
