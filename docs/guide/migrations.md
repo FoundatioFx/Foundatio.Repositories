@@ -197,7 +197,9 @@ public enum MigrationResult
 }
 ```
 
-`UnableToAcquireLock` means the runner could not acquire the lock on its first attempt. Once a run starts, an unconfirmed renewal or a conflicting migration-state write returns `Failed`. The Elasticsearch provider checks the sequence number and primary term from the runner's last read or write. This protects two runs of the same `MigrationState.Version`, which identifies the migration revision. Custom migration stores can supply their own write preconditions through `IMigrationStateRepository.CreateRunOptions()`.
+On a fresh store, the manager records the highest configured numbered migration as complete. The first call to `RunMigrationsAsync()` runs registered repeatable migrations, including when they are the only migrations.
+
+`UnableToAcquireLock` means the runner could not acquire the lock immediately. A failed renewal or a conflicting migration-state write returns `Failed`. The manager confirms ownership after the final state write before reporting success. Elasticsearch checks the sequence number and primary term from the runner's last read or write. It rejects a stale write even when both attempts use the same `MigrationState.Version`. Custom stores can supply equivalent write conditions through `IMigrationStateRepository.CreateRunOptions()`.
 
 ### Dependency Injection Setup
 

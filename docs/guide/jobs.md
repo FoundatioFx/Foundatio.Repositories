@@ -170,39 +170,9 @@ public class CleanupIndexesJob : IJob
 
 ### ElasticMigrationJob
 
-`ElasticMigrationJobBase` is an **abstract, opt-in** base class for a job that runs pending data migrations and then reindexes every outdated versioned index:
+`ElasticMigrationJobBase` configures indexes and mappings with `beginReindexingOutdated: false`, then runs pending data migrations. After migrations succeed, the job calls `ReindexAsync()` directly on outdated versioned indexes in parallel. Cancellation prevents the job from starting another reindex. A reindex already in progress can finish.
 
-```csharp
-public abstract class ElasticMigrationJobBase : JobBase
-{
-    protected override async Task<JobResult> RunInternalAsync(JobContext context)
-    {
-        // Create/update indexes and mappings without enqueuing the (no-op for
-        // time-series) queue-based reindex path:
-        await _configuration.ConfigureIndexesAsync(null, false);
-
-        var result = await _migrationManager.Value.RunMigrationsAsync(context.CancellationToken);
-        if (result is MigrationResult.Cancelled)
-            return JobResult.Cancelled;
-        if (result is not MigrationResult.Success)
-            return JobResult.FailedWithMessage($"Migrations returned {result}.");
-
-        // Reindexes every outdated IVersionedIndex directly (index.ReindexAsync()),
-        // one index at a time internally, but all outdated indexes IN PARALLEL
-        // (Task.WhenAll) relative to each other.
-        var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(ReindexIfNecessary);
-        await Task.WhenAll(tasks);
-
-        return JobResult.Success;
-    }
-}
-```
-
-::: warning This is scaffolding you opt into — nothing runs it for you
-`ElasticMigrationJobBase` is **not** auto-registered, auto-discovered, or scheduled by the library, and nothing in this repo (including its own [sample app](https://github.com/FoundatioFx/Foundatio.Repositories/tree/main/samples/Foundatio.SampleApp)) derives from it. If you want a repeatable "run migrations + reindex everything outdated" job, derive from it yourself and register/schedule it in your own app (`services.AddJob<YourMigrationJob>()`). For a one-time version upgrade, it's simpler — and more predictable — to call `configuration.ReindexAsync()` / `index.ReindexAsync()` directly; see [What actually triggers a reindex](/guide/index-management#what-actually-triggers-a-reindex).
-:::
-
-**Usage (if you choose to derive from it):**
+To use it, derive a job class, then register and schedule it in your application. For a one-time upgrade, you can call `configuration.ReindexAsync()` or `index.ReindexAsync()` directly. [What triggers a reindex](/guide/index-management#what-actually-triggers-a-reindex).
 
 ```csharp
 public class MyMigrationJob : ElasticMigrationJobBase

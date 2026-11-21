@@ -32,23 +32,26 @@ public abstract class ElasticMigrationJobBase : JobBase
 
     protected override async Task<JobResult> RunInternalAsync(JobContext context)
     {
+        var cancellationToken = context.CancellationToken;
+        if (cancellationToken.IsCancellationRequested)
+            return JobResult.Cancelled;
+
         await _configuration.ConfigureIndexesAsync(null, false).AnyContext();
 
-        var result = await _migrationManager.Value.RunMigrationsAsync(context.CancellationToken).AnyContext();
+        var result = await _migrationManager.Value.RunMigrationsAsync(cancellationToken).AnyContext();
         if (result is MigrationResult.Cancelled)
             return JobResult.Cancelled;
         if (result is not MigrationResult.Success)
             return JobResult.FailedWithMessage($"Migrations returned {result}.");
 
-        var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(ReindexIfNecessary);
+        var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(async index =>
+        {
+            int currentVersion = await index.GetCurrentVersionAsync().AnyContext();
+            if (currentVersion < index.Version && !cancellationToken.IsCancellationRequested)
+                await index.ReindexAsync().AnyContext();
+        });
         await Task.WhenAll(tasks).AnyContext();
 
-        return JobResult.Success;
-    }
-
-    private async Task ReindexIfNecessary(IVersionedIndex index)
-    {
-        if (index.Version != await index.GetCurrentVersionAsync().AnyContext())
-            await index.ReindexAsync().AnyContext();
+        return cancellationToken.IsCancellationRequested ? JobResult.Cancelled : JobResult.Success;
     }
 }

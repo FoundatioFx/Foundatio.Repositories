@@ -129,19 +129,27 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.Null(pending.State.CompletedUtc);
     }
 
-    [Fact]
-    public async Task CanRunRepeatableMigration()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CanRunRepeatableMigration(bool hasStoredBaseline)
     {
-        await AddCompletedVersion1MigrationAsync();
+        // Arrange
+        if (hasStoredBaseline)
+            await AddCompletedVersion1MigrationAsync();
+        else
+            _migrationManager.AddMigration<Version1Migration>();
 
         _migrationManager.AddMigration<RepeatableMigration>();
 
+        // Act
         var migrationStatus = await _migrationManager.GetMigrationStatus();
+        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
+
+        // Assert
         Assert.Single(migrationStatus.PendingMigrations);
         Assert.True(migrationStatus.NeedsMigration);
         Assert.Equal(1, migrationStatus.CurrentVersion);
-
-        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
         await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
@@ -152,7 +160,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.NotNull(migrationState);
         Assert.Equal(MigrationType.Repeatable, migrationState.MigrationType);
         Assert.NotEqual(DateTime.MinValue, migrationState.StartedUtc);
-        Assert.NotEqual(DateTime.MinValue, migrationState.CompletedUtc);
+        Assert.NotNull(migrationState.CompletedUtc);
         Assert.Equal(0, migrationState.Version);
         Assert.Null(migrationState.ErrorMessage);
 
@@ -165,6 +173,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.Equal(MigrationResult.Success, result);
 
         var repeatableMigration = _serviceProvider.GetRequiredService<RepeatableMigration>();
+        Assert.Equal(1, repeatableMigration.Runs);
         repeatableMigration.SetVersion(1);
 
         migrationStatus = await _migrationManager.GetMigrationStatus();
@@ -177,11 +186,12 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
 
         migrations = await _migrationStateRepository.GetAllAsync();
         Assert.Equal(2, migrations.Documents.Count);
+        Assert.Equal(2, repeatableMigration.Runs);
         migrationState = migrations.Documents.FirstOrDefault(d => d.Id == typeof(RepeatableMigration).FullName);
         Assert.NotNull(migrationState);
         Assert.Equal(MigrationType.Repeatable, migrationState.MigrationType);
         Assert.NotEqual(DateTime.MinValue, migrationState.StartedUtc);
-        Assert.NotEqual(DateTime.MinValue, migrationState.CompletedUtc);
+        Assert.NotNull(migrationState.CompletedUtc);
         Assert.Equal(1, migrationState.Version);
         Assert.Null(migrationState.ErrorMessage);
     }
@@ -389,7 +399,6 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
     public async Task CancelledRepeatableRevisionRunsUnderAFreshLease(int? revision, bool throwOnCancellation)
     {
         // Arrange
-        await AddCompletedVersion1MigrationAsync();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestCancellationToken);
         var migration = new CallbackMigration(MigrationType.Repeatable, revision, context =>
         {
@@ -442,10 +451,13 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
 
     [Theory]
     [InlineData(MigrationResult.Failed)]
-    [InlineData(MigrationResult.Cancelled)]
+    [InlineData(MigrationResult.Cancelled, JobCancellation.BeforeStart)]
+    [InlineData(MigrationResult.Cancelled, JobCancellation.AfterStart)]
+    [InlineData(MigrationResult.Cancelled, JobCancellation.DuringVersionCheck)]
     [InlineData(MigrationResult.UnableToAcquireLock)]
     [InlineData(MigrationResult.Success)]
-    public async Task MigrationJobReindexesOnlyAfterSuccess(MigrationResult outcome)
+    [InlineData(MigrationResult.Success, JobCancellation.None, 3)]
+    public async Task MigrationJobReindexesOnlyAfterSuccess(MigrationResult outcome, JobCancellation cancelAt = JobCancellation.None, int existingVersion = 1)
     {
         // Arrange
         await AddCompletedVersion1MigrationAsync();
@@ -453,25 +465,27 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         await using var owner = outcome is MigrationResult.UnableToAcquireLock
             ? await _lockProvider.AcquireAsync("migration-manager", cancellationToken: TestCancellationToken)
             : null;
-        _migrationManager.Migrations.Add(new CallbackMigration(MigrationType.Versioned, 2, context =>
-        {
-            if (outcome is MigrationResult.Cancelled)
-            {
-                cancellation.Cancel();
-                context.CancellationToken.ThrowIfCancellationRequested();
-            }
-            return outcome is MigrationResult.Failed
-                ? _lockProvider.ReleaseAsync(context.Lock.Resource, context.Lock.LockId)
-                : Task.CompletedTask;
-        }));
+        if (owner is null)
+            _migrationManager.AddMigration<Version2Migration>();
         using var configuration = new ElasticConfiguration();
-        var oldIndex = new VersionedIndex(_configuration, "migration-job-test", 1);
-        var newIndex = new VersionedIndex(_configuration, "migration-job-test", 2);
-        await oldIndex.DeleteAsync();
-        await newIndex.DeleteAsync();
-        await oldIndex.ConfigureAsync();
+        var newIndex = new JobTestIndex(_configuration);
+        await DeleteWildcardIndicesAsync("migration-job-test-v*");
+        await new VersionedIndex(_configuration, newIndex.Name, existingVersion).ConfigureAsync();
         configuration.AddIndex(newIndex);
         var job = new TestMigrationJob(_migrationManager, configuration);
+        using var afterStart = cancelAt is JobCancellation.AfterStart
+            ? _migrationStateRepository.DocumentsAdded.AddHandler((_, _) => cancellation.CancelAsync())
+            : null;
+        using var afterSave = _migrationStateRepository.DocumentsSaved.AddHandler((_, _) =>
+        {
+            if (outcome is MigrationResult.Failed)
+                return _lockProvider.ReleaseAsync("migration-manager");
+            if (cancelAt is JobCancellation.DuringVersionCheck)
+                newIndex.OnVersionCheck = cancellation.Cancel;
+            return Task.CompletedTask;
+        });
+        if (cancelAt is JobCancellation.BeforeStart)
+            cancellation.Cancel();
 
         // Act
         var result = await job.RunAsync(cancellation.Token);
@@ -479,13 +493,27 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(outcome is MigrationResult.Success, result.IsSuccess);
         Assert.Equal(outcome is MigrationResult.Cancelled, result.IsCancelled);
-        Assert.Equal(outcome is MigrationResult.Success ? 2 : 1, await newIndex.GetCurrentVersionAsync());
+        bool shouldReindex = outcome is MigrationResult.Success && existingVersion < newIndex.Version;
+        Assert.Equal(shouldReindex, newIndex.ReindexRequested);
+        Assert.Equal(shouldReindex ? newIndex.Version : existingVersion, await newIndex.GetCurrentVersionAsync());
+        if (cancelAt is JobCancellation.BeforeStart)
+            Assert.False((await _client.Indices.ExistsAsync(newIndex.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        if (cancelAt is JobCancellation.AfterStart)
+            Assert.Null(Assert.IsType<MigrationState>(await _migrationStateRepository.GetByIdAsync("2")).CompletedUtc);
         if (owner is not null)
         {
             Assert.Contains(nameof(MigrationResult.UnableToAcquireLock), result.Message);
             Assert.Null(await _migrationStateRepository.GetByIdAsync("2"));
             await owner.RenewAsync();
         }
+    }
+
+    public enum JobCancellation
+    {
+        None,
+        BeforeStart,
+        AfterStart,
+        DuringVersionCheck
     }
 
     public enum Takeover
@@ -544,6 +572,24 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
 
     private sealed class TestMigrationJob(MigrationManager manager, IElasticConfiguration configuration)
         : ElasticMigrationJobBase(manager, configuration);
+
+    private sealed class JobTestIndex(IElasticConfiguration configuration) : VersionedIndex(configuration, "migration-job-test", 2)
+    {
+        public Action? OnVersionCheck { get; set; }
+        public bool ReindexRequested { get; private set; }
+
+        public override Task<int> GetCurrentVersionAsync()
+        {
+            OnVersionCheck?.Invoke();
+            return base.GetCurrentVersionAsync();
+        }
+
+        public override Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
+        {
+            ReindexRequested = true;
+            return base.ReindexAsync(progressCallbackAsync);
+        }
+    }
 }
 
 public class VersionedWithoutVersionMigration : MigrationBase

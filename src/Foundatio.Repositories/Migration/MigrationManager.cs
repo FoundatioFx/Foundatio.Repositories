@@ -99,9 +99,6 @@ public class MigrationManager
         if (cancellationToken.IsCancellationRequested)
             return MigrationResult.Cancelled;
 
-        if (Migrations.Count is 0)
-            AddMigrationsFromLoadedAssemblies();
-
         var handle = await _lockProvider.TryAcquireAsync("migration-manager", _leaseDuration, TimeSpan.Zero).AnyContext();
         if (handle is null)
             return MigrationResult.UnableToAcquireLock;
@@ -109,6 +106,9 @@ public class MigrationManager
         var migrationLock = new MigrationLock(handle);
         try
         {
+            if (Migrations.Count is 0)
+                AddMigrationsFromLoadedAssemblies();
+
             var options = _migrationStatusRepository.CreateRunOptions();
             var migrationStatus = await GetMigrationStatusAsync(migrationLock, options, cancellationToken).AnyContext();
             foreach (var migrationInfo in migrationStatus.PendingMigrations)
@@ -127,7 +127,8 @@ public class MigrationManager
                     return result;
             }
 
-            return cancellationToken.IsCancellationRequested ? MigrationResult.Cancelled : MigrationResult.Success;
+            cancellationToken.ThrowIfCancellationRequested();
+            await migrationLock.RenewAsync(_leaseDuration).AnyContext();
         }
         catch (LockException ex) when (migrationLock.RenewalError is not null)
         {
@@ -154,6 +155,8 @@ public class MigrationManager
                 _logger.LogWarning(ex, "Failed to release the lost migration lock: {Message}", ex.Message);
             }
         }
+
+        return cancellationToken.IsCancellationRequested ? MigrationResult.Cancelled : MigrationResult.Success;
     }
 
     private async Task<MigrationResult> RunMigrationAsync(MigrationInfo info, MigrationLock migrationLock, ICommandOptions? options, CancellationToken cancellationToken)
@@ -287,33 +290,28 @@ public class MigrationManager
 
         var versioned = migrationInfos.Where(i => i.Migration.MigrationType != MigrationType.Repeatable && i.Migration.Version.HasValue).ToArray();
 
-        // if migrations have never run before, mark highest version as completed
-        if (migrationStates.Count is 0)
+        // On a fresh store, baseline versioned migrations and leave repeatables pending.
+        if (migrationStates.Count is 0 && versioned.Length > 0)
         {
-            if (versioned.Length is 0)
-                return new MigrationStatus(null, -1);
-
             if (migrationLock is not null)
                 await migrationLock.RenewAsync(_leaseDuration).AnyContext();
             cancellationToken.ThrowIfCancellationRequested();
 
             int max = versioned.Max(v => v.Migration.Version!.Value);
             var now = _timeProvider.GetUtcNow().UtcDateTime;
-            await _migrationStatusRepository.AddAsync(new MigrationState
+            var baseline = await _migrationStatusRepository.AddAsync(new MigrationState
             {
                 Id = max.ToString(),
                 Version = max,
                 MigrationType = MigrationType.Versioned,
                 StartedUtc = now,
                 CompletedUtc = now
-            }).AnyContext();
-            return new MigrationStatus(null, max);
+            }, options).AnyContext();
+            migrationStates.Add(baseline);
         }
 
-        var completedVersionedMigrations = migrationStates.Where(i => i.MigrationType != MigrationType.Repeatable && i.CompletedUtc.HasValue).ToList();
-        int currentVersion = -1;
-        if (completedVersionedMigrations.Count > 0)
-            currentVersion = completedVersionedMigrations.Max(m => m.Version);
+        int currentVersion = migrationStates.Where(m => m.MigrationType != MigrationType.Repeatable && m.CompletedUtc.HasValue)
+            .Select(m => m.Version).DefaultIfEmpty(-1).Max();
 
         var pendingMigrations = new List<MigrationInfo>();
         pendingMigrations.AddRange(versioned.Where(m => m.Migration.Version!.Value > currentVersion).OrderBy(m => m.Migration.Version!.Value));
