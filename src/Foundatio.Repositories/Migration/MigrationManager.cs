@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Lock;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Resilience;
@@ -17,6 +19,8 @@ namespace Foundatio.Repositories.Migrations;
 
 public class MigrationManager
 {
+    private static readonly TimeSpan _leaseDuration = TimeSpan.FromMinutes(30);
+
     protected readonly IServiceProvider _serviceProvider;
     protected readonly IMigrationStateRepository _migrationStatusRepository;
     protected readonly ILockProvider _lockProvider;
@@ -89,115 +93,189 @@ public class MigrationManager
 
     public ICollection<IMigration> Migrations => _migrations;
 
+    /// <summary>Runs pending migrations while the migration lock is held. A failed renewal stops the run.</summary>
     public async Task<MigrationResult> RunMigrationsAsync(CancellationToken cancellationToken = default)
     {
-        if (Migrations.Count == 0)
-            AddMigrationsFromLoadedAssemblies();
+        if (cancellationToken.IsCancellationRequested)
+            return MigrationResult.Cancelled;
 
-        var migrationsLock = await _lockProvider.AcquireAsync("migration-manager", TimeSpan.FromMinutes(30), TimeSpan.Zero).AnyContext();
-        if (migrationsLock == null)
+        var handle = await _lockProvider.TryAcquireAsync("migration-manager", _leaseDuration, TimeSpan.Zero).AnyContext();
+        if (handle is null)
             return MigrationResult.UnableToAcquireLock;
 
+        var migrationLock = new MigrationLock(handle);
         try
         {
-            var migrationStatus = await GetMigrationStatus().AnyContext();
-            if (!migrationStatus.NeedsMigration)
-                return MigrationResult.Success;
+            if (Migrations.Count is 0)
+                AddMigrationsFromLoadedAssemblies();
 
+            var options = _migrationStatusRepository.CreateRunOptions();
+            var migrationStatus = await GetMigrationStatusAsync(migrationLock, options, cancellationToken).AnyContext();
             foreach (var migrationInfo in migrationStatus.PendingMigrations)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    return MigrationResult.Cancelled;
+                cancellationToken.ThrowIfCancellationRequested();
 
-                // stuck on non-resumable versioned migration, must be manually fixed
-                if (migrationInfo.Migration.MigrationType == MigrationType.Versioned && migrationInfo.State != null && migrationInfo.State.StartedUtc > DateTime.MinValue)
+                // A started, non-resumable migration requires manual recovery.
+                if (migrationInfo.Migration.MigrationType is MigrationType.Versioned && migrationInfo.State is not null && migrationInfo.State.StartedUtc > DateTime.MinValue)
                 {
                     _logger.LogError("Migration {Id} failed to complete and cannot be resumed, please correct the error and then delete the migration record to make it run again", migrationInfo.Migration.GetId());
                     return MigrationResult.Failed;
                 }
 
-                await MarkMigrationStartedAsync(migrationInfo).AnyContext();
-
-                try
-                {
-                    var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
-                    if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
-                        await _resiliencePolicy.ExecuteAsync(async ct =>
-                        {
-                            await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
-                            if (ct.IsCancellationRequested)
-                                return MigrationResult.Cancelled;
-
-                            await migrationInfo.Migration.RunAsync(context).AnyContext();
-                            return MigrationResult.Success;
-                        }, cancellationToken).AnyContext();
-                    else
-                        await migrationInfo.Migration.RunAsync(context).AnyContext();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed running migration {Id}", migrationInfo.Migration.GetId());
-
-                    Debug.Assert(migrationInfo.State is not null, "State is set by MarkMigrationStartedAsync before try block");
-                    migrationInfo.State.ErrorMessage = ex.Message;
-                    await _migrationStatusRepository.SaveAsync(migrationInfo.State).AnyContext();
-
-                    return MigrationResult.Failed;
-                }
-
-                await MarkMigrationCompleteAsync(migrationInfo).AnyContext();
-
-                // renew migration lock
-                await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
+                var result = await RunMigrationAsync(migrationInfo, migrationLock, options, cancellationToken).AnyContext();
+                if (result is not MigrationResult.Success)
+                    return result;
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            await migrationLock.RenewAsync(_leaseDuration).AnyContext();
+        }
+        catch (LockException ex) when (migrationLock.RenewalError is not null)
+        {
+            _logger.LogError(ex, "Migration lock renewal failed, stopping migrations: {Message}", ex.Message);
+            return MigrationResult.Failed;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return MigrationResult.Cancelled;
+        }
+        catch (Exception ex) when (ex is VersionConflictDocumentException or DuplicateDocumentException)
+        {
+            _logger.LogError(ex, "Migration state was changed by another writer, stopping migrations: {Message}", ex.Message);
+            return MigrationResult.Failed;
         }
         finally
         {
-            await migrationsLock.ReleaseAsync().AnyContext();
+            try
+            {
+                await handle.ReleaseAsync().AnyContext();
+            }
+            catch (Exception ex) when (migrationLock.RenewalError is not null)
+            {
+                _logger.LogWarning(ex, "Failed to release the lost migration lock: {Message}", ex.Message);
+            }
         }
 
+        return cancellationToken.IsCancellationRequested ? MigrationResult.Cancelled : MigrationResult.Success;
+    }
+
+    private async Task<MigrationResult> RunMigrationAsync(MigrationInfo info, MigrationLock migrationLock, ICommandOptions? options, CancellationToken cancellationToken)
+    {
+        await migrationLock.RenewAsync(_leaseDuration).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = await MarkMigrationStartedAsync(info, options).AnyContext();
+
+        var logger = _loggerFactory.CreateLogger(info.Migration.GetType());
+
+        async ValueTask RunAttemptAsync(CancellationToken token)
+        {
+            try
+            {
+                await migrationLock.RenewAsync(_leaseDuration).AnyContext();
+                token.ThrowIfCancellationRequested();
+                await info.Migration.RunAsync(new MigrationContext(migrationLock, logger, token)).AnyContext();
+                token.ThrowIfCancellationRequested();
+            }
+            catch (Exception) when (migrationLock.RenewalError is not null)
+            {
+                // Leave any configured retry policy normally. The failed renewal is checked before saving state.
+            }
+        }
+
+        Exception? failure = null;
+        try
+        {
+            if (info.Migration.MigrationType is MigrationType.Versioned)
+                await RunAttemptAsync(cancellationToken).AnyContext();
+            else
+                await _resiliencePolicy.ExecuteAsync(RunAttemptAsync, cancellationToken).AnyContext();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return MigrationResult.Cancelled;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed running migration {Id}: {Message}", info.Migration.GetId(), ex.Message);
+            failure = ex;
+        }
+
+        await migrationLock.RenewAsync(_leaseDuration).AnyContext();
+        state.ErrorMessage = failure?.Message;
+        state.CompletedUtc = failure is null ? _timeProvider.GetUtcNow().UtcDateTime : null;
+        await _migrationStatusRepository.SaveAsync(state, options).AnyContext();
+        if (failure is not null)
+            return MigrationResult.Failed;
+
+        _logger.LogInformation("Completed migration {Id}", state.Id);
         return MigrationResult.Success;
     }
 
-    private Task MarkMigrationStartedAsync(MigrationInfo info)
+    private sealed class MigrationLock(ILock handle) : ILock
     {
-        _logger.LogInformation("Starting migration {Id}...", info.Migration.GetId());
-        if (info.State == null)
-        {
-            info.State = new MigrationState
-            {
-                Id = info.Migration.GetId()!,
-                MigrationType = info.Migration.MigrationType,
-                Version = info.Migration.Version ?? 0,
-                StartedUtc = _timeProvider.GetUtcNow().UtcDateTime
-            };
+        private LockException? _renewalError;
+        public LockException? RenewalError => Volatile.Read(ref _renewalError);
 
-            return _migrationStatusRepository.AddAsync(info.State);
-        }
-        else
+        public async Task RenewAsync(TimeSpan? timeUntilExpires = null)
         {
-            info.State.StartedUtc = _timeProvider.GetUtcNow().UtcDateTime;
-            info.State.Version = info.Migration.Version ?? 0;
-            return _migrationStatusRepository.SaveAsync(info.State);
+            if (RenewalError is { } previous)
+                ExceptionDispatchInfo.Throw(previous);
+
+            try
+            {
+                await handle.RenewAsync(timeUntilExpires).AnyContext();
+            }
+            catch (LockException ex)
+            {
+                Interlocked.CompareExchange(ref _renewalError, ex, null);
+                throw;
+            }
         }
+
+        public string LockId => handle.LockId;
+        public string Resource => handle.Resource;
+        public DateTime AcquiredTimeUtc => handle.AcquiredTimeUtc;
+        public TimeSpan TimeWaitedForLock => handle.TimeWaitedForLock;
+        public int RenewalCount => handle.RenewalCount;
+        public Task ReleaseAsync() => handle.ReleaseAsync();
+        public ValueTask DisposeAsync() => handle.DisposeAsync();
     }
 
-    private async Task MarkMigrationCompleteAsync(MigrationInfo info)
+    private Task<MigrationState> MarkMigrationStartedAsync(MigrationInfo info, ICommandOptions? options)
     {
-        Debug.Assert(info.State is not null, "State is set by MarkMigrationStartedAsync");
-        info.State.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        info.State.ErrorMessage = null;
-        await _migrationStatusRepository.SaveAsync(info.State).AnyContext();
-        _logger.LogInformation("Completed migration {Id}", info.State.Id);
+        var state = info.State ?? new MigrationState
+        {
+            Id = info.Migration.GetId()!,
+            MigrationType = info.Migration.MigrationType
+        };
+        _logger.LogInformation("Starting migration {Id}...", state.Id);
+        state.StartedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        state.CompletedUtc = null;
+        state.ErrorMessage = null;
+        state.Version = info.Migration.Version ?? 0;
+        return info.State is null ? _migrationStatusRepository.AddAsync(state, options) : _migrationStatusRepository.SaveAsync(state, options);
     }
 
     public async Task<MigrationStatus> GetMigrationStatus()
+    {
+        try
+        {
+            return await GetMigrationStatusAsync(null, null, CancellationToken.None).AnyContext();
+        }
+        catch (DuplicateDocumentException)
+        {
+            // A concurrent caller created the baseline. Read its persisted state.
+            return await GetMigrationStatusAsync(null, null, CancellationToken.None).AnyContext();
+        }
+    }
+
+    private async Task<MigrationStatus> GetMigrationStatusAsync(MigrationLock? migrationLock, ICommandOptions? options, CancellationToken cancellationToken)
     {
         var migrations = Migrations.OrderBy(m => m.Version).ToList();
         string[] migrationIds = migrations.Select(m => m.GetId()!).ToArray();
 
         // get by id to ensure latest document versions
-        var migrationStatesByIds = await _migrationStatusRepository.GetByIdsAsync(migrationIds).AnyContext();
+        var migrationStatesByIds = await _migrationStatusRepository.GetByIdsAsync(migrationIds, options).AnyContext();
         var migrationStates = migrationStatesByIds.ToList();
 
         // get all to add any additional migrations that are not configured
@@ -207,49 +285,41 @@ public class MigrationManager
         var migrationInfos = migrations.Select(m => new MigrationInfo
         {
             Migration = m,
-            State = migrationStates.FirstOrDefault(s => s.Id.Equals(m.GetId()))
+            State = migrationStates.FirstOrDefault(s => String.Equals(s.Id, m.GetId(), StringComparison.Ordinal))
         }).ToList();
 
-        int max = 0;
         var versioned = migrationInfos.Where(i => i.Migration.MigrationType != MigrationType.Repeatable && i.Migration.Version.HasValue).ToArray();
 
-        // if migrations have never run before, mark highest version as completed
-        if (migrationStates.Count == 0)
+        // On a fresh store, baseline versioned migrations and leave repeatables pending.
+        if (migrationStates.Count is 0 && versioned.Length > 0)
         {
-            if (migrationInfos.Count > 0)
+            if (migrationLock is not null)
+                await migrationLock.RenewAsync(_leaseDuration).AnyContext();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            int max = versioned.Max(v => v.Migration.Version!.Value);
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+            var baseline = await _migrationStatusRepository.AddAsync(new MigrationState
             {
-                if (versioned.Length > 0)
-                {
-                    var now = _timeProvider.GetUtcNow().UtcDateTime;
-                    max = versioned.Max(v => v.Migration.Version!.Value);
-
-                    // marking highest version as completed
-                    await _migrationStatusRepository.SaveAsync(new MigrationState
-                    {
-                        Id = max.ToString(),
-                        Version = max,
-                        MigrationType = MigrationType.Versioned,
-                        StartedUtc = now,
-                        CompletedUtc = now
-                    }).AnyContext();
-
-                    return new MigrationStatus(null, max);
-                }
-            }
-
-            return new MigrationStatus(null, -1);
+                Id = max.ToString(),
+                Version = max,
+                MigrationType = MigrationType.Versioned,
+                StartedUtc = now,
+                CompletedUtc = now
+            }, options).AnyContext();
+            migrationStates.Add(baseline);
         }
 
-        var completedVersionedMigrations = migrationStates.Where(i => i.MigrationType != MigrationType.Repeatable && i.CompletedUtc.HasValue).ToList();
-        int currentVersion = -1;
-        if (completedVersionedMigrations.Count > 0)
-            currentVersion = completedVersionedMigrations.Max(m => m.Version);
+        int currentVersion = migrationStates.Where(m => m.MigrationType != MigrationType.Repeatable && m.CompletedUtc.HasValue)
+            .Select(m => m.Version).DefaultIfEmpty(-1).Max();
 
         var pendingMigrations = new List<MigrationInfo>();
         pendingMigrations.AddRange(versioned.Where(m => m.Migration.Version!.Value > currentVersion).OrderBy(m => m.Migration.Version!.Value));
 
-        // repeatable migrations that haven't run or have a newer version
-        pendingMigrations.AddRange(migrationInfos.Where(i => i.Migration.MigrationType == MigrationType.Repeatable && (i.State == null || i.State.Version < i.Migration.Version)));
+        // An interrupted repeatable migration remains pending for the same revision.
+        pendingMigrations.AddRange(migrationInfos.Where(i => i.Migration.MigrationType is MigrationType.Repeatable &&
+            (i.State is null || i.State.Version < i.Migration.Version ||
+             (i.State.Version == (i.Migration.Version ?? 0) && (i.State.CompletedUtc is null || i.State.ErrorMessage is not null)))));
 
         return new MigrationStatus(pendingMigrations, currentVersion);
     }
@@ -269,7 +339,7 @@ public class MigrationManager
             catch (ReflectionTypeLoadException ex)
             {
                 string loaderMessages = String.Join(", ", (ex.LoaderExceptions ?? []).OfType<Exception>().Select(le => le.Message));
-                _logger.LogInformation(ex, "Unable to search types from assembly {Assembly} for plugins of type {PluginType}: {LoaderMessages}", assembly.FullName, typeof(TAction).Name, loaderMessages);
+                _logger.LogInformation(ex, "Unable to search types from assembly {Assembly} for plugins of type {PluginType} (loader errors: {LoaderMessages}): {Message}", assembly.FullName, typeof(TAction).Name, loaderMessages, ex.Message);
             }
         }
 

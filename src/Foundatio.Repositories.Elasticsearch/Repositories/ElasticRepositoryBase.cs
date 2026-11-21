@@ -1893,6 +1893,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task<BulkResult> IndexSingleDocumentAsync(T document, bool isCreateOperation, ICommandOptions options)
     {
+        var tracked = options as OptimisticConcurrencyOptions<T>;
         var response = await _client.IndexAsync(document, i =>
         {
             i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
@@ -1905,9 +1906,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             i.Index(ElasticIndex.GetIndex(document));
 
-            if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
+            if (!isCreateOperation && (tracked is not null || (HasVersion && !options.ShouldSkipVersionCheck())))
             {
-                var elasticVersion = ((IVersioned)document).GetElasticVersion();
+                var elasticVersion = tracked?.GetRequiredVersion(document.Id) ?? ((IVersioned)document).GetElasticVersion();
                 i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                 i.IfSeqNo(elasticVersion.SequenceNumber);
             }
@@ -1924,6 +1925,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             throw new DocumentException(response.GetErrorMessage(message), response.OriginalException());
         }
+
+        if (tracked is not null)
+            tracked.Versions[document.Id] = response.GetElasticVersion();
 
         if (HasVersion)
         {

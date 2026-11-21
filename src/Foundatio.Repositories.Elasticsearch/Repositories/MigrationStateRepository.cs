@@ -12,6 +12,8 @@ public class MigrationStateRepository : ElasticRepositoryBase<MigrationState>, I
         DisableCache();
         DefaultConsistency = Consistency.Immediate;
     }
+
+    ICommandOptions<MigrationState> IMigrationStateRepository.CreateRunOptions() => new OptimisticConcurrencyOptions<MigrationState>();
 }
 
 public class MigrationIndex : Index<MigrationState>

@@ -48,6 +48,7 @@ public class MigrationContext
         CancellationToken = cancellationToken;
     }
 
+    /// <summary>Renew this lock between batches. Stop protected work if renewal throws <see cref="LockException"/>.</summary>
     public ILock Lock { get; }
     public ILogger Logger { get; }
     public CancellationToken CancellationToken { get; }

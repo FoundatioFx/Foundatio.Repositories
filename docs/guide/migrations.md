@@ -197,6 +197,10 @@ public enum MigrationResult
 }
 ```
 
+On a fresh store, the manager records the highest configured numbered migration as complete. The first call to `RunMigrationsAsync()` runs registered repeatable migrations, including when they are the only migrations.
+
+`UnableToAcquireLock` means the runner could not acquire the lock immediately. A failed renewal or a conflicting migration-state write returns `Failed`. The manager confirms ownership after the final state write before reporting success. Elasticsearch checks the sequence number and primary term from the runner's last read or write. It rejects a stale write even when both attempts use the same `MigrationState.Version`. Custom stores can supply equivalent write conditions through `IMigrationStateRepository.CreateRunOptions()`.
+
 ### Dependency Injection Setup
 
 ```csharp
@@ -318,9 +322,11 @@ public class LongRunningMigration : MigrationBase
 
 ::: tip Lock Renewal Best Practices
 - Renew the lock at regular intervals (e.g., every batch or every few minutes)
-- The `MigrationManager` automatically renews locks for `VersionedAndResumable` migrations before each retry
+- The manager renews the migration lock before starting an attempt and before saving its outcome. If renewal fails, stop processing the batch. The manager returns `Failed` and leaves the record for the next lock holder.
 - For `Versioned` migrations, you must manually renew if the migration takes longer than the lock timeout (30 minutes by default)
 :::
+
+An interrupted `VersionedAndResumable` or `Repeatable` migration can run again under a fresh lock. A started `Versioned` migration requires manual recovery. Make resumable work safe to repeat, since a batch can finish before the manager records completion.
 
 ### Using the Logger
 

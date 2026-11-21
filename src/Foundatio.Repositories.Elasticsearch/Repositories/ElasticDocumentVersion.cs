@@ -1,8 +1,20 @@
 ﻿using System;
+using System.Collections.Generic;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch;
+
+internal sealed class OptimisticConcurrencyOptions<T> : CommandOptions<T> where T : class
+{
+    public Dictionary<string, ElasticDocumentVersion> Versions { get; } = new(StringComparer.Ordinal);
+
+    public ElasticDocumentVersion GetRequiredVersion(string id) =>
+        Versions.TryGetValue(id, out var version) && !version.IsEmpty
+            ? version
+            : throw new VersionConflictDocumentException($"No stored document version was read for '{id}'.");
+}
 
 public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComparable<ElasticDocumentVersion>, IComparable
 {
