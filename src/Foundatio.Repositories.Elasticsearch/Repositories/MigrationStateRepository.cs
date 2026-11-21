@@ -2,7 +2,6 @@
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Migrations;
-using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -13,10 +12,6 @@ public class MigrationStateRepository : ElasticRepositoryBase<MigrationState>, I
         DisableCache();
         DefaultConsistency = Consistency.Immediate;
     }
-
-    // Preserve upserts for caller-created records. Loaded records carry Elasticsearch's sequence number and primary term.
-    private protected override ElasticDocumentVersion? GetVersionForSave(MigrationState document) =>
-        string.IsNullOrEmpty(((IVersioned)document).Version) ? null : base.GetVersionForSave(document);
 }
 
 public class MigrationIndex : Index<MigrationState>

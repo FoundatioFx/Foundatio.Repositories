@@ -12,6 +12,7 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Migrations;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Serializer;
@@ -391,10 +392,13 @@ public static class ElasticIndexExtensions
 
     public static ElasticDocumentVersion GetElasticVersion(this IVersioned versioned)
     {
-        if (versioned == null || String.IsNullOrEmpty(versioned.Version))
-            return ElasticDocumentVersion.Empty;
+        if (!String.IsNullOrEmpty(versioned?.Version))
+            return versioned.Version;
 
-        return versioned.Version;
+        // Caller-created migration records support upserts with Elasticsearch's unassigned primary term and sequence number.
+        return versioned is MigrationState
+            ? new ElasticDocumentVersion(primaryTerm: 0, sequenceNumber: -2)
+            : ElasticDocumentVersion.Empty;
     }
 
     public static FindHit<T> ToFindHit<T>(this Hit<T> hit) where T : class

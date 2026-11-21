@@ -51,6 +51,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         Assert.Null(employee.Version);
         employee.Id = ObjectId.GenerateNewId().ToString();
 
+        await Assert.ThrowsAsync<DocumentException>(() => _employeeRepository.SaveAsync(employee));
         employee = await _employeeRepository.SaveAsync(employee, o => o.SkipVersionCheck());
         Assert.NotNull(employee);
         Assert.NotNull(employee.Id);

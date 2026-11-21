@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Lock;
-using Foundatio.Messaging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Exceptions;
@@ -35,9 +34,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         await _migrationIndex.DeleteAsync();
         await _migrationIndex.ConfigureAsync();
 
-        var cacheClient = new InMemoryCacheClient();
-        var messageBus = new InMemoryMessageBus();
-        _lockProvider = new CacheLockProvider(cacheClient, messageBus, Log);
+        _lockProvider = new CacheLockProvider(_cache, _messageBus, Log);
         _migrationStateRepository = new MigrationStateRepository(_migrationIndex);
 
         var serviceCollection = new ServiceCollection();
@@ -120,13 +117,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var otherRepository = new MigrationStateRepository(_migrationIndex);
         using var subscription = _migrationStateRepository.DocumentsChanging.AddHandler(async (_, _) =>
         {
-            await otherRepository.AddAsync(new MigrationState
-            {
-                Id = "3",
-                Version = 3,
-                MigrationType = MigrationType.Versioned,
-                StartedUtc = DateTime.UtcNow
-            });
+            await otherRepository.AddAsync(new MigrationState { Id = "3", Version = 3, StartedUtc = DateTime.UtcNow });
         });
 
         // Act
@@ -225,11 +216,15 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.Equal("Boom", migrationState.ErrorMessage);
     }
 
-    [Fact]
-    public async Task WillRetryFailingMigration()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WillRetryFailingMigration(bool unrelatedLockFailure)
     {
         await AddCompletedVersion1MigrationAsync();
-
+        var failingMigration = _serviceProvider.GetRequiredService<FailingResumableMigration>();
+        if (unrelatedLockFailure)
+            failingMigration.Failure = new LockAcquisitionTimeoutException("another-resource");
         _migrationManager.AddMigration<FailingResumableMigration>();
 
         var migrationStatus = await _migrationManager.GetMigrationStatus();
@@ -240,7 +235,6 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Failed, result);
 
-        var failingMigration = _serviceProvider.GetRequiredService<FailingResumableMigration>();
         Assert.Equal(3, failingMigration.Attempts);
 
         await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
@@ -252,7 +246,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.Equal(MigrationType.VersionedAndResumable, migrationState.MigrationType);
         Assert.NotEqual(DateTime.MinValue, migrationState.StartedUtc);
         Assert.Null(migrationState.CompletedUtc);
-        Assert.Equal("Boom", migrationState.ErrorMessage);
+        Assert.Equal(failingMigration.Failure.Message, migrationState.ErrorMessage);
 
         // try again, should pass this time
         result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
@@ -269,11 +263,12 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
     }
 
     [Theory]
-    [InlineData(MigrationType.Versioned, false)]
-    [InlineData(MigrationType.Versioned, true)]
-    [InlineData(MigrationType.VersionedAndResumable, true)]
-    [InlineData(MigrationType.Versioned, false, true)]
-    public async Task LosingTheLeasePreservesTheNextOwnersState(MigrationType type, bool throwAfterTakeover, bool duringSave = false)
+    [InlineData(Takeover.BeforeReturn, MigrationType.Versioned)]
+    [InlineData(Takeover.BeforeError, MigrationType.Versioned)]
+    [InlineData(Takeover.BeforeError, MigrationType.VersionedAndResumable)]
+    [InlineData(Takeover.DuringCompletionSave, MigrationType.Versioned)]
+    [InlineData(Takeover.DuringErrorSave, MigrationType.Versioned)]
+    public async Task LosingTheLeasePreservesTheNextOwnersState(Takeover takeover, MigrationType type)
     {
         // Arrange
         await AddCompletedVersion1MigrationAsync();
@@ -281,19 +276,20 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         async Task TakeOverAsync()
         {
             await _lockProvider.ReleaseAsync("migration-manager");
-            successor = await _lockProvider.AcquireAsync("migration-manager", TimeSpan.FromMinutes(1), TimeSpan.Zero);
+            successor = await _lockProvider.AcquireAsync("migration-manager", acquireTimeout: TimeSpan.Zero);
             var repository = new MigrationStateRepository(_migrationIndex);
             var state = await repository.GetByIdAsync("2");
             state!.ErrorMessage = "Recorded by the next owner";
             await repository.SaveAsync(state);
         }
 
+        bool duringSave = takeover is Takeover.DuringCompletionSave or Takeover.DuringErrorSave;
         using var subscription = duringSave ? _migrationStateRepository.DocumentsSaving.AddHandler((_, _) => TakeOverAsync()) : null;
         var migration = new CallbackMigration(type, 2, async _ =>
         {
             if (!duringSave)
                 await TakeOverAsync();
-            if (throwAfterTakeover)
+            if (takeover is Takeover.BeforeError or Takeover.DuringErrorSave)
                 throw new ApplicationException("Original worker failed");
         });
         _migrationManager.Migrations.Add(migration);
@@ -312,36 +308,42 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.Null(state.CompletedUtc);
         Assert.Equal("Recorded by the next owner", state.ErrorMessage);
         Assert.Null(await _migrationStateRepository.GetByIdAsync("3"));
+        var expectedFailure = duringSave ? typeof(VersionConflictDocumentException) : typeof(LockException);
+        Assert.Contains(Log.LogEntries, entry => String.Equals(entry.CategoryName, typeof(MigrationManager).FullName, StringComparison.Ordinal) &&
+            entry.Exception is { } ex && ex.GetType() == expectedFailure && entry.Message.EndsWith($": {ex.Message}", StringComparison.Ordinal));
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task LosingTheLeaseBeforeExecutionStopsInitializationOrPendingWork(bool emptyHistory)
+    [InlineData(LeaseLoss.DuringInitialization)]
+    [InlineData(LeaseLoss.AfterStart)]
+    [InlineData(LeaseLoss.AfterCompletion)]
+    public async Task LosingTheLeaseStopsAtTheLastPersistedState(LeaseLoss when)
     {
         // Arrange
-        if (!emptyHistory)
+        if (when is not LeaseLoss.DuringInitialization)
             await AddCompletedVersion1MigrationAsync();
         var migration = new CallbackMigration(MigrationType.Versioned, 2, _ => Task.CompletedTask);
         _migrationManager.Migrations.Add(migration);
-        using var subscription = emptyHistory
-            ? _migrationStateRepository.AfterQuery.AddHandler((_, _) => _lockProvider.ReleaseAsync("migration-manager"))
-            : _migrationStateRepository.DocumentsAdded.AddHandler((_, _) => _lockProvider.ReleaseAsync("migration-manager"));
+        _migrationManager.AddMigration<Version3Migration>();
+        Task LoseLeaseAsync(object sender, EventArgs args) => _lockProvider.ReleaseAsync("migration-manager");
+        using var subscription = when switch
+        {
+            LeaseLoss.DuringInitialization => _migrationStateRepository.AfterQuery.AddHandler(LoseLeaseAsync),
+            LeaseLoss.AfterStart => _migrationStateRepository.DocumentsAdded.AddHandler(LoseLeaseAsync),
+            LeaseLoss.AfterCompletion => _migrationStateRepository.DocumentsSaved.AddHandler(LoseLeaseAsync),
+            _ => throw new ArgumentOutOfRangeException(nameof(when))
+        };
 
         // Act
         var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
 
         // Assert
         Assert.Equal(MigrationResult.Failed, result);
-        Assert.Equal(0, migration.Runs);
+        Assert.Equal(when is LeaseLoss.AfterCompletion ? 1 : 0, migration.Runs);
+        Assert.Null(await _migrationStateRepository.GetByIdAsync("3"));
         var state = await _migrationStateRepository.GetByIdAsync("2");
-        if (emptyHistory)
-            Assert.Null(state);
-        else
-        {
-            Assert.NotNull(state);
-            Assert.Null(state.CompletedUtc);
-        }
+        Assert.Equal(when is not LeaseLoss.DuringInitialization, state is not null);
+        Assert.Equal(when is LeaseLoss.AfterCompletion, state?.CompletedUtc is not null);
     }
 
     [Theory]
@@ -355,9 +357,6 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var manager = new MigrationManager(_serviceProvider, _migrationStateRepository, new CacheLockProvider(cache, _messageBus, Log), Log);
         var migration = new CallbackMigration(MigrationType.VersionedAndResumable, 2, async context =>
         {
-            if (cache.RejectedRenewals > 0)
-                return;
-
             cache.RejectNextRenewal = true;
             if (migrationHandlesException)
                 await Assert.ThrowsAsync<LockException>(() => context.Lock.RenewAsync());
@@ -371,12 +370,12 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var result = await manager.RunMigrationsAsync(TestCancellationToken);
 
         // Assert
-        Assert.Equal(1, cache.RejectedRenewals);
         Assert.Equal(1, migration.Runs);
         Assert.Equal(MigrationResult.Failed, result);
         var state = await _migrationStateRepository.GetByIdAsync("2");
         Assert.NotNull(state);
         Assert.Null(state.CompletedUtc);
+        Assert.Null(state.ErrorMessage);
         Assert.Null(await _migrationStateRepository.GetByIdAsync("3"));
     }
 
@@ -397,16 +396,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         });
         _migrationManager.Migrations.Add(migration);
         if (revision.HasValue)
-        {
-            await _migrationStateRepository.AddAsync(new MigrationState
-            {
-                Id = migration.GetId()!,
-                Version = 1,
-                MigrationType = MigrationType.Repeatable,
-                StartedUtc = DateTime.UtcNow.AddDays(-1),
-                CompletedUtc = DateTime.UtcNow.AddDays(-1)
-            });
-        }
+            await AddCompletedVersion1MigrationAsync(migration);
 
         // Act
         var result = await _migrationManager.RunMigrationsAsync(cancellation.Token);
@@ -423,100 +413,39 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task LosingTheLeaseAfterCompletionLeavesTheNextMigrationUnstarted()
-    {
-        // Arrange
-        await AddCompletedVersion1MigrationAsync();
-        _migrationManager.AddMigration<Version2Migration>();
-        _migrationManager.AddMigration<Version3Migration>();
-        using var subscription = _migrationStateRepository.DocumentsSaved.AddHandler((_, _) =>
-            _lockProvider.ReleaseAsync("migration-manager"));
-
-        // Act
-        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
-
-        // Assert
-        Assert.Equal(MigrationResult.Failed, result);
-        var completed = await _migrationStateRepository.GetByIdAsync("2");
-        Assert.NotNull(completed?.CompletedUtc);
-        Assert.Null(await _migrationStateRepository.GetByIdAsync("3"));
-    }
-
-    [Fact]
-    public async Task AResumableMigrationCanRetryAnUnrelatedLockFailure()
-    {
-        // Arrange
-        await AddCompletedVersion1MigrationAsync();
-        bool firstAttempt = true;
-        var migration = new CallbackMigration(MigrationType.VersionedAndResumable, 2, _ =>
-        {
-            if (firstAttempt)
-            {
-                firstAttempt = false;
-                throw new LockAcquisitionTimeoutException("another-resource");
-            }
-            return Task.CompletedTask;
-        });
-        _migrationManager.Migrations.Add(migration);
-
-        // Act
-        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
-
-        // Assert
-        Assert.Equal(MigrationResult.Success, result);
-        Assert.Equal(2, migration.Runs);
-    }
-
-    [Fact]
-    public async Task ContendedMigrationLockReturnsWithoutStartingWork()
-    {
-        // Arrange
-        await AddCompletedVersion1MigrationAsync();
-        _migrationManager.AddMigration<Version3Migration>();
-        await using var owner = await _lockProvider.AcquireAsync("migration-manager", cancellationToken: TestCancellationToken);
-
-        // Act
-        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
-
-        // Assert
-        Assert.Equal(MigrationResult.UnableToAcquireLock, result);
-        Assert.Null(await _migrationStateRepository.GetByIdAsync("3"));
-        await owner.RenewAsync();
-    }
-
-    [Fact]
     public async Task MigrationStateSavesAcceptNewRecordsAndCheckLoadedRecordsInTheSameBulk()
     {
         // Arrange
-        await AddCompletedVersion1MigrationAsync();
-        var loaded = await _migrationStateRepository.GetByIdAsync("1");
-        Assert.NotNull(loaded);
-        var fresh = new MigrationState { Id = "2", Version = 2 };
+        var first = await _migrationStateRepository.SaveAsync(new MigrationState { Id = "1", Version = 1 });
+        var stale = await _migrationStateRepository.GetByIdAsync("1");
+        Assert.NotNull(stale);
+        var second = new MigrationState { Id = "2", Version = 2 };
 
         // Act
-        await _migrationStateRepository.SaveAsync(new[] { loaded, fresh });
-        await _migrationStateRepository.SaveAsync(new MigrationState { Id = "2", Version = 3 });
+        await _migrationStateRepository.SaveAsync(new[] { first, second });
+        await _migrationStateRepository.SaveAsync(new MigrationState { Id = "1", Version = 3 });
 
         // Assert
-        var saved = await _migrationStateRepository.GetByIdAsync("2");
-        Assert.Equal(3, saved?.Version);
-        fresh.Version = 4;
-        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _migrationStateRepository.SaveAsync(fresh));
-        var third = new MigrationState { Id = "3", Version = 3 };
-        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _migrationStateRepository.SaveAsync(new[] { fresh, third }));
-        Assert.Equal(3, (await _migrationStateRepository.GetByIdAsync("2"))?.Version);
-        Assert.NotNull(await _migrationStateRepository.GetByIdAsync("3"));
+        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _migrationStateRepository.SaveAsync(stale));
+        await Assert.ThrowsAsync<VersionConflictDocumentException>(() =>
+            _migrationStateRepository.SaveAsync(new[] { stale, new MigrationState { Id = "3", Version = 3 } }));
+        Assert.Equal(3, (await _migrationStateRepository.GetByIdAsync("1"))?.Version);
+        Assert.Equal(3, (await _migrationStateRepository.GetByIdAsync("3"))?.Version);
     }
 
     [Theory]
     [InlineData(MigrationResult.Failed)]
     [InlineData(MigrationResult.Cancelled)]
+    [InlineData(MigrationResult.UnableToAcquireLock)]
     [InlineData(MigrationResult.Success)]
     public async Task MigrationJobReindexesOnlyAfterSuccess(MigrationResult outcome)
     {
         // Arrange
         await AddCompletedVersion1MigrationAsync();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestCancellationToken);
+        await using var owner = outcome is MigrationResult.UnableToAcquireLock
+            ? await _lockProvider.AcquireAsync("migration-manager", cancellationToken: TestCancellationToken)
+            : null;
         _migrationManager.Migrations.Add(new CallbackMigration(MigrationType.Versioned, 2, context =>
         {
             if (outcome is MigrationResult.Cancelled)
@@ -544,44 +473,58 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.Equal(outcome is MigrationResult.Success, result.IsSuccess);
         Assert.Equal(outcome is MigrationResult.Cancelled, result.IsCancelled);
         Assert.Equal(outcome is MigrationResult.Success ? 2 : 1, await newIndex.GetCurrentVersionAsync());
+        if (owner is not null)
+        {
+            Assert.Contains(nameof(MigrationResult.UnableToAcquireLock), result.Message);
+            Assert.Null(await _migrationStateRepository.GetByIdAsync("2"));
+            await owner.RenewAsync();
+        }
     }
 
-    private Task AddCompletedVersion1MigrationAsync()
+    public enum Takeover
+    {
+        BeforeReturn,
+        BeforeError,
+        DuringCompletionSave,
+        DuringErrorSave
+    }
+
+    public enum LeaseLoss
+    {
+        DuringInitialization,
+        AfterStart,
+        AfterCompletion
+    }
+
+    private Task AddCompletedVersion1MigrationAsync(IMigration? migration = null)
     {
         return _migrationStateRepository.AddAsync(new MigrationState
         {
-            Id = "1",
+            Id = migration?.GetId() ?? "1",
             Version = 1,
-            MigrationType = MigrationType.Versioned,
+            MigrationType = migration?.MigrationType ?? MigrationType.Versioned,
             StartedUtc = DateTime.UtcNow,
             CompletedUtc = DateTime.UtcNow
         });
     }
 
-    private sealed class CallbackMigration : MigrationBase
+    private sealed class CallbackMigration(MigrationType type, int? version, Func<MigrationContext, Task> run) : IMigration
     {
-        private readonly Func<MigrationContext, Task> _run;
-
-        public CallbackMigration(MigrationType type, int? version, Func<MigrationContext, Task> run)
-        {
-            MigrationType = type;
-            Version = version;
-            _run = run;
-        }
-
+        public MigrationType MigrationType => type;
+        public int? Version => version;
+        public bool RequiresOffline => false;
         public int Runs { get; private set; }
 
-        public override Task RunAsync(MigrationContext context)
+        public Task RunAsync(MigrationContext context)
         {
             Runs++;
-            return _run(context);
+            return run(context);
         }
     }
 
     private sealed class RejectOneRenewalCache : InMemoryCacheClient, ICacheClient
     {
         public bool RejectNextRenewal { get; set; }
-        public int RejectedRenewals { get; private set; }
 
         Task<bool> ICacheClient.ReplaceIfEqualAsync<T>(string key, T value, T expected, TimeSpan? expiresIn)
         {
@@ -589,7 +532,6 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
                 return ReplaceIfEqualAsync(key, value, expected, expiresIn);
 
             RejectNextRenewal = false;
-            RejectedRenewals++;
             return Task.FromResult(false);
         }
     }
@@ -674,12 +616,13 @@ public class FailingResumableMigration : MigrationBase
     }
 
     public int Attempts { get; set; }
+    public Exception Failure { get; set; } = new ApplicationException("Boom");
 
     public override Task RunAsync(MigrationContext context)
     {
         Attempts++;
         if (Attempts <= 3)
-            return Task.FromException(new ApplicationException("Boom"));
+            return Task.FromException(Failure);
 
         return Task.CompletedTask;
     }
