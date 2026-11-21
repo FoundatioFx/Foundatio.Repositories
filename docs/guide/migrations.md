@@ -197,7 +197,7 @@ public enum MigrationResult
 }
 ```
 
-`UnableToAcquireLock` means the runner could not acquire the lock on its first attempt. Once a run starts, an unconfirmed renewal or a conflicting migration-state write returns `Failed`. Elasticsearch checks its own document version when saving a loaded state record. The numeric `MigrationState.Version` identifies the migration revision.
+`UnableToAcquireLock` means the runner could not acquire the lock on its first attempt. Once a run starts, an unconfirmed renewal or a conflicting migration-state write returns `Failed`. The Elasticsearch provider checks the sequence number and primary term from the runner's last read or write. This protects two runs of the same `MigrationState.Version`, which identifies the migration revision. Custom migration stores can supply their own write preconditions through `IMigrationStateRepository.CreateRunOptions()`.
 
 ### Dependency Injection Setup
 

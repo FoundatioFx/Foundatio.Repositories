@@ -109,7 +109,8 @@ public class MigrationManager
         var migrationLock = new MigrationLock(handle);
         try
         {
-            var migrationStatus = await GetMigrationStatusAsync(migrationLock, cancellationToken).AnyContext();
+            var options = _migrationStatusRepository.CreateRunOptions();
+            var migrationStatus = await GetMigrationStatusAsync(migrationLock, options, cancellationToken).AnyContext();
             foreach (var migrationInfo in migrationStatus.PendingMigrations)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -121,7 +122,7 @@ public class MigrationManager
                     return MigrationResult.Failed;
                 }
 
-                var result = await RunMigrationAsync(migrationInfo, migrationLock, cancellationToken).AnyContext();
+                var result = await RunMigrationAsync(migrationInfo, migrationLock, options, cancellationToken).AnyContext();
                 if (result is not MigrationResult.Success)
                     return result;
             }
@@ -155,11 +156,11 @@ public class MigrationManager
         }
     }
 
-    private async Task<MigrationResult> RunMigrationAsync(MigrationInfo info, MigrationLock migrationLock, CancellationToken cancellationToken)
+    private async Task<MigrationResult> RunMigrationAsync(MigrationInfo info, MigrationLock migrationLock, ICommandOptions? options, CancellationToken cancellationToken)
     {
         await migrationLock.RenewAsync(_leaseDuration).AnyContext();
         cancellationToken.ThrowIfCancellationRequested();
-        var state = await MarkMigrationStartedAsync(info).AnyContext();
+        var state = await MarkMigrationStartedAsync(info, options).AnyContext();
 
         var logger = _loggerFactory.CreateLogger(info.Migration.GetType());
 
@@ -199,7 +200,7 @@ public class MigrationManager
         await migrationLock.RenewAsync(_leaseDuration).AnyContext();
         state.ErrorMessage = failure?.Message;
         state.CompletedUtc = failure is null ? _timeProvider.GetUtcNow().UtcDateTime : null;
-        await _migrationStatusRepository.SaveAsync(state).AnyContext();
+        await _migrationStatusRepository.SaveAsync(state, options).AnyContext();
         if (failure is not null)
             return MigrationResult.Failed;
 
@@ -237,7 +238,7 @@ public class MigrationManager
         public ValueTask DisposeAsync() => handle.DisposeAsync();
     }
 
-    private Task<MigrationState> MarkMigrationStartedAsync(MigrationInfo info)
+    private Task<MigrationState> MarkMigrationStartedAsync(MigrationInfo info, ICommandOptions? options)
     {
         var state = info.State ?? new MigrationState
         {
@@ -249,29 +250,29 @@ public class MigrationManager
         state.CompletedUtc = null;
         state.ErrorMessage = null;
         state.Version = info.Migration.Version ?? 0;
-        return info.State is null ? _migrationStatusRepository.AddAsync(state) : _migrationStatusRepository.SaveAsync(state);
+        return info.State is null ? _migrationStatusRepository.AddAsync(state, options) : _migrationStatusRepository.SaveAsync(state, options);
     }
 
     public async Task<MigrationStatus> GetMigrationStatus()
     {
         try
         {
-            return await GetMigrationStatusAsync(null, CancellationToken.None).AnyContext();
+            return await GetMigrationStatusAsync(null, null, CancellationToken.None).AnyContext();
         }
         catch (DuplicateDocumentException)
         {
             // A concurrent caller created the baseline. Read its persisted state.
-            return await GetMigrationStatusAsync(null, CancellationToken.None).AnyContext();
+            return await GetMigrationStatusAsync(null, null, CancellationToken.None).AnyContext();
         }
     }
 
-    private async Task<MigrationStatus> GetMigrationStatusAsync(MigrationLock? migrationLock, CancellationToken cancellationToken)
+    private async Task<MigrationStatus> GetMigrationStatusAsync(MigrationLock? migrationLock, ICommandOptions? options, CancellationToken cancellationToken)
     {
         var migrations = Migrations.OrderBy(m => m.Version).ToList();
         string[] migrationIds = migrations.Select(m => m.GetId()!).ToArray();
 
         // get by id to ensure latest document versions
-        var migrationStatesByIds = await _migrationStatusRepository.GetByIdsAsync(migrationIds).AnyContext();
+        var migrationStatesByIds = await _migrationStatusRepository.GetByIdsAsync(migrationIds, options).AnyContext();
         var migrationStates = migrationStatesByIds.ToList();
 
         // get all to add any additional migrations that are not configured

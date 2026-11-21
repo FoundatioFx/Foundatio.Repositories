@@ -194,6 +194,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             foreach (var findHit in multiGetResults.ToFindHits(_logger))
             {
+                if (options is OptimisticConcurrencyOptions<T> tracked)
+                    tracked.Versions.TryAdd(findHit.Id!, findHit.GetElasticVersion());
+
                 hits.Add(findHit);
                 itemsToFind.Remove(new Id(findHit.Id!, findHit.Routing));
             }

@@ -263,15 +263,19 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
     }
 
     [Theory]
-    [InlineData(Takeover.BeforeReturn, MigrationType.Versioned)]
-    [InlineData(Takeover.BeforeError, MigrationType.Versioned)]
-    [InlineData(Takeover.BeforeError, MigrationType.VersionedAndResumable)]
-    [InlineData(Takeover.DuringCompletionSave, MigrationType.Versioned)]
-    [InlineData(Takeover.DuringErrorSave, MigrationType.Versioned)]
-    public async Task LosingTheLeasePreservesTheNextOwnersState(Takeover takeover, MigrationType type)
+    [InlineData(Takeover.DuringMigration, MigrationType.Versioned, false)]
+    [InlineData(Takeover.DuringMigration, MigrationType.Versioned, true)]
+    [InlineData(Takeover.DuringMigration, MigrationType.VersionedAndResumable, true)]
+    [InlineData(Takeover.DuringStartSave, MigrationType.VersionedAndResumable, false)]
+    [InlineData(Takeover.DuringResultSave, MigrationType.Versioned, false)]
+    [InlineData(Takeover.DuringResultSave, MigrationType.Versioned, true)]
+    public async Task LosingTheLeasePreservesTheNextOwnersState(Takeover takeover, MigrationType type, bool migrationFails)
     {
         // Arrange
         await AddCompletedVersion1MigrationAsync();
+        if (takeover is Takeover.DuringStartSave)
+            await _migrationStateRepository.AddAsync(new MigrationState { Id = "2", Version = 2, MigrationType = type });
+
         ILock? successor = null;
         async Task TakeOverAsync()
         {
@@ -283,13 +287,13 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
             await repository.SaveAsync(state);
         }
 
-        bool duringSave = takeover is Takeover.DuringCompletionSave or Takeover.DuringErrorSave;
+        bool duringSave = takeover is not Takeover.DuringMigration;
         using var subscription = duringSave ? _migrationStateRepository.DocumentsSaving.AddHandler((_, _) => TakeOverAsync()) : null;
         var migration = new CallbackMigration(type, 2, async _ =>
         {
             if (!duringSave)
                 await TakeOverAsync();
-            if (takeover is Takeover.BeforeError or Takeover.DuringErrorSave)
+            if (migrationFails)
                 throw new ApplicationException("Original worker failed");
         });
         _migrationManager.Migrations.Add(migration);
@@ -301,7 +305,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         // Assert
         await using var successorLock = Assert.IsAssignableFrom<ILock>(successor);
         Assert.Equal(MigrationResult.Failed, result);
-        Assert.Equal(1, migration.Runs);
+        Assert.Equal(takeover is Takeover.DuringStartSave ? 0 : 1, migration.Runs);
         await successorLock.RenewAsync();
         var state = await _migrationStateRepository.GetByIdAsync("2");
         Assert.NotNull(state);
@@ -413,24 +417,27 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task MigrationStateSavesAcceptNewRecordsAndCheckLoadedRecordsInTheSameBulk()
+    public async Task OnlyTheMigrationRunnerRejectsAConcurrentRewriteOfTheSameRevision()
     {
         // Arrange
-        var first = await _migrationStateRepository.SaveAsync(new MigrationState { Id = "1", Version = 1 });
-        var stale = await _migrationStateRepository.GetByIdAsync("1");
-        Assert.NotNull(stale);
-        var second = new MigrationState { Id = "2", Version = 2 };
+        await AddCompletedVersion1MigrationAsync();
+        MigrationState? rewritten = null;
+        _migrationManager.Migrations.Add(new CallbackMigration(MigrationType.Versioned, 2, async _ =>
+        {
+            var first = Assert.IsType<MigrationState>(await _migrationStateRepository.GetByIdAsync("2"));
+            var second = Assert.IsType<MigrationState>(await _migrationStateRepository.GetByIdAsync("2"));
+            await _migrationStateRepository.SaveAsync(first);
+            rewritten = await _migrationStateRepository.SaveAsync(second);
+        }));
 
         // Act
-        await _migrationStateRepository.SaveAsync(new[] { first, second });
-        await _migrationStateRepository.SaveAsync(new MigrationState { Id = "1", Version = 3 });
+        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
 
         // Assert
-        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _migrationStateRepository.SaveAsync(stale));
-        await Assert.ThrowsAsync<VersionConflictDocumentException>(() =>
-            _migrationStateRepository.SaveAsync(new[] { stale, new MigrationState { Id = "3", Version = 3 } }));
-        Assert.Equal(3, (await _migrationStateRepository.GetByIdAsync("1"))?.Version);
-        Assert.Equal(3, (await _migrationStateRepository.GetByIdAsync("3"))?.Version);
+        Assert.Equal(2, rewritten?.Version);
+        Assert.Equal(MigrationResult.Failed, result);
+        var state = Assert.IsType<MigrationState>(await _migrationStateRepository.GetByIdAsync("2"));
+        Assert.Null(state.CompletedUtc);
     }
 
     [Theory]
@@ -483,10 +490,9 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
 
     public enum Takeover
     {
-        BeforeReturn,
-        BeforeError,
-        DuringCompletionSave,
-        DuringErrorSave
+        DuringMigration,
+        DuringStartSave,
+        DuringResultSave
     }
 
     public enum LeaseLoss
