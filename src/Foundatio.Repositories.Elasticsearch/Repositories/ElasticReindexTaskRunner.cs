@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO.Hashing;
 using System.Text;
 using System.Threading;
@@ -58,7 +57,17 @@ internal sealed class ElasticReindexTaskRunner
             ReindexRequestsPerSecond = requestsPerSecond
         };
         string opaqueId = GetOpaqueId(sourceIndex, targetIndex);
-        Uri dispatchNode = SelectSingleDispatchNode(_client.Transport.Configuration);
+        RequestConfigurationDescriptor dispatch;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dispatch = SingleAttemptRequest.Configure(_client, new RequestConfigurationDescriptor()).OpaqueId(opaqueId);
+        }
+        catch
+        {
+            onTaskTerminated();
+            throw;
+        }
 
         ReindexResponse startResponse;
         try
@@ -76,16 +85,16 @@ internal sealed class ElasticReindexTaskRunner
                 d.Refresh();
                 d.WaitForCompletion(false);
 
-                // The async submission is non-idempotent. Pin it to one eligible node so the pinned
-                // Elastic Transport cannot fail over and create an untracked sibling task after an
-                // ambiguous response. X-Opaque-Id is correlation only; it is not an idempotency key.
-                d.RequestConfiguration(request => request
-                    .ForceNode(dispatchNode)
-                    .OpaqueId(opaqueId));
+                d.RequestConfiguration(dispatch);
 
                 if (requestsPerSecond.HasValue)
                     d.RequestsPerSecond(requestsPerSecond.Value);
             }, cancellationToken).AnyContext();
+        }
+        catch (TransportException ex) when (SingleAttemptRequest.FailedBeforeDispatch(ex.AuditTrail))
+        {
+            onTaskTerminated();
+            throw new RepositoryException($"Elasticsearch transport did not submit the compatibility copy to '{targetIndex}'.", ex);
         }
         catch (Exception ex)
         {
@@ -97,6 +106,11 @@ internal sealed class ElasticReindexTaskRunner
             _logger.LogErrorRequest(startResponse, "Unable to start compatibility reindex from {SourceIndex} to {TargetIndex}", sourceIndex, targetIndex);
             var startException = startResponse.OriginalException()
                 ?? new RepositoryException(startResponse.GetErrorMessage($"Elasticsearch did not return a task ID for compatibility reindex from '{sourceIndex}' to '{targetIndex}'."));
+            if (SingleAttemptRequest.RejectedBeforeExecution(startResponse))
+            {
+                onTaskTerminated();
+                throw new RepositoryException($"Elasticsearch rejected the compatibility copy from '{sourceIndex}' to '{targetIndex}' before starting a task.", startException);
+            }
             throw CreateUncertainStartException(sourceIndex, targetIndex, startException);
         }
 
@@ -131,20 +145,6 @@ internal sealed class ElasticReindexTaskRunner
         return new ElasticReindexTaskResult(result.Total, result.Created);
     }
 
-    internal static Uri SelectSingleDispatchNode(ITransportConfiguration configuration)
-    {
-        ArgumentNullException.ThrowIfNull(configuration);
-
-        Func<Node, bool>? predicate = configuration.NodePredicate;
-        foreach (var node in configuration.NodePool.CreateView())
-        {
-            if (predicate is null || predicate(node))
-                return node.Uri;
-        }
-
-        throw new RepositoryException("No eligible Elasticsearch node is available for a single-dispatch compatibility reindex request.");
-    }
-
     internal static void ValidateOptions(int? batchSize, float? requestsPerSecond)
     {
         if (batchSize is <= 0)
@@ -171,7 +171,7 @@ internal sealed class ElasticReindexTaskRunner
         int statusFailures = 0;
         long lastProgress = 0;
         var noProgressTimeout = ElasticReindexer.GetNoProgressTimeout(workItem);
-        var noProgressStopwatch = Stopwatch.StartNew();
+        long lastProgressTimestamp = _timeProvider.GetTimestamp();
 
         while (true)
         {
@@ -205,7 +205,7 @@ internal sealed class ElasticReindexTaskRunner
                     $"Compatibility reindex task '{taskId.FullyQualifiedId}' returned an unrecognized status payload.");
             long completed = taskStatus.Created + taskStatus.Updated + taskStatus.Deleted + taskStatus.Noops + taskStatus.VersionConflicts;
             if (completed > lastProgress)
-                noProgressStopwatch.Restart();
+                lastProgressTimestamp = _timeProvider.GetTimestamp();
             lastProgress = completed;
 
             int progress = taskStatus.Total is 0 ? 10 : 10 + (int)(80 * (double)completed / taskStatus.Total);
@@ -218,7 +218,7 @@ internal sealed class ElasticReindexTaskRunner
                         $"Compatibility reindex task '{taskId.FullyQualifiedId}' completed without a recognized response.");
             }
 
-            if (noProgressStopwatch.Elapsed > noProgressTimeout)
+            if (_timeProvider.GetElapsedTime(lastProgressTimestamp) > noProgressTimeout)
                 throw new RepositoryException($"Compatibility reindex task '{taskId.FullyQualifiedId}' made no progress for {noProgressTimeout}.");
 
             var delay = taskStatus.Total < 100 ? TimeSpan.FromMilliseconds(100) : TimeSpan.FromSeconds(1);

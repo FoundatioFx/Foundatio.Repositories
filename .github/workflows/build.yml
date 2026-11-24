@@ -7,4 +7,5 @@ jobs:
     secrets: inherit
     with:
       new-test-runner: true
+      compose-command: docker compose -f tests/docker-compose.elasticsearch.yml up -d --wait --wait-timeout 180
       minimum-major-minor: '8.0'

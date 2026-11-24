@@ -58,7 +58,7 @@ public partial class IndexCompatibilityTests
 
         // Assert
         Assert.Equal(errorMarker, status.ErrorLineageAuthenticated);
-        Assert.Equal(errorMarker ? IndexCompatibilityRecoveryAction.Finish : IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
+        Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, status.Action);
         Assert.True(status.TargetWriteBlocked);
         Assert.False(status.SourceExists);
         Assert.Equal(3, invoker.Requests.Count);

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -7,6 +8,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 /// </summary>
 public sealed record IndexCompatibilityUpgradeStatus
 {
+    internal string? SourceUuid { get; init; }
+    internal string? TargetUuid { get; init; }
+    internal string? CutoverReceipt { get; init; }
+    internal IReadOnlyDictionary<string, Alias> TargetAliasDefinitions { get; init; } = new Dictionary<string, Alias>();
     internal bool ErrorLineageAuthenticated { get; init; }
 
     /// <summary>The configured repository index name.</summary>

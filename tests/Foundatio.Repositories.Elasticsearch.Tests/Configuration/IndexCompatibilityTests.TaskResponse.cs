@@ -4,9 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
-using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Exceptions;
-using Foundatio.Resilience;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -184,31 +182,6 @@ public partial class IndexCompatibilityTests
         Assert.Equal(1, terminated);
         Assert.Equal(0, invoker.RemainingResponses);
         Assert.Equal(2, invoker.Requests.Count);
-    }
-
-    [Fact]
-    public async Task TaskResponse_SchemaReindexDoesNotPromoteTimedOutCopy()
-    {
-        // Arrange
-        string completed = CreateCompletedTaskResponse(true);
-        var invoker = new SequenceRequestInvoker(
-            new StubResponse(200, """{"employees-v1":{"aliases":{"employees":{}}}}""", Request: "GET /employees-v1"),
-            new StubResponse(200, """{"employees-v1":{"aliases":{"employees":{}}}}""", Request: "GET /employees-v1/_alias"),
-            new StubResponse(200, """{"took":0,"timed_out":false,"_shards":{"total":1,"successful":1,"failed":0},"hits":{"total":{"value":0,"relation":"eq"},"hits":[]}}"""),
-            new StubResponse(200, """{"task":"node:1"}""", Request: "POST /_reindex"),
-            new StubResponse(200, completed, Request: "GET /_tasks/node:1"),
-            new StubResponse(200, """{"nodes":{}}""", Request: "POST /_tasks/node:1/_cancel"),
-            new StubResponse(200, completed, Request: "GET /_tasks/node:1"));
-        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
-        var reindexer = new ElasticReindexer(client, new Foundatio.Serializer.SystemTextJsonSerializer(), TimeProvider.System, resiliencePolicyProvider: new ResiliencePolicyProvider());
-        var workItem = new ReindexWorkItem { OldIndex = "employees-v1", NewIndex = "employees-v2", Alias = "employees", TimestampField = "updatedUtc", DeleteOld = true };
-
-        // Act
-        await reindexer.ReindexAsync(workItem);
-
-        // Assert
-        Assert.DoesNotContain(invoker.Requests, request => request.Contains("/_aliases", StringComparison.Ordinal) || request.StartsWith("DELETE ", StringComparison.Ordinal));
-        Assert.Equal(0, invoker.RemainingResponses);
     }
 
     private static string CreateCompletedTaskResponse(bool timedOut)

@@ -272,7 +272,7 @@ public partial class IndexCompatibilityTests
 
         // Act: only the source is marked, and its write-block state is ambiguous without a matching target
         var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
-            recovery.RecoverUnderLockAsync(index, "employees", TestContext.Current.CancellationToken));
+            recovery.RecoverUnderLockAsync(index, "employees", () => Task.CompletedTask, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.Contains("ManualIntervention", exception.Message);
@@ -287,7 +287,7 @@ public partial class IndexCompatibilityTests
         const string markedSource = """{"employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{"blocks":{"write":"true"}}}}}""";
         var invoker = new SequenceRequestInvoker(
             new StubResponse(404, """{"error":{"type":"index_not_found_exception"},"status":404}"""),
-            new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{}}}"""),
+            new StubResponse(200, """{"employees":{"aliases":{},"mappings":{"_source":{"enabled":true}},"settings":{"index":{"uuid":"source-uuid"}}}}"""),
             new StubResponse(200, """{"employees":{"settings":{}}}"""),
             new StubResponse(200, """{"acknowledged":true}"""),
             new StubResponse(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}"""),

@@ -67,19 +67,24 @@ internal sealed class ElasticIndexCompatibilityRecovery
             RecoveryLockDuration,
             acquisitionCancellation.Token).AnyContext();
 
-        return await RecoverUnderLockAsync(index, sourceIndex, cancellationToken).AnyContext();
+        await using var lease = new ReindexLeaseGuard(reindexLock, index.Configuration.TimeProvider);
+        using var guarded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.LostToken);
+        return await RecoverUnderLockAsync(index, sourceIndex, () => lease.RenewAsync(), guarded.Token).AnyContext();
     }
 
     internal async Task<IndexCompatibilityUpgradeStatus> RecoverUnderLockAsync(
         Index index,
         string sourceIndex,
-        CancellationToken cancellationToken)
+        Func<Task> renewLeaseAsync,
+        CancellationToken cancellationToken,
+        string? expectedReceipt = null)
     {
         var status = await InspectAsync(index, sourceIndex, cancellationToken).AnyContext();
-        if (status.Action is not IndexCompatibilityRecoveryAction.Finish)
+        if (status.Action is not IndexCompatibilityRecoveryAction.Finish || status.CutoverReceipt is null
+            || (expectedReceipt is not null && !String.Equals(expectedReceipt, status.CutoverReceipt, StringComparison.Ordinal)))
             throw new RepositoryException($"Compatibility upgrade for '{sourceIndex}' requires action '{status.Action}' and cannot be recovered automatically. No cluster state was changed.");
 
-        await FinishAsync(status, cancellationToken).AnyContext();
+        await FinishAsync(status, renewLeaseAsync, cancellationToken).AnyContext();
         return await InspectAsync(index, sourceIndex, cancellationToken).AnyContext();
     }
 
@@ -138,6 +143,8 @@ internal sealed class ElasticIndexCompatibilityRecovery
             || ((!sourceExists || sourceAliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
                 && (!targetExists || targetAliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias)));
 
+        string? targetUuid = (targetState?.Settings?.Index ?? targetState?.Settings)?.Uuid;
+        string? receipt = CompatibilityCutoverReceipt.Find(_client, index.Name, sourceIndex, targetIndex, targetUuid, targetAliases);
         var observed = new ObservedTopology(
             sourceExists,
             targetExists,
@@ -146,6 +153,8 @@ internal sealed class ElasticIndexCompatibilityRecovery
             sourceMarker,
             targetMarker,
             targetHasCanonicalSourceAlias,
+            receipt is not null,
+            targetAliases.Keys.Any(CompatibilityCutoverReceipt.IsReserved),
             unexpectedIndexes.Count > 0,
             errorLineageAuthenticated,
             activeTasks);
@@ -154,6 +163,10 @@ internal sealed class ElasticIndexCompatibilityRecovery
         {
             IndexName = index.Name,
             ErrorLineageAuthenticated = errorLineageAuthenticated,
+            SourceUuid = (sourceState?.Settings?.Index ?? sourceState?.Settings)?.Uuid,
+            TargetUuid = targetUuid,
+            CutoverReceipt = receipt,
+            TargetAliasDefinitions = targetAliases,
             SourceIndex = sourceIndex,
             TargetIndex = targetIndex,
             Action = GetRecoveryAction(observed),
@@ -211,10 +224,36 @@ internal sealed class ElasticIndexCompatibilityRecovery
         return count;
     }
 
-    internal static bool CanResetCurrentAttempt(IndexCompatibilityUpgradeStatus status)
+    internal static bool CanResetSourceOnlyAttempt(IndexCompatibilityUpgradeStatus status, string? sourceUuid)
     {
         return status.Action is IndexCompatibilityRecoveryAction.ManualIntervention
             && status.ErrorLineageAuthenticated
+            && sourceUuid is { Length: > 0 } && String.Equals(sourceUuid, status.SourceUuid, StringComparison.Ordinal)
+            && status.SourceExists && !status.TargetExists
+            && status.SourceWriteBlocked && status.SourceWorkflowMarkerPresent
+            && status.ActiveReindexTaskCount is 0
+            && status.UnexpectedResolvedIndexes.Count is 0;
+    }
+
+    // Only the running attempt can prove that target creation has not been dispatched.
+    internal async Task ResetSourceOnlyAttemptAsync(Index index, string sourceIndex, string? sourceUuid, Func<Task> renewLeaseAsync, CancellationToken cancellationToken)
+    {
+        var status = await InspectAsync(index, sourceIndex, cancellationToken).AnyContext();
+        if (!CanResetSourceOnlyAttempt(status, sourceUuid))
+            throw new RepositoryException($"Compatibility source '{sourceIndex}' no longer has the source-only state required for cleanup. Keep writes stopped and inspect both indexes.");
+
+        await renewLeaseAsync().AnyContext();
+        await SetWriteBlockAsync(status.SourceIndex, false, cancellationToken).AnyContext();
+        await renewLeaseAsync().AnyContext();
+        await RemoveWorkflowMarkerAsync(status.SourceIndex, null, cancellationToken).AnyContext();
+    }
+
+    internal static bool CanResetCurrentAttempt(IndexCompatibilityUpgradeStatus status, string? sourceUuid, string? targetUuid)
+    {
+        return status.Action is IndexCompatibilityRecoveryAction.ManualIntervention
+            && status.ErrorLineageAuthenticated
+            && sourceUuid is { Length: > 0 } && String.Equals(sourceUuid, status.SourceUuid, StringComparison.Ordinal)
+            && targetUuid is { Length: > 0 } && String.Equals(targetUuid, status.TargetUuid, StringComparison.Ordinal)
             && status.SourceExists && status.TargetExists
             && status.SourceWriteBlocked && status.SourceWorkflowMarkerPresent && status.TargetWorkflowMarkerPresent
             && !status.TargetHasCanonicalSourceAlias
@@ -224,13 +263,14 @@ internal sealed class ElasticIndexCompatibilityRecovery
     }
 
     // The caller must also hold positive evidence that its own requests cannot still mutate either index.
-    internal async Task ResetCurrentAttemptAsync(Index index, string sourceIndex, CancellationToken cancellationToken)
+    internal async Task ResetCurrentAttemptAsync(Index index, string sourceIndex, string? sourceUuid, string? targetUuid, Func<Task> renewLeaseAsync, CancellationToken cancellationToken)
     {
         var status = await InspectAsync(index, sourceIndex, cancellationToken).AnyContext();
-        if (!CanResetCurrentAttempt(status))
+        if (!CanResetCurrentAttempt(status, sourceUuid, targetUuid))
             throw new RepositoryException($"Compatibility source '{sourceIndex}' no longer has the marked state required for cleanup. Keep writes stopped and inspect both indexes.");
 
-        var deleteResponse = await _client.Indices.DeleteAsync(status.TargetIndex, cancellationToken).AnyContext();
+        await renewLeaseAsync().AnyContext();
+        var deleteResponse = await _client.Indices.DeleteAsync(status.TargetIndex, d => d.RequestConfiguration(r => SingleAttemptRequest.Configure(_client, r)), cancellationToken).AnyContext();
         deleteResponse.EnsureValid(
             r => r.IsValidResponse && r.Acknowledged,
             _logger,
@@ -238,33 +278,29 @@ internal sealed class ElasticIndexCompatibilityRecovery
             $"Unable to remove interrupted compatibility destination '{status.TargetIndex}'. The source remains write blocked.",
             status.TargetIndex);
 
-        var existsResponse = await _client.Indices.ExistsAsync(status.TargetIndex, cancellationToken).AnyContext();
-        existsResponse.EnsureValid(
-            r => (r.IsValidResponse || r.ApiCallDetails.HttpStatusCode is 404) && !r.Exists,
-            _logger,
-            "Unable to confirm removal of compatibility destination {TargetIndex}",
-            $"Unable to confirm removal of compatibility destination '{status.TargetIndex}'. The source remains write blocked.",
-            status.TargetIndex);
-
-        await SetWriteBlockAsync(status.SourceIndex, false, cancellationToken).AnyContext();
-        await RemoveWorkflowMarkerAsync(status.SourceIndex, cancellationToken).AnyContext();
+        // Inspect both names again after deletion. A source recreated during the delete must stay fenced.
+        await ResetSourceOnlyAttemptAsync(index, sourceIndex, sourceUuid, renewLeaseAsync, cancellationToken).AnyContext();
     }
 
-    private async Task FinishAsync(IndexCompatibilityUpgradeStatus status, CancellationToken cancellationToken)
+    private async Task FinishAsync(IndexCompatibilityUpgradeStatus status, Func<Task> renewLeaseAsync, CancellationToken cancellationToken)
     {
         if (status.SourceExists || !status.TargetExists || !status.TargetWorkflowMarkerPresent || !status.TargetHasCanonicalSourceAlias)
             throw new RepositoryException($"Compatibility destination '{status.TargetIndex}' no longer has the marked, committed state required to finish recovery.");
 
         if (status.TargetWriteBlocked)
-            await SetWriteBlockAsync(status.TargetIndex, false, cancellationToken).AnyContext();
+        {
+            await renewLeaseAsync().AnyContext();
+            await SetWriteBlockAsync(status.CutoverReceipt!, false, cancellationToken).AnyContext();
+        }
 
-        await RemoveWorkflowMarkerAsync(status.TargetIndex, cancellationToken).AnyContext();
+        await renewLeaseAsync().AnyContext();
+        await RemoveWorkflowMarkerAsync(status.TargetIndex, status.CutoverReceipt, cancellationToken).AnyContext();
     }
 
     private async Task SetWriteBlockAsync(string index, bool blocked, CancellationToken cancellationToken)
     {
         var response = await _client.Indices.PutSettingsAsync(index,
-            d => d.Settings(s => s.Blocks(b => b.Write(blocked))), cancellationToken).AnyContext();
+            d => d.Settings(s => s.Blocks(b => b.Write(blocked))).RequestConfiguration(r => SingleAttemptRequest.Configure(_client, r)), cancellationToken).AnyContext();
         response.EnsureValid(
             r => r.IsValidResponse && r.Acknowledged,
             _logger,
@@ -273,11 +309,16 @@ internal sealed class ElasticIndexCompatibilityRecovery
             blocked, index);
     }
 
-    private async Task RemoveWorkflowMarkerAsync(string index, CancellationToken cancellationToken)
+    internal async Task RemoveWorkflowMarkerAsync(string index, string? receipt, CancellationToken cancellationToken)
     {
-        var response = await _client.Indices.UpdateAliasesAsync(d => d.Actions(action => action.Remove(remove => remove
-            .Index(index)
-            .Alias(ElasticIndexCompatibilityUpgrader.OwnershipAlias))), cancellationToken).AnyContext();
+        var actions = new List<IndexUpdateAliasesAction>
+        {
+            new() { Remove = new RemoveAction { Index = index, Alias = ElasticIndexCompatibilityUpgrader.OwnershipAlias, MustExist = true } }
+        };
+        if (receipt is not null)
+            actions.Add(new() { Remove = new RemoveAction { Index = index, Alias = receipt, MustExist = true } });
+        var response = await _client.Indices.UpdateAliasesAsync(d => d.Actions(actions)
+            .RequestConfiguration(r => SingleAttemptRequest.Configure(_client, r)), cancellationToken).AnyContext();
         response.EnsureValid(
             r => r.IsValidResponse && r.Acknowledged,
             _logger,
@@ -316,12 +357,12 @@ internal sealed class ElasticIndexCompatibilityRecovery
 
         if (topology.TargetWorkflowMarker && topology.TargetHasCanonicalSourceAlias)
         {
-            return topology.ActiveTaskCount is 0
+            return topology.HasValidReceipt && topology.ActiveTaskCount is 0
                 ? IndexCompatibilityRecoveryAction.Finish
                 : IndexCompatibilityRecoveryAction.ManualIntervention;
         }
 
-        return !topology.TargetWorkflowMarker && !topology.TargetWriteBlocked && topology.TargetHasCanonicalSourceAlias && topology.ActiveTaskCount is 0
+        return !topology.HasReceipt && !topology.TargetWorkflowMarker && !topology.TargetWriteBlocked && topology.TargetHasCanonicalSourceAlias && topology.ActiveTaskCount is 0
             ? IndexCompatibilityRecoveryAction.None
             : IndexCompatibilityRecoveryAction.ManualIntervention;
     }
@@ -353,6 +394,8 @@ internal sealed class ElasticIndexCompatibilityRecovery
         bool SourceWorkflowMarker,
         bool TargetWorkflowMarker,
         bool TargetHasCanonicalSourceAlias,
+        bool HasValidReceipt,
+        bool HasReceipt,
         bool HasUnexpectedIndex,
         bool ErrorLineageAuthenticated,
         int? ActiveTaskCount);

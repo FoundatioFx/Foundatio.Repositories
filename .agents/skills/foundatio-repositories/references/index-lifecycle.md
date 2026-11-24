@@ -405,6 +405,8 @@ Custom physical-name subclasses override both `GetCompatibilityIndexPattern()` a
 - **Names and Kibana**: supported non-dot physical names become `reindexed-v{major}-{canonical}` while repository aliases remain stable; a later major replaces the prior generated prefix. Kibana uses the same namespace and `_create_from`, but has a richer Saved Object state machine. Kibana's `.reindexed-v{major}-...` system-index variant remains unsupported because Foundatio rejects dot/system sources before mutation. Never run both workflows on one index concurrently; Foundatio cannot resume Kibana and never deletes its unmarked destination.
 - **Unsupported sources and validation**: reject Elasticsearch before 8.18, closed/system/data-stream/ILM/CCR/non-standard indexes, `_source` disabled, pre-existing blocks, destination-template drift, duplicate source or target lineage, reserved destination names, and unregistered index instances. Validate the whole batch before mutation and repeat source/destination/schema checks under `reindex:{name}`.
 
+The writer renews its lease independently of progress and waits for all configured target replicas before removing the source. After a restart, the target UUID and all alias definitions must match the attempt receipt from the atomic cutover. An unbound marker, a changed physical generation, or an uncertain submission requires manual inspection.
+
 ## Concurrency Safety
 
 ### Reindex Locking

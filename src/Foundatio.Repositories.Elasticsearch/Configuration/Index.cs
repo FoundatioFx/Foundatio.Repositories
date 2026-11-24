@@ -204,6 +204,13 @@ public class Index : IIndexCompatibility, IHaveLogger
     /// </summary>
     public float? ReindexRequestsPerSecond { get; set; }
 
+    /// <summary>
+    /// Maximum time to wait for the compatibility destination's configured replicas before destructive cutover.
+    /// Defaults to 30 minutes. Must be positive. Short health polls renew the migration lease while waiting.
+    /// A destination with zero configured replicas can be green; this preserves, rather than increases, the source policy.
+    /// </summary>
+    public TimeSpan CompatibilityUpgradeHealthTimeout { get; set; } = TimeSpan.FromMinutes(30);
+
     public virtual async Task DeleteAsync()
     {
         using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())

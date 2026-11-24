@@ -9,12 +9,46 @@ using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Exceptions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public partial class IndexCompatibilityTests
 {
+    [Fact]
+    public async Task RunCompatibilityReindexAsync_WhenInjectedClockExceedsStallTimeout_CancelsAndConfirmsTask()
+    {
+        const string active = """
+            {"completed":false,"task":{"node":"node","id":1,"action":"indices:data/write/reindex","status":{"total":1,"created":0,"updated":0,"deleted":0,"noops":0,"version_conflicts":0},"running_time_in_nanos":1,"cancellable":true,"headers":{}}}
+            """;
+        var invoker = new SequenceRequestInvoker(
+            new StubResponse(200, """{"task":"node:1"}""", Request: "POST /_reindex"),
+            new StubResponse(200, active, Request: "GET /_tasks/node:1"),
+            new StubResponse(200, """{"nodes":{}}""", Request: "POST /_tasks/node:1/_cancel"),
+            new StubResponse(200, active.Replace("\"completed\":false", "\"completed\":true", StringComparison.Ordinal), Request: "GET /_tasks/node:1"));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker));
+        var clock = new FakeTimeProvider();
+        var runner = new ElasticReindexTaskRunner(client, clock);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        bool terminated = false;
+
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            _ = await runner.RunCompatibilityReindexAsync(
+                "employees", "reindexed-v9-employees", null, null, (_, _) =>
+                {
+                    clock.Advance(TimeSpan.FromMinutes(11));
+                    return Task.CompletedTask;
+                }, () => terminated = true, timeout.Token);
+        });
+
+        var stalled = Assert.IsType<RepositoryException>(exception);
+        Assert.Contains("made no progress", stalled.Message);
+        Assert.True(terminated);
+        Assert.Equal(0, invoker.RemainingResponses);
+    }
+
     [Fact]
     public void ReadCompleted_WithIncompletePayload_ReturnsNull()
     {

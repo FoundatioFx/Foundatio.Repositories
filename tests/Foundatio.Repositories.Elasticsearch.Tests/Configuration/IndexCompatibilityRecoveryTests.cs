@@ -159,8 +159,12 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
         Assert.False(status.CanRecover);
     }
 
-    [Fact]
-    public async Task RecoverIndexCompatibilityUpgradeAsync_WithMarkedCompletedCutover_FinishesUnblockThenUnmarks()
+    [Theory]
+    [InlineData("valid")]
+    [InlineData("missing")]
+    [InlineData("recreated")]
+    [InlineData("rerouted")]
+    public async Task RecoverIndexCompatibilityUpgradeAsync_WithCommittedCutover_RequiresItsGenerationAndAliases(string evidence)
     {
         // Arrange
         string name = $"compat-recovery-completed-{Guid.NewGuid():N}";
@@ -173,6 +177,8 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
             int serverMajor = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken)).ServerMajor;
             string targetIndex = CompatibilityIndexName.Create(name, serverMajor);
             await using AsyncDisposableAction _ = DeleteAsync(client, name, targetIndex);
+            var sourceState = await client.Indices.GetAsync(name, cancellationToken: TestCancellationToken);
+            string sourceUuid = Assert.Single(sourceState.Indices).Value.Settings!.Index!.Uuid!;
             var delete = await client.Indices.DeleteAsync(name, cancellationToken: TestCancellationToken);
             Assert.True(delete.IsValidResponse, delete.GetErrorMessage());
             var create = await client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
@@ -182,12 +188,29 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
                 action => action.Add(add => add.Index(targetIndex).Alias(ElasticIndexCompatibilityUpgrader.OwnershipAlias).IsHidden(true))),
                 cancellationToken: TestCancellationToken);
             Assert.True(aliases.IsValidResponse, aliases.GetErrorMessage());
+            if (!String.Equals(evidence, "missing", StringComparison.Ordinal))
+            {
+                var metadata = Assert.Single((await client.Indices.GetAsync(targetIndex, cancellationToken: TestCancellationToken)).Indices).Value;
+                string uuid = String.Equals(evidence, "recreated", StringComparison.Ordinal) ? "previous-index-uuid" : metadata.Settings!.Index!.Uuid!;
+                string receipt = CompatibilityCutoverReceipt.Create(client, name, name, sourceUuid, targetIndex, uuid, metadata.Aliases!);
+                var mark = await client.Indices.UpdateAliasesAsync(d => d.Actions(a => a.Add(add => add.Index(targetIndex).Alias(receipt).IsHidden(true))), TestCancellationToken);
+                Assert.True(mark.IsValidResponse, mark.GetErrorMessage());
+                if (String.Equals(evidence, "rerouted", StringComparison.Ordinal))
+                    await client.Indices.PutAliasAsync(targetIndex, name, d => d.SearchRouting("changed"), TestCancellationToken);
+            }
             var block = await client.Indices.PutSettingsAsync(targetIndex,
                 d => d.Settings(s => s.Blocks(b => b.Write(true))), TestCancellationToken);
             Assert.True(block.IsValidResponse, block.GetErrorMessage());
 
             // Act: cutover already renamed the target to the canonical name, so recovery only needs to finish
             var before = await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+            if (!String.Equals(evidence, "valid", StringComparison.Ordinal))
+            {
+                Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, before.Action);
+                await Assert.ThrowsAsync<RepositoryException>(() => configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken));
+                Assert.True((await configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken)).TargetWriteBlocked);
+                return;
+            }
             var after = await configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
 
             // Assert
@@ -271,7 +294,7 @@ public sealed class IndexCompatibilityRecoveryTests : ElasticRepositoryTestBase
     }
 
     [Theory]
-    [InlineData(true, IndexCompatibilityRecoveryAction.Finish)]
+    [InlineData(true, IndexCompatibilityRecoveryAction.ManualIntervention)]
     [InlineData(false, IndexCompatibilityRecoveryAction.ManualIntervention)]
     public async Task InspectIndexCompatibilityUpgradeAsync_WithSurvivingErrorTarget_RequiresPersistentErrorMarker(
         bool includeErrorMarker,

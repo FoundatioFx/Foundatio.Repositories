@@ -164,29 +164,30 @@ public partial class IndexCompatibilityTests
     }
 
     private const string SafetyInfo = """{"version":{"number":"9.0.0"}}""";
+    private const string SafetySourceOnly = """{"employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{"uuid":"source-uuid","blocks":{"write":true}}}}}""";
     private const string SafetyMarkedTopology = """
-        {"employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{"blocks":{"write":true}}}},
-         "reindexed-v9-employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{}}}
+        {"employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{"uuid":"source-uuid","blocks":{"write":true}}}},
+         "reindexed-v9-employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"settings":{"index":{"uuid":"target-uuid"}}}}
         """;
 
     private static List<StubResponse> CreateSafetySetupResponses() =>
     [
         new(404, "{}", Request: "HEAD /reindexed-v9-employees"),
-        new(200, """{"employees":{"aliases":{},"mappings":{},"settings":{}}}""", Request: "GET /employees"),
+        new(200, """{"employees":{"aliases":{},"mappings":{},"settings":{"index":{"uuid":"source-uuid"}}}}""", Request: "GET /employees"),
         new(200, """{"employees":{"settings":{}}}""", Request: "GET /employees/_settings"),
         new(200, """{"acknowledged":true}""", Request: "POST /_aliases"),
         new(200, """{"acknowledged":true,"shards_acknowledged":true,"indices":[{"name":"employees","blocked":true}]}""", Request: "PUT /employees/_block/write"),
         new(200, """{"_shards":{"total":1,"successful":1,"failed":0}}""", Request: "POST /employees/_refresh"),
         new(200, """{"acknowledged":true,"shards_acknowledged":true,"index":"reindexed-v9-employees"}""", Request: "PUT /_create_from/employees/reindexed-v9-employees"),
         new(200, """{"acknowledged":true}""", Request: "POST /_aliases"),
-        new(200, """{"reindexed-v9-employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{}}}""", Request: "GET /reindexed-v9-employees"),
+        new(200, """{"reindexed-v9-employees":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"uuid":"target-uuid"}}}}""", Request: "GET /reindexed-v9-employees"),
         new(200, """{"reindexed-v9-employees":{"settings":{}}}""", Request: "GET /reindexed-v9-employees/_settings")
     ];
 
-    private static StubResponse[] SafetyInspectionResponses() =>
+    private static StubResponse[] SafetyInspectionResponses(string topology = SafetyMarkedTopology) =>
     [
         new(200, SafetyInfo, Request: "GET /"),
-        new(200, SafetyMarkedTopology, Request: "GET /employees,reindexed-v9-employees,.foundatio-compatibility-upgrade"),
+        new(200, topology, Request: "GET /employees,reindexed-v9-employees,.foundatio-compatibility-upgrade"),
         new(200, """{"nodes":{}}""", Request: "GET /_tasks")
     ];
 
@@ -194,7 +195,7 @@ public partial class IndexCompatibilityTests
     public async Task UpgradeAsync_WithLostCutoverResponseAndOldTopology_DoesNotReset()
     {
         // Arrange
-        const string marked = """{"INDEX":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"blocks":{"write":true}}}}}""";
+        const string marked = """{"INDEX":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"uuid":"UUID","blocks":{"write":true}}}}}""";
         const string shards = """{"_shards":{"total":1,"successful":1,"failed":0}}""";
         const string count = """{"count":0,"_shards":{"total":1,"successful":1,"failed":0}}""";
         var responses = CreateSafetySetupResponses();
@@ -206,10 +207,10 @@ public partial class IndexCompatibilityTests
             new(200, count, Request: "POST /employees/_count"),
             new(200, count, Request: "POST /reindexed-v9-employees/_count"),
             new(200, """{"acknowledged":true}""", Request: "PUT /reindexed-v9-employees/_settings"),
-            new(200, """{"status":"green","timed_out":false}""", Request: "GET /_cluster/health/reindexed-v9-employees"),
-            new(200, marked.Replace("INDEX", "reindexed-v9-employees", StringComparison.Ordinal), Request: "GET /reindexed-v9-employees"),
+            new(200, """{"status":"green","timed_out":false,"active_primary_shards":1,"active_shards":2}""", Request: "GET /_cluster/health/reindexed-v9-employees"),
+            new(200, marked.Replace("INDEX", "reindexed-v9-employees", StringComparison.Ordinal).Replace("UUID", "target-uuid", StringComparison.Ordinal), Request: "GET /reindexed-v9-employees"),
             new(200, """{"reindexed-v9-employees":{"settings":{"index.blocks.write":"true"}}}""", Request: "GET /reindexed-v9-employees/_settings"),
-            new(200, marked.Replace("INDEX", "employees", StringComparison.Ordinal), Request: "GET /employees"),
+            new(200, marked.Replace("INDEX", "employees", StringComparison.Ordinal).Replace("UUID", "source-uuid", StringComparison.Ordinal), Request: "GET /employees"),
             new(200, """{"employees":{"settings":{"index.blocks.write":"true"}}}""", Request: "GET /employees/_settings"),
             new(500, "", new TimeoutException("Cutover response lost"), "POST /_aliases"),
             new(200, SafetyMarkedTopology, Request: "GET /employees,reindexed-v9-employees")
@@ -217,7 +218,9 @@ public partial class IndexCompatibilityTests
         responses.AddRange(SafetyInspectionResponses());
         var invoker = new SequenceRequestInvoker([.. responses]);
         var aliasBodies = new List<string>();
-        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), invoker)
+        using var nodes = new StaticNodePool([new Uri("http://node-a:9200"), new Uri("http://node-b:9200")]);
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(nodes, invoker)
+            .DisablePing().MaximumRetries(2)
             .DisableDirectStreaming()
             .OnRequestCompleted(call =>
             {
@@ -250,7 +253,7 @@ public partial class IndexCompatibilityTests
     public async Task UpgradeAsync_WithCanceledCutoverResponseAndOldTopology_SurfacesOperationCanceled()
     {
         // Arrange
-        const string marked = """{"INDEX":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"blocks":{"write":true}}}}}""";
+        const string marked = """{"INDEX":{"aliases":{".foundatio-compatibility-upgrade":{"is_hidden":true}},"mappings":{},"settings":{"index":{"uuid":"UUID","blocks":{"write":true}}}}}""";
         const string shards = """{"_shards":{"total":1,"successful":1,"failed":0}}""";
         const string count = """{"count":0,"_shards":{"total":1,"successful":1,"failed":0}}""";
         var responses = CreateSafetySetupResponses();
@@ -262,10 +265,10 @@ public partial class IndexCompatibilityTests
             new(200, count, Request: "POST /employees/_count"),
             new(200, count, Request: "POST /reindexed-v9-employees/_count"),
             new(200, """{"acknowledged":true}""", Request: "PUT /reindexed-v9-employees/_settings"),
-            new(200, """{"status":"green","timed_out":false}""", Request: "GET /_cluster/health/reindexed-v9-employees"),
-            new(200, marked.Replace("INDEX", "reindexed-v9-employees", StringComparison.Ordinal), Request: "GET /reindexed-v9-employees"),
+            new(200, """{"status":"green","timed_out":false,"active_primary_shards":1,"active_shards":2}""", Request: "GET /_cluster/health/reindexed-v9-employees"),
+            new(200, marked.Replace("INDEX", "reindexed-v9-employees", StringComparison.Ordinal).Replace("UUID", "target-uuid", StringComparison.Ordinal), Request: "GET /reindexed-v9-employees"),
             new(200, """{"reindexed-v9-employees":{"settings":{"index.blocks.write":"true"}}}""", Request: "GET /reindexed-v9-employees/_settings"),
-            new(200, marked.Replace("INDEX", "employees", StringComparison.Ordinal), Request: "GET /employees"),
+            new(200, marked.Replace("INDEX", "employees", StringComparison.Ordinal).Replace("UUID", "source-uuid", StringComparison.Ordinal), Request: "GET /employees"),
             new(200, """{"employees":{"settings":{"index.blocks.write":"true"}}}""", Request: "GET /employees/_settings"),
             new(500, "", new OperationCanceledException("Cutover was canceled"), "POST /_aliases"),
             new(200, SafetyMarkedTopology, Request: "GET /employees,reindexed-v9-employees")
@@ -290,6 +293,72 @@ public partial class IndexCompatibilityTests
         Assert.Equal(responses.Count, invoker.Requests.Count);
         Assert.DoesNotContain("DELETE /reindexed-v9-employees", invoker.Requests);
         Assert.DoesNotContain("PUT /employees/_settings", invoker.Requests);
+    }
+
+    [Theory]
+    [InlineData("refresh", 500, "internal_server_error", false)]
+    [InlineData("create", 403, "security_exception", false)]
+    [InlineData("copy", 400, "action_request_validation_exception", true)]
+    [InlineData("copy", 403, "security_exception", true)]
+    public async Task UpgradeAsync_WhenNoCopyCanBeInFlight_RestoresItsSource(string failure, int status, string type, bool targetCreated)
+    {
+        // Arrange
+        var responses = CreateSafetySetupResponses();
+        int stop = failure switch { "refresh" => 5, "create" => 6, _ => responses.Count };
+        responses.RemoveRange(stop, responses.Count - stop);
+        string path = failure switch { "refresh" => "POST /employees/_refresh", "create" => "PUT /_create_from/employees/reindexed-v9-employees", _ => "POST /_reindex" };
+        responses.Add(new(status, System.Text.Json.JsonSerializer.Serialize(new { status, error = new { type, reason = "rejected" } }), Request: path));
+        for (int i = 0; i < 2; i++)
+        {
+            var inspection = SafetyInspectionResponses();
+            if (!targetCreated)
+                inspection[1] = inspection[1] with { Content = SafetySourceOnly };
+            responses.AddRange(inspection);
+        }
+        if (targetCreated)
+        {
+            responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
+            responses.AddRange(SafetyInspectionResponses(SafetySourceOnly));
+        }
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
+        responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        await using var lease = await fixture.Locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        await Assert.ThrowsAnyAsync<RepositoryException>(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, lease, (_, _) => Task.CompletedTask, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Contains("PUT /employees/_settings", fixture.Invoker.Requests);
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+    }
+
+    [Theory]
+    [InlineData("source")]
+    [InlineData("target")]
+    public async Task UpgradeAsync_WhenANameChangesGenerationsDuringReset_LeavesBothIndexesAlone(string replaced)
+    {
+        // Arrange
+        var responses = CreateSafetySetupResponses();
+        responses.AddRange(SafetyInspectionResponses());
+        var changed = SafetyInspectionResponses();
+        changed[1] = changed[1] with { Content = changed[1].Content.Replace(replaced + "-uuid", "recreated-uuid", StringComparison.Ordinal) };
+        responses.AddRange(changed);
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        await using var lease = await fixture.Locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, lease,
+            (progress, _) => progress is 10 ? Task.FromCanceled(new CancellationToken(true)) : Task.CompletedTask, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal("GET /_tasks", fixture.Invoker.Requests[^1]);
+        Assert.DoesNotContain("DELETE /reindexed-v9-employees", fixture.Invoker.Requests);
+        Assert.DoesNotContain("PUT /employees/_settings", fixture.Invoker.Requests);
     }
 
     [Fact]
@@ -318,6 +387,59 @@ public partial class IndexCompatibilityTests
         Assert.Contains("ManualIntervention", exception!.Message);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpgradeAsync_WhenCanceledBeforeTargetCreation_ResetsOnlySource(bool targetAppearsDuringRecovery)
+    {
+        var responses = CreateSafetySetupResponses();
+        responses.RemoveRange(6, responses.Count - 6);
+        for (int inspection = 0; inspection < 2; inspection++)
+        {
+            responses.Add(new(200, SafetyInfo, Request: "GET /"));
+            responses.Add(new(200, inspection is 1 && targetAppearsDuringRecovery ? SafetyMarkedTopology : SafetySourceOnly, Request: "GET /employees,reindexed-v9-employees,.foundatio-compatibility-upgrade"));
+            responses.Add(new(200, """{"nodes":{}}""", Request: "GET /_tasks"));
+        }
+        if (!targetAppearsDuringRecovery)
+        {
+            responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
+            responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
+        }
+        var fixture = CreatePreCutoverFailureFixture(responses);
+        using var index = fixture.Index;
+        using var configuration = index.Configuration;
+        await using var reindexLock = await fixture.Locks.AcquireAsync("compatibility-upgrade", cancellationToken: TestContext.Current.CancellationToken);
+        using var cancellation = new CancellationTokenSource();
+
+        var exception = await Record.ExceptionAsync(() => fixture.Upgrader.UpgradeAsync(index, fixture.Compatibility, reindexLock, (progress, _) =>
+        {
+            if (progress is 5)
+            {
+                cancellation.Cancel();
+                cancellation.Token.ThrowIfCancellationRequested();
+            }
+
+            return Task.CompletedTask;
+        }, cancellation.Token));
+
+        var canceled = Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.Equal(cancellation.Token, canceled.CancellationToken);
+        if (targetAppearsDuringRecovery)
+        {
+            Assert.DoesNotContain("PUT /employees/_settings", fixture.Invoker.Requests);
+            Assert.Equal("GET /_tasks", fixture.Invoker.Requests[^1]);
+        }
+        else
+        {
+            Assert.Contains("PUT /employees/_settings", fixture.Invoker.Requests);
+            Assert.Equal("POST /_aliases", fixture.Invoker.Requests[^1]);
+        }
+        Assert.DoesNotContain(fixture.Invoker.Requests, request => request.StartsWith("DELETE", StringComparison.Ordinal)
+            || request.Contains("_create_from", StringComparison.Ordinal)
+            || request is "POST /_reindex");
+        Assert.Equal(0, fixture.Invoker.RemainingResponses);
+    }
+
     [Fact]
     public async Task UpgradeAsync_WhenCanceledBeforeCopyAndResetSucceeds_SurfacesOperationCanceled()
     {
@@ -326,7 +448,7 @@ public partial class IndexCompatibilityTests
         responses.AddRange(SafetyInspectionResponses());
         responses.AddRange(SafetyInspectionResponses());
         responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
-        responses.Add(new(404, "{}", Request: "HEAD /reindexed-v9-employees"));
+        responses.AddRange(SafetyInspectionResponses(SafetySourceOnly));
         responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
         responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
         var fixture = CreatePreCutoverFailureFixture(responses);
@@ -395,7 +517,7 @@ public partial class IndexCompatibilityTests
         responses.AddRange(SafetyInspectionResponses());
         responses.AddRange(SafetyInspectionResponses());
         responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
-        responses.Add(new(404, "{}", Request: "HEAD /reindexed-v9-employees"));
+        responses.AddRange(SafetyInspectionResponses(SafetySourceOnly));
         responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
         responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
         var fixture = CreatePreCutoverFailureFixture(responses);
@@ -428,7 +550,7 @@ public partial class IndexCompatibilityTests
         responses.AddRange(SafetyInspectionResponses());
         responses.AddRange(SafetyInspectionResponses());
         responses.Add(new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-employees"));
-        responses.Add(new(404, "{}", Request: "HEAD /reindexed-v9-employees"));
+        responses.AddRange(SafetyInspectionResponses(SafetySourceOnly));
         responses.Add(new(200, """{"acknowledged":true}""", Request: "PUT /employees/_settings"));
         responses.Add(new(200, """{"acknowledged":true}""", Request: "POST /_aliases"));
         var fixture = CreatePreCutoverFailureFixture(responses);
