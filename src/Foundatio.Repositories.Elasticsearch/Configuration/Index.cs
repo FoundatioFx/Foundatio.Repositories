@@ -461,9 +461,9 @@ public class Index : IIndexCompatibility, IHaveLogger
                 throw new RepositoryException($"Compatibility alias '{name}' resolves to {matches.Length} concrete indexes and cannot be deleted safely.");
 
             string concreteIndex = matches[0].Key;
+            ThrowIfClaimedBySibling(concreteIndex.AsSpan());
             ReadOnlySpan<char> canonicalName = ValidateCompatibilityDeleteTarget(concreteIndex, matches[0].Value?.Aliases);
-            if (canonicalName.Length != concreteIndex.Length
-                && !canonicalName.Equals(name.AsSpan(), StringComparison.Ordinal))
+            if (!canonicalName.Equals(name.AsSpan(), StringComparison.Ordinal))
             {
                 throw new RepositoryException($"Alias '{name}' does not identify the canonical name of compatibility index '{concreteIndex}' and cannot be deleted safely.");
             }
