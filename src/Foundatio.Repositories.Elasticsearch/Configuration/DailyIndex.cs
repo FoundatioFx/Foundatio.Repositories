@@ -135,6 +135,25 @@ public class DailyIndex : VersionedIndex
         return DateTime.MaxValue;
     }
 
+    protected override string GetCompatibilityIndexPattern()
+    {
+        return $"{Name}-v*-*";
+    }
+
+    protected internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
+    {
+        if (!base.IsNativeIndexName(sourceIndex))
+            return false;
+
+        int offset = Name.Length + 2;
+        while (offset < sourceIndex.Length && sourceIndex[offset] is >= '0' and <= '9')
+            offset++;
+
+        return offset < sourceIndex.Length - 1
+            && sourceIndex[offset] is '-'
+            && DateTime.TryParseExact(sourceIndex[(offset + 1)..], DateFormat.AsSpan(), EnUs, DateTimeStyles.AdjustToUniversal, out _);
+    }
+
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
     {
         utcDate = utcDate.Date;

@@ -1165,6 +1165,21 @@ await configuration.ReindexAsync(async (progress, message) =>
 await index.ReindexAsync();
 ```
 
+### Inspect Elasticsearch index compatibility
+
+Call `GetIndexCompatibilityAsync` on a configured index before planning an Elasticsearch major upgrade. The call reads the server version and makes one settings-and-aliases request for all matching physical indexes, including retained schema versions, hidden indexes, and expired time-series partitions still on disk.
+
+```csharp
+foreach (var index in configuration.Indexes.OfType<IIndexCompatibility>())
+{
+    var physicalIndexes = await index.GetIndexCompatibilityAsync(cancellationToken);
+    foreach (var physical in physicalIndexes)
+        Console.WriteLine($"{physical.Name}  {physical.State}");
+}
+```
+
+`Current` means the connected major created the physical index. `RequiresReindex` means the previous major created it. `Unsupported` covers other major-version combinations. Missing version evidence, conflicting ownership, or a suspected reindex error index without its ownership marker requires operator investigation. Normal configuration and migration jobs issue zero compatibility probes. Use Elastic's Upgrade Assistant for cluster-wide checks.
+
 ## Index Properties
 
 ### IIndex Interface

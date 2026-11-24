@@ -27,8 +27,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class Index : IIndex, IHaveLogger
+public class Index : IIndexCompatibility, IHaveLogger
 {
+    private const string ErrorIndexSuffix = "-error";
     private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
     private readonly Lazy<ElasticQueryParser> _queryParser;
     private readonly Lazy<ElasticMappingResolver> _mappingResolver;
@@ -394,6 +395,199 @@ public class Index : IIndex, IHaveLogger
 
         var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
         return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+    }
+
+    internal static int? ParseCreatedMajor(string? created, string? createdString)
+    {
+        if (!String.IsNullOrEmpty(createdString))
+        {
+            int dotIndex = createdString.IndexOf('.');
+            string majorPart = dotIndex > 0 ? createdString[..dotIndex] : createdString;
+            if (Int32.TryParse(majorPart, out int major) && major > 0)
+                return major;
+        }
+
+        if (!String.IsNullOrEmpty(created) && Int64.TryParse(created, out long createdId))
+        {
+            long major = createdId / 1_000_000;
+            if (major is > 0 and <= Int32.MaxValue)
+                return (int)major;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the stable index or alias name that resolves every physical index currently backing this index.
+    /// </summary>
+    protected virtual string GetCompatibilityIndexPattern()
+    {
+        // Reindex failures can live outside the application alias. Verify their ownership from the same response.
+        return $"{Name},{Name}{ErrorIndexSuffix}";
+    }
+
+    /// <summary>
+    /// Reads the server version and the settings and aliases of the physical indexes matched by
+    /// <see cref="GetCompatibilityIndexPattern"/>.
+    /// </summary>
+    /// <param name="cancellationToken">The token used to cancel the server-info or index-settings request.</param>
+    public virtual async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+    {
+        var serverVersion = await GetServerVersionAsync(cancellationToken).AnyContext();
+        int serverMajor = serverVersion.Major;
+
+        string pattern = GetCompatibilityIndexPattern();
+
+        // The response is keyed by concrete index name, so aliases in the pattern resolve and de-duplicate for
+        // free. Include aliases in the same request so generated error indexes can be authenticated before use.
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexCompatibility().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable(), cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!response.IsValidResponse)
+        {
+            if (response.ElasticsearchServerError?.Status is 404)
+            {
+                _logger.LogRequest(response);
+                return [];
+            }
+
+            _logger.LogErrorRequest(response, "Error getting indexes matching {Pattern} while checking Elasticsearch version compatibility", pattern);
+            throw new RepositoryException(response.GetErrorMessage($"Error getting indexes matching {pattern} while checking Elasticsearch version compatibility"), response.OriginalException());
+        }
+
+        _logger.LogRequest(response);
+
+        if (response.Indices is null || response.Indices.Count is 0)
+            return [];
+
+        var infos = new List<IndexCompatibilityInfo>(response.Indices.Count);
+        foreach (var kvp in response.Indices)
+        {
+            if (!MatchesCompatibilitySourceStructure(kvp.Key, kvp.Value?.Aliases, out bool isErrorIndex, rejectAmbiguousOwnership: true))
+                continue;
+
+            if (isErrorIndex && !(kvp.Value?.Aliases).HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
+            {
+                throw new RepositoryException(
+                    $"Index '{kvp.Key}' looks like a generated reindex error index for '{Name}', but it does not have the Foundatio ownership marker. Rename or remove it, or add the marker after verifying its provenance.");
+            }
+
+            var versioning = kvp.Value?.Settings?.Index?.Version;
+            int? createdMajor = ParseCreatedMajor(versioning?.Created, versioning?.CreatedString);
+            if (!createdMajor.HasValue)
+                throw new RepositoryException($"Unable to determine the Elasticsearch version that created index '{kvp.Key}'.");
+
+            infos.Add(new IndexCompatibilityInfo
+            {
+                Name = kvp.Key,
+                CreatedMajor = createdMajor.Value,
+                CreatedVersion = versioning?.CreatedString,
+                ServerMajor = serverMajor,
+                ServerVersion = serverVersion.Version
+            });
+        }
+
+        return infos;
+    }
+
+    /// <summary>
+    /// Determines whether a complete, unwrapped physical index name belongs to this index's naming scheme.
+    /// Override together with <see cref="GetCompatibilityIndexPattern"/> when using custom physical names.
+    /// </summary>
+    /// <remarks>
+    /// Match the complete native structure, not a wildcard or compatibility prefix. The caller separately
+    /// verifies canonical aliases, generated error-index markers, and conflicts with other registered indexes.
+    /// </remarks>
+    protected internal virtual bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
+    {
+        return sourceIndex.Equals(Name.AsSpan(), StringComparison.Ordinal);
+    }
+
+    private protected bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate, bool rejectAmbiguousOwnership = false)
+    {
+        bool mineIsExact = candidate.Equals(Name.AsSpan(), StringComparison.Ordinal);
+        IIndex? competingOwner = null;
+        foreach (IIndex other in Configuration.Indexes)
+        {
+            if (ReferenceEquals(other, this) || String.Equals(other.Name, Name, StringComparison.Ordinal))
+                continue;
+
+            bool otherIsExact = candidate.Equals(other.Name.AsSpan(), StringComparison.Ordinal);
+            if (other is not Index otherIndex)
+            {
+                if (otherIsExact)
+                    return true;
+                continue;
+            }
+
+            if (!otherIndex.IsNativeCompatibilityName(candidate, out _))
+                continue;
+            if (otherIsExact)
+                return true;
+            if (!mineIsExact)
+                competingOwner = other;
+        }
+
+        if (rejectAmbiguousOwnership && competingOwner is not null)
+            throw new RepositoryException($"Physical index '{candidate}' is claimed by both '{Name}' and '{competingOwner.Name}'. Use distinct ownership rules before checking compatibility.");
+
+        return competingOwner is not null;
+    }
+
+    private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex, bool rejectAmbiguousOwnership = false)
+    {
+        ReadOnlySpan<char> candidate = sourceIndex;
+        if (!IsNativeCompatibilityName(candidate, out isErrorIndex))
+        {
+            if (IsNativelyClaimedByOtherConfiguredIndex(candidate))
+                return false;
+
+            if (!CompatibilityIndexName.TryRemovePrefix(sourceIndex, out candidate)
+                || !IsNativeCompatibilityName(candidate, out isErrorIndex))
+                return false;
+
+            string canonicalName = candidate.ToString();
+            if (aliases?.ContainsKey(canonicalName) is true && !aliases.HasCanonicalCompatibilityAlias(canonicalName))
+                throw new RepositoryException($"Compatibility index '{sourceIndex}' has a non-canonical definition for alias '{canonicalName}'. Remove filters, routing, and write-index overrides before retrying.");
+            if (!aliases.HasCanonicalCompatibilityAlias(canonicalName))
+                return false;
+        }
+
+        return !IsNativelyClaimedByOtherConfiguredIndex(candidate, rejectAmbiguousOwnership);
+    }
+
+    private bool IsNativeCompatibilityName(ReadOnlySpan<char> sourceIndex, out bool isErrorIndex)
+    {
+        isErrorIndex = false;
+        if (IsNativeIndexName(sourceIndex))
+            return true;
+
+        ReadOnlySpan<char> suffix = ErrorIndexSuffix;
+        if (sourceIndex.Length <= suffix.Length || !sourceIndex.EndsWith(suffix, StringComparison.Ordinal))
+            return false;
+
+        isErrorIndex = IsNativeIndexName(sourceIndex[..^suffix.Length]);
+        return isErrorIndex;
+    }
+
+    private async Task<(int Major, string Version)> GetServerVersionAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var response = await Configuration.Client.InfoAsync(cancellationToken).AnyContext();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!response.IsValidResponse)
+        {
+            _logger.LogErrorRequest(response, "Unable to determine the current Elasticsearch server version while checking index compatibility");
+            throw new RepositoryException(response.GetErrorMessage("Unable to determine the current Elasticsearch server version while checking index compatibility."), response.OriginalException());
+        }
+
+        _logger.LogRequest(response);
+
+        string? version = response.Version?.Number;
+        int? major = ParseCreatedMajor(null, version);
+        if (!major.HasValue)
+            throw new RepositoryException("Unable to determine the current Elasticsearch server version while checking index compatibility.");
+
+        return (major.Value, version!);
     }
 
     protected virtual string? GetTimeStampField()

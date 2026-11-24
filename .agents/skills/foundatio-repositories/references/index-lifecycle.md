@@ -135,6 +135,8 @@ Single-doc read/write routing targets the **unversioned dated alias**, so the ph
 
 ## Schema Versioning
 
+Use `IIndexCompatibility.GetIndexCompatibilityAsync` for an explicit, read-only inventory of Elasticsearch creation versions. It reads the server version and fetches settings and aliases once per configured index, including retained and expired partitions. Schema versions and Elasticsearch creation versions are independent. See [the compatibility preflight](../../../../docs/guide/index-management.md#inspect-elasticsearch-index-compatibility).
+
 ### How Versioned Indexes Work
 
 1. Each version creates a separate index (`employees-v1`, `employees-v2`)
