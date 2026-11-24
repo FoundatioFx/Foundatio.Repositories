@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+feed="$RUNNER_TEMP/pr307-packages"
+consumer="$RUNNER_TEMP/pr307-consumer"
+mkdir -p "$feed" "$consumer" .audit/results
+if command -v cygpath >/dev/null; then feed=$(cygpath -am "$feed"); consumer=$(cygpath -am "$consumer"); fi
+for project in Foundatio.Repositories Foundatio.Repositories.Elasticsearch; do
+  dotnet pack "src/$project/$project.csproj" -c Release --no-build --no-restore -p:ReferenceFoundatioSource=false -p:ReferenceFoundatioRepositoriesSource=false -o "$feed"
+done
+cat > "$consumer/Consumer.csproj" <<EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="Foundatio.Repositories.Elasticsearch" Version="$MINVERVERSIONOVERRIDE" /></ItemGroup>
+</Project>
+EOF
+# Use a configuration file rather than CLI source arguments so Git Bash cannot rewrite an HTTPS URL.
+cat > "$consumer/NuGet.Config" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="audit" value="$feed" />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+</configuration>
+EOF
+cat > "$consumer/Program.cs" <<'CS'
+using Foundatio.Repositories.Elasticsearch.Configuration;
+using var configuration = new ElasticConfiguration();
+var index = new ConsumerIndex(configuration);
+configuration.AddIndex(index);
+IElasticConfigurationCompatibility compatibility = configuration;
+await compatibility.UpgradeIndexCompatibilityAsync(Array.Empty<IIndex>(), progressCallbackAsync: (_, _) => Task.CompletedTask);
+Console.WriteLine("External packaged consumer passed.");
+sealed class ConsumerIndex(IElasticConfiguration configuration) : Foundatio.Repositories.Elasticsearch.Configuration.Index<object>(configuration, "consumer")
+{
+    protected override string GetCompatibilityIndexPattern() => "consumer-*";
+    protected override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex) => sourceIndex.StartsWith("consumer-", StringComparison.Ordinal);
+}
+CS
+dotnet restore "$consumer/Consumer.csproj" --configfile "$consumer/NuGet.Config" | tee .audit/results/consumer-restore.log
+dotnet build "$consumer/Consumer.csproj" -c Release --no-restore | tee .audit/results/consumer-build.log
+for framework in net10.0 net11.0; do
+  dotnet run --project "$consumer/Consumer.csproj" -c Release -f "$framework" --no-build | tee ".audit/results/consumer-$framework.log"
+done

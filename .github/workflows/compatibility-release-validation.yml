@@ -1,0 +1,81 @@
+name: Compatibility and schema integration validation
+on:
+  push:
+    branches: [validation/pr307-schema-20261124]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+    working-directory: source
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  MINVERVERSIONOVERRIDE: 8.0.2-validation.pr307.${{ github.run_id }}
+  ReferenceFoundatioSource: 'false'
+  ReferenceFoundatioRepositoriesSource: 'false'
+jobs:
+  validate:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ES 8.19.15 two nodes, os: ubuntu-24.04, version: '8.19.15', kind: suite }
+          - { name: ES 9.5.0 two nodes, os: ubuntu-24.04, version: '9.5.0', kind: suite }
+          - { name: Persistent 7 to 8 to 9 with restores, os: ubuntu-24.04, kind: chain }
+          - { name: Packaged consumer Windows, os: windows-2022, kind: consumer }
+          - { name: Packaged consumer macOS, os: macos-15, kind: consumer }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: validation
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          path: source
+          ref: 37c8c2da68643488ddc961c2123c2f168c963240
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+      - name: Verify the revision and build Release
+        run: |
+          test "$(git rev-parse HEAD)" = 37c8c2da68643488ddc961c2123c2f168c963240
+          mkdir -p .audit/results
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/build.log
+      - name: Verify writer formatting
+        if: matrix.kind == 'chain'
+        run: |
+          files=(src/Foundatio.Repositories.Elasticsearch/Configuration/{Index,VersionedIndex}.cs src/Foundatio.Repositories.Elasticsearch/Repositories/{ElasticReindexer,ElasticReindexTaskRunner}.cs tests/Foundatio.Repositories.Elasticsearch.Tests/Repositories/IndexCompatibilityUpgradeTests.cs)
+          dotnet format Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${files[@]}"
+      - name: Check both test projects on two nodes
+        if: matrix.kind == 'suite'
+        env:
+          ELASTICSEARCH_URL: http://127.0.0.1:9200
+          FOUNDATIO_TEST_CLUSTER: foundatio-repositories-ci
+          ELASTICSEARCH_VERSION: ${{ matrix.version }}
+        run: |
+          docker compose -f tests/docker-compose.elasticsearch.yml up -d --wait --wait-timeout 180
+          curl -fsS "$ELASTICSEARCH_URL/" | jq -e --arg version "$ELASTICSEARCH_VERSION" '.cluster_name == "foundatio-repositories-ci" and .version.number == $version'
+          curl -fsS "$ELASTICSEARCH_URL/_cluster/health" | jq -e '.number_of_data_nodes == 2'
+          dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build | tee .audit/results/tests.log
+      - name: Exercise both persistent upgrades and all three snapshot restores
+        if: matrix.kind == 'chain'
+        env:
+          FOUNDATIO_TEST_CLUSTER: foundatio-pr307-chain-${{ github.run_id }}
+        run: bash ../validation/harness/chain.sh
+      - name: Execute external package consumers on .NET 10 and 11
+        if: matrix.kind == 'consumer'
+        run: bash ../validation/harness/consumer.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ strategy.job-index }}
+          path: source/.audit/results
+          retention-days: 14
