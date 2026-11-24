@@ -72,4 +72,23 @@ public partial class IndexCompatibilityTests
         Assert.Equal(["DELETE /events", "GET /events"], invoker.Requests);
         Assert.Equal(1, invoker.RemainingResponses);
     }
+
+    [Fact]
+    public async Task DeleteAsyncThroughAnOrdinaryAliasHonorsCustomPhysicalNaming()
+    {
+        // Arrange
+        var invoker = new SequenceRequestInvoker(
+            new(400, """{"error":{"type":"illegal_argument_exception","reason":"index [tenants] matches an alias"},"status":400}""", Request: "DELETE /tenants"),
+            new(200, """{"tenant-a":{"aliases":{"tenants":{}}}}""", Request: "GET /tenants"),
+            new(200, """{"acknowledged":true}""", Request: "DELETE /tenant-a"));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new PreflightTenantIndex(configuration);
+        configuration.AddIndex(index);
+
+        // Act
+        await index.DeleteAsync();
+
+        // Assert
+        Assert.Equal(0, invoker.RemainingResponses);
+    }
 }

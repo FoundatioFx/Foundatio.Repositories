@@ -6,6 +6,24 @@ internal static class CompatibilityIndexName
 {
     private const string Prefix = "reindexed-v";
 
+    internal static bool IsVersionedName(ReadOnlySpan<char> sourceIndex, ReadOnlySpan<char> name, bool allowSuffix)
+    {
+        if (sourceIndex.Length <= name.Length + 2
+            || !sourceIndex.StartsWith(name, StringComparison.Ordinal)
+            || sourceIndex[name.Length] is not '-'
+            || sourceIndex[name.Length + 1] is not 'v')
+        {
+            return false;
+        }
+
+        int versionStart = name.Length + 2;
+        int offset = versionStart;
+        while (offset < sourceIndex.Length && sourceIndex[offset] is >= '0' and <= '9')
+            offset++;
+
+        return offset > versionStart && (allowSuffix || offset == sourceIndex.Length);
+    }
+
     internal static ReadOnlySpan<char> GetCanonicalNameSpan(string index, string configuredIndexName)
     {
         ArgumentException.ThrowIfNullOrEmpty(index);
