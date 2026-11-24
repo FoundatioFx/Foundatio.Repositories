@@ -8,6 +8,7 @@ using Foundatio.Jobs;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Queues;
+using Foundatio.Repositories.Elasticsearch.Tests.Infrastructure;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Serializer;
 using Foundatio.Utility;
@@ -47,10 +48,17 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase
             await _client.WaitForReadyAsync(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
 
         _elasticsearchReady = true;
+
+        // Must run before RemoveDataAsync (or anything else) can issue a destructive request.
+        await DisposableClusterGuard.EnsureValidatedAsync(_client);
     }
 
     protected virtual async Task RemoveDataAsync(bool configureIndexes = true)
     {
+        // Defense in depth: cached after the first check, so this costs nothing, but it means no
+        // subclass can reach the deletes below by overriding InitializeAsync without calling base.
+        await DisposableClusterGuard.EnsureValidatedAsync(_client);
+
         var minimumLevel = Log.DefaultLogLevel;
         Log.DefaultLogLevel = LogLevel.Warning;
 

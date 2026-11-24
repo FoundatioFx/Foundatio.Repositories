@@ -69,7 +69,7 @@ internal sealed class ElasticReindexTaskRunner
             throw;
         }
 
-        ReindexResponse startResponse;
+        Elastic.Clients.Elasticsearch.ReindexResponse startResponse;
         try
         {
             startResponse = await _client.ReindexAsync(d =>

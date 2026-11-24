@@ -71,6 +71,7 @@ export default withMermaid(
           text: 'Advanced Topics',
           items: [
             { text: 'Index Management', link: '/guide/index-management' },
+            { text: 'Reindex Safety and Recovery', link: '/guide/reindex-safety' },
             { text: 'Migrations', link: '/guide/migrations' },
             { text: 'Jobs', link: '/guide/jobs' },
             { text: 'Custom Fields', link: '/guide/custom-fields' },

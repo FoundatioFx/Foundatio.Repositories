@@ -214,7 +214,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         await version2.ConfigureAsync();
 
         // Act
-        await version2.ReindexAsync();
+        await version2.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         await AssertIndexExistsAsync(version2.VersionedName, true);
@@ -418,7 +418,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
         Assert.NotNull(employee?.Id);
         await version2.ConfigureAsync();
-        await version2.ReindexAsync();
+        await version2.ReindexAsync(cancellationToken: TestCancellationToken);
         await AssertIndexExistsAsync(version1.VersionedName, true);
         var compatibility = await version2.GetIndexCompatibilityAsync(TestCancellationToken);
         var version1Compatibility = Assert.Single(compatibility, i => String.Equals(i.Name, version1.VersionedName, StringComparison.Ordinal));
@@ -792,7 +792,7 @@ public sealed partial class IndexCompatibilityUpgradeTests : ElasticRepositoryTe
         Assert.Equal(compatibilityTarget, versionedAlias.Indices.Keys.Single().ToString());
         ReplaceRegisteredCompatibilityIndex(version2);
         await version2.ConfigureAsync();
-        await version2.ReindexAsync();
+        await version2.ReindexAsync(cancellationToken: TestCancellationToken);
 
         // Assert
         var aliasResponse = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
