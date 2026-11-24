@@ -135,6 +135,8 @@ Single-doc read/write routing targets the **unversioned dated alias**, so the ph
 
 ## Schema Versioning
 
+Lifecycle operations resolve a `reindexed-v{major}-` replacement through its canonical alias. Preserve that alias during retention, mapping lookup, and later schema migrations. Registered siblings reserve native names even for exact-name deletion.
+
 Use `IIndexCompatibility.GetIndexCompatibilityAsync` for an explicit, read-only inventory of Elasticsearch creation versions. It reads the server version and fetches settings and aliases once per configured index, including retained and expired partitions. Schema versions and Elasticsearch creation versions are independent. See [the compatibility preflight](../../../../docs/guide/index-management.md#inspect-elasticsearch-index-compatibility).
 
 ### How Versioned Indexes Work

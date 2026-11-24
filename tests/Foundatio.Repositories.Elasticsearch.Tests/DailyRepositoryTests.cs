@@ -80,6 +80,23 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task DeleteAsync_ThenAddToSameDate_RecreatesIndex()
+    {
+        var accessedDateUtc = new DateTime(2023, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { Path = "before-delete", AccessedDateUtc = accessedDateUtc }, o => o.ImmediateConsistency());
+
+        await _configuration.DailyFileAccessHistory.DeleteAsync();
+
+        var history = await _fileAccessHistoryRepository.AddAsync(
+            new FileAccessHistory { Path = "after-delete", AccessedDateUtc = accessedDateUtc },
+            o => o.ImmediateConsistency());
+
+        Assert.NotNull(history);
+        var result = await _fileAccessHistoryRepository.FindOneAsync(f => f.Id(history.Id));
+        Assert.Equal("file-access-history-daily-v1-2023.03.01", result.Data.GetString("index"));
+    }
+
+    [Fact]
     public async Task AddAsyncConcurrentUpdates()
     {
         // The outer loop divides the iterations into 5 batches, each representing a different day offset.

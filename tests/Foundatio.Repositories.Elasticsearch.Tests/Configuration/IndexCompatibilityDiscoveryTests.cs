@@ -2,9 +2,12 @@ using System;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -13,10 +16,96 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
 {
     public IndexCompatibilityDiscoveryTests(ITestOutputHelper output) : base(output) { }
 
+    [Fact]
+    public async Task RetentionRemovesExpiredNativeAndCanonicalIndexesAndPreservesLookalikes()
+    {
+        // Arrange
+        string prefix = $"retention-{Guid.NewGuid():N}";
+        string native = $"{prefix}-2020.01.01";
+        string canonical = $"{prefix}-2020.01.02";
+        string replacement = $"reindexed-v9-{canonical}";
+        string foreign = $"reindexed-v9-{prefix}-2020.01.03";
+        await using AsyncDisposableAction cleanup = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{native},{replacement},{foreign}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        Assert.True((await _client.Indices.CreateAsync(native, cancellationToken: TestCancellationToken)).IsValidResponse);
+        Assert.True((await _client.Indices.CreateAsync(replacement, d => d.Aliases(a => a.Add(canonical, new Alias())), TestCancellationToken)).IsValidResponse);
+        Assert.True((await _client.Indices.CreateAsync(foreign, cancellationToken: TestCancellationToken)).IsValidResponse);
+        var job = new RetentionJob(_client, _configuration.LockProvider, prefix);
+
+        // Act
+        await job.RunAsync(TestCancellationToken);
+
+        // Assert
+        Assert.False((await _client.Indices.ExistsAsync(native, cancellationToken: TestCancellationToken)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(replacement, cancellationToken: TestCancellationToken)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(foreign, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    private sealed class RetentionJob : CleanupIndexesJob
+    {
+        public RetentionJob(ElasticsearchClient client, ILockProvider locks, string prefix)
+            : base(client, locks, TimeProvider.System, NullLoggerFactory.Instance)
+        {
+            AddIndex(prefix, TimeSpan.FromDays(1));
+        }
+    }
+
     public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync(false);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WithVersionWildcard_PreservesClosedIndexes()
+    {
+        // Arrange
+        string name = $"compat-delete-closed-{Guid.NewGuid():N}";
+        using var index = new DailyIndex<object>(_configuration, name, 1);
+        string openName = $"{name}-v1-2024.01.01";
+        string closedName = $"{name}-v1-2024.01.02";
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{openName},{closedName}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        var open = await _client.Indices.CreateAsync(openName, cancellationToken: TestCancellationToken);
+        var closed = await _client.Indices.CreateAsync(closedName, cancellationToken: TestCancellationToken);
+        Assert.True(open.IsValidResponse, open.GetErrorMessage());
+        Assert.True(closed.IsValidResponse, closed.GetErrorMessage());
+        var close = await _client.Indices.CloseAsync(closedName, TestCancellationToken);
+        Assert.True(close.IsValidResponse, close.GetErrorMessage());
+
+        // Act
+        await index.DeleteAsync();
+
+        // Assert: a version wildcard delete must skip closed partitions it cannot safely inspect
+        var closedExists = await _client.Indices.ExistsAsync(closedName, cancellationToken: TestCancellationToken);
+        var openExists = await _client.Indices.ExistsAsync(openName, cancellationToken: TestCancellationToken);
+        Assert.True(closedExists.Exists, closedExists.GetErrorMessage());
+        Assert.False(openExists.Exists, openExists.DebugInformation);
+    }
+
+    [Fact]
+    public async Task GetCurrentVersionAsync_ExcludesClosedPartitionsButIncludesHiddenOpenPartitions()
+    {
+        // Arrange
+        string name = $"compat-discovery-closed-{Guid.NewGuid():N}";
+        using var index = new DailyIndex<object>(_configuration, name, 3);
+        string closedIndex = $"{name}-v1-2024.01.01";
+        string hiddenIndex = $"{name}-v2-2024.01.02";
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{closedIndex},{hiddenIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        var closed = await _client.Indices.CreateAsync(closedIndex, d => d
+            .Settings(s => s.NumberOfReplicas(0))
+            .Aliases(a => a.Add($"{name}-2024.01.01", new Alias())), TestCancellationToken);
+        Assert.True(closed.IsValidResponse, closed.GetErrorMessage());
+        var close = await _client.Indices.CloseAsync(closedIndex, TestCancellationToken);
+        Assert.True(close.IsValidResponse, close.GetErrorMessage());
+        var hidden = await _client.Indices.CreateAsync(hiddenIndex, d => d
+            .Settings(s => s.Hidden(true).NumberOfReplicas(0))
+            .Aliases(a => a.Add($"{name}-2024.01.02", new Alias { IsHidden = true })), TestCancellationToken);
+        Assert.True(hidden.IsValidResponse, hidden.GetErrorMessage());
+
+        // Act & Assert
+        Assert.Equal(2, await index.GetCurrentVersionAsync());
     }
 
     [Fact]

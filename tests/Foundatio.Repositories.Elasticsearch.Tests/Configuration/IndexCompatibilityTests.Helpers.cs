@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public partial class IndexCompatibilityTests
 {
+    private sealed class TestVersionedIndex : VersionedIndex
+    {
+        public TestVersionedIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
+
+        public int GetIndexVersionPublic(string name) => GetIndexVersion(name);
+
+        public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
+
+        public async Task<IReadOnlyList<string>> GetDiscoveredIndexNamesAsync() => (await GetIndexesAsync()).Select(i => i.Index).ToList();
+    }
+
     private sealed class RequestInvokerElasticConfiguration : ElasticConfiguration
     {
         private readonly IRequestInvoker _requestInvoker;

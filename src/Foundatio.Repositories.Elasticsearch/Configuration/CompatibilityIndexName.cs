@@ -6,6 +6,34 @@ internal static class CompatibilityIndexName
 {
     private const string Prefix = "reindexed-v";
 
+    internal static ReadOnlySpan<char> GetCanonicalNameSpan(string index, string configuredIndexName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(index);
+        ArgumentException.ThrowIfNullOrEmpty(configuredIndexName);
+
+        ReadOnlySpan<char> indexSpan = index;
+        ReadOnlySpan<char> configuredSpan = configuredIndexName;
+        bool hasCompatibilityPrefix = TryRemovePrefix(index, out ReadOnlySpan<char> canonicalName);
+        if (hasCompatibilityPrefix
+            && (canonicalName.Equals(configuredSpan, StringComparison.Ordinal)
+                || (canonicalName.Length > configuredSpan.Length
+                && canonicalName.StartsWith(configuredSpan, StringComparison.Ordinal)
+                && canonicalName[configuredSpan.Length] is '-')))
+        {
+            return canonicalName;
+        }
+
+        if (indexSpan.Equals(configuredSpan, StringComparison.Ordinal)
+            || (indexSpan.Length > configuredSpan.Length
+                && indexSpan.StartsWith(configuredSpan, StringComparison.Ordinal)
+                && indexSpan[configuredSpan.Length] is '-'))
+        {
+            return indexSpan;
+        }
+
+        return hasCompatibilityPrefix ? canonicalName : indexSpan;
+    }
+
     internal static bool TryRemovePrefix(string index, out ReadOnlySpan<char> canonicalName)
     {
         ArgumentException.ThrowIfNullOrEmpty(index);

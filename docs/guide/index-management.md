@@ -1182,6 +1182,8 @@ foreach (var index in configuration.Indexes.OfType<IIndexCompatibility>())
 
 ## Index Properties
 
+After an Elasticsearch compatibility upgrade, a physical index can be named `reindexed-v{major}-{originalName}`. Keep the canonical alias matching the original name. Repository schema discovery, mappings, and retention can then locate both original and replacement partitions. An exact name owned by another registered index stops deletion before Foundatio sends a delete request.
+
 ### IIndex Interface
 
 ```csharp
