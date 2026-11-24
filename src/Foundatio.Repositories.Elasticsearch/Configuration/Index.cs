@@ -221,10 +221,11 @@ public class Index : IIndexCompatibility, IHaveLogger
         descriptor ??= d => ConfigureIndex(d);
 
         var response = await Configuration.Client.Indices.CreateAsync((IndexName)name, descriptor).AnyContext();
+        _logger.LogRequest(response);
+
         if (response.IsValidResponse || response.ElasticsearchServerError?.Status == 400 &&
             response.ElasticsearchServerError!.Error?.Type is "index_already_exists_exception" or "resource_already_exists_exception")
         {
-            _logger.LogRequest(response);
             _isEnsured = true;
             return;
         }
@@ -321,6 +322,7 @@ public class Index : IIndexCompatibility, IHaveLogger
         {
             if (name.AsSpan().IndexOfAny('*', '?') < 0)
             {
+                ThrowIfClaimedBySibling(name.AsSpan());
                 indexNames.Add(name);
                 continue;
             }
@@ -445,6 +447,7 @@ public class Index : IIndexCompatibility, IHaveLogger
         {
             if (response.Indices.ContainsKey(name))
             {
+                ThrowIfClaimedBySibling(name.AsSpan());
                 resolvedIndexes.Add(name);
                 continue;
             }
@@ -474,8 +477,7 @@ public class Index : IIndexCompatibility, IHaveLogger
     private ReadOnlySpan<char> ValidateCompatibilityDeleteTarget(string concreteIndex, IReadOnlyDictionary<string, Alias>? aliases)
     {
         ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(concreteIndex, Name);
-        if (IsNativelyClaimedByOtherConfiguredIndex(canonicalName))
-            throw new RepositoryException($"Index '{concreteIndex}' belongs to another registered index and cannot be deleted through '{Name}'.");
+        ThrowIfClaimedBySibling(canonicalName);
 
         if (canonicalName.Length == concreteIndex.Length)
             return canonicalName;
@@ -488,6 +490,12 @@ public class Index : IIndexCompatibility, IHaveLogger
         }
 
         return canonicalName;
+    }
+
+    private void ThrowIfClaimedBySibling(ReadOnlySpan<char> name)
+    {
+        if (IsNativelyClaimedByOtherConfiguredIndex(name))
+            throw new RepositoryException($"Index '{name}' belongs to another registered index and cannot be deleted through '{Name}'.");
     }
 
     protected async Task<bool> IndexExistsAsync(string name)
@@ -554,14 +562,13 @@ public class Index : IIndexCompatibility, IHaveLogger
     /// </summary>
     protected virtual string GetCompatibilityIndexPattern()
     {
-        // The reindexer writes copy failures to a sibling "<name>-error" physical index with only a hidden
-        // ownership marker, so it must be discovered by name rather than through a repository-facing alias.
-        return $"{Name},{String.Concat(Name, "-error")}";
+        // Reindex failures can live outside the application alias. Verify their ownership from the same response.
+        return $"{Name},{Name}{ErrorIndexSuffix}";
     }
 
     /// <summary>
-    /// Checks the Elasticsearch version compatibility of every physical index currently backing this index. This
-    /// issues a single <c>GET</c> request for the pattern returned by <see cref="GetCompatibilityIndexPattern"/>.
+    /// Reads the server version and the settings and aliases of the physical indexes matched by
+    /// <see cref="GetCompatibilityIndexPattern"/>.
     /// </summary>
     /// <param name="cancellationToken">The token used to cancel the server-info or index-settings request.</param>
     public virtual async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
@@ -589,13 +596,13 @@ public class Index : IIndexCompatibility, IHaveLogger
 
         _logger.LogRequest(response);
 
-        if (response.Indices is null || response.Indices.Count == 0)
+        if (response.Indices is null || response.Indices.Count is 0)
             return [];
 
         var infos = new List<IndexCompatibilityInfo>(response.Indices.Count);
         foreach (var kvp in response.Indices)
         {
-            if (!MatchesCompatibilitySourceStructure(kvp.Key, kvp.Value?.Aliases, out bool isErrorIndex))
+            if (!MatchesCompatibilitySourceStructure(kvp.Key, kvp.Value?.Aliases, out bool isErrorIndex, rejectAmbiguousOwnership: true))
                 continue;
 
             if (isErrorIndex && !(kvp.Value?.Aliases).HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
@@ -658,9 +665,10 @@ public class Index : IIndexCompatibility, IHaveLogger
             && !IsNativelyClaimedByOtherConfiguredIndex(candidate);
     }
 
-    private protected bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate)
+    private protected bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate, bool rejectAmbiguousOwnership = false)
     {
         bool mineIsExact = candidate.Equals(Name.AsSpan(), StringComparison.Ordinal);
+        IIndex? competingOwner = null;
         foreach (IIndex other in Configuration.Indexes)
         {
             if (ReferenceEquals(other, this) || String.Equals(other.Name, Name, StringComparison.Ordinal))
@@ -676,13 +684,16 @@ public class Index : IIndexCompatibility, IHaveLogger
 
             if (!otherIndex.IsNativeCompatibilityName(candidate, out _))
                 continue;
-            if (mineIsExact && !otherIsExact)
-                continue;
-
-            return true;
+            if (otherIsExact)
+                return true;
+            if (!mineIsExact)
+                competingOwner = other;
         }
 
-        return false;
+        if (rejectAmbiguousOwnership && competingOwner is not null)
+            throw new RepositoryException($"Physical index '{candidate}' is claimed by both '{Name}' and '{competingOwner.Name}'. Use distinct ownership rules before checking compatibility.");
+
+        return competingOwner is not null;
     }
 
     internal bool IsPotentialCompatibilityErrorName(string sourceIndex)
@@ -696,7 +707,7 @@ public class Index : IIndexCompatibility, IHaveLogger
             && isErrorIndex;
     }
 
-    private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex)
+    private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex, bool rejectAmbiguousOwnership = false)
     {
         ReadOnlySpan<char> candidate = sourceIndex;
         if (!IsNativeCompatibilityName(candidate, out isErrorIndex))
@@ -715,7 +726,7 @@ public class Index : IIndexCompatibility, IHaveLogger
                 return false;
         }
 
-        return !IsNativelyClaimedByOtherConfiguredIndex(candidate);
+        return !IsNativelyClaimedByOtherConfiguredIndex(candidate, rejectAmbiguousOwnership);
     }
 
     private bool IsNativeCompatibilityName(ReadOnlySpan<char> sourceIndex, out bool isErrorIndex)

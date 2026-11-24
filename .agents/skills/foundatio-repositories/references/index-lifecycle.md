@@ -118,7 +118,11 @@ Single-doc read/write routing targets the **unversioned dated alias**, so the ph
 
 ### Picking the index at write time
 
-`GetIndex(target)` derives the destination from the document's date. A custom `getDocumentDateUtc` delegate supplied to the constructor replaces the default resolver. Without that delegate, the default checks the ObjectId's embedded creation time first, then `CreatedUtc` for `IHaveCreatedDate` models.
+`GetIndex(target)` derives the destination from the document's date, resolved in order (`_getDocumentDateUtc`):
+
+1. ObjectId creation time embedded in the id (`CreateDocumentId` encodes the date into the id).
+2. `CreatedUtc` if the model implements `IHaveCreatedDate`.
+3. A custom `getDocumentDateUtc` delegate passed to the constructor.
 
 `EnsureIndexAsync` then creates the physical index for that period if missing and attaches the dated, umbrella, and matching windowed aliases in one call. The `MaxIndexAge` check runs **first** — writing to a date already past `MaxIndexAge` throws `ArgumentException: Index max age exceeded`. Bulk writes are grouped by resolved index (one write per period).
 
@@ -130,6 +134,10 @@ Single-doc read/write routing targets the **unversioned dated alias**, so the ph
 > Full explanation with lifecycle diagrams: `docs/guide/index-management.md` → "How Time-Series Indexes Work".
 
 ## Schema Versioning
+
+Lifecycle operations resolve a `reindexed-v{major}-` replacement through its canonical alias. Preserve that alias during retention, mapping lookup, and later schema migrations. Registered siblings reserve native names even for exact-name deletion.
+
+Use `IIndexCompatibility.GetIndexCompatibilityAsync` for an explicit, read-only inventory of Elasticsearch creation versions. It reads the server version and fetches settings and aliases once per configured index, including retained and expired partitions. Schema versions and Elasticsearch creation versions are independent. See [the compatibility preflight](../../../../docs/guide/index-management.md#inspect-elasticsearch-index-compatibility).
 
 ### How Versioned Indexes Work
 
@@ -169,11 +177,11 @@ Partitions past `MaxIndexAge` are skipped (left for maintenance). The umbrella a
 
 **What triggers it:** Nothing runs a reindex automatically — no background timer, hosted service, or auto-discovered job. Three ways to trigger one: (1) **call `configuration.ReindexAsync()` / `index.ReindexAsync()` directly** — deterministic, what every reindex test uses, the recommended path. (2) **`ConfigureIndexesAsync(beginReindexingOutdated: true)`** (the default) only *enqueues* a `ReindexWorkItem`; it doesn't run it. Running it requires an `IQueue<WorkItemData>` on `ElasticConfiguration` AND a worker with `ReindexWorkItemHandler` registered to dequeue and process it — neither is wired up by the library. **If no queue is configured, `ConfigureIndexesAsync()` throws `InvalidOperationException` the moment an index is outdated** — this repo's own sample app (`samples/Foundatio.SampleApp/.../ElasticExtensions.cs`) avoids this by passing `beginReindexingOutdated: false`. Even fully wired up, this path is a no-op for time-series (see above). (3) **`ElasticMigrationJobBase`** is an abstract, opt-in helper to derive from and register in your own job runner (it correctly calls `ConfigureIndexesAsync(null, false)` then reindexes outdated indexes in parallel) — it is **not auto-registered, auto-discovered, or referenced anywhere** in this repo or its sample app; treat it as scaffolding, not a default mechanism. `MaintainIndexesJob` never reindexes (aliases/retention only).
 
-**Recovering from a rolling restart mid-upgrade:** the lock (`reindex:audit`, 20 min TTL, renewed on progress) expires if its holder dies, but the ES-side `_reindex` task may still be running. The first pass can narrow its query using the newest destination document (`GetResumeStartingPointAsync`); that watermark is not evidence that all older documents were copied. After alias promotion, a version check may also skip unfinished catch-up or source deletion. Do not treat a normal schema reindex as crash-safe: inspect tasks, both physical indexes, aliases, and document consistency before retrying or cleaning up. The compatibility recovery API below is a separate protocol, not recovery for schema migrations.
+**Recovering from a rolling restart mid-upgrade:** the lock (`reindex:audit`, 20 min TTL, renewed on progress) expires on its own if the holder dies — no explicit release needed, a new instance's `AcquireAsync` just waits then proceeds. The ES-side `_reindex` task runs server-side (`wait_for_completion=false`) and is unaffected by the client dying. A retried first pass resumes from the newest doc already in the new partition (`GetResumeStartingPointAsync`, `>=` range query) instead of recopying the whole period. Partitions are discovered by physical index name, not alias membership, so a partition whose alias was swapped but not yet deleted before a crash is still found and finished (resume copy → swap → delete) on the next run. Two instances racing for the same index never double-migrate it: the lock serializes them, and the loser's post-lock version check finds the version already advanced and returns.
 
-**Write flip / no aliasing gap:** writes target the unversioned dated alias (`audit-2024.01`). After the first pass, all aliases on the old partition (dated + umbrella + windowed) are repointed to v2 in a **single atomic `UpdateAliasesAsync`**. This avoids an aliasing gap, not every consistency gap: the second-pass catch-up is best effort and occurs after promotion. In-place updates and deletes during the copy/catch-up window can be missed, overwritten, or resurrected. Stop writers when strict consistency is required; document counts alone do not prove a lossless copy.
+**Write flip / no gap:** writes target the unversioned dated alias (`audit-2024.01`). After the first pass, all aliases on the old partition (dated + umbrella + windowed) are repointed to v2 in a **single atomic `UpdateAliasesAsync`** → no aliasing gap. Docs written to v1 during the first pass are copied by the second-pass catch-up (timestamp/ObjectId `>= now-1s`, `Conflicts=proceed`), so no lost-write gap for append-only data.
 
-**Why oldest → newest:** time-series writes generally land in the current period, so migrating older partitions first usually reduces write contention and frees disk progressively. Ordering is deterministic, but historical updates and interrupted copies still require the consistency checks described above. Introduced as an index-management stability fix (2017).
+**Why oldest → newest:** time-series writes land in the current period, so old partitions are effectively immutable — migrating them first means near-empty second-pass catch-up and no write contention, while the one volatile (current) partition is done last with the smallest catch-up window. Also frees disk progressively from oldest data, and is deterministic/resumable (each run lists only still-old-version partitions via the min-version `GetCurrentVersionAsync`, so an interrupted run resumes with the remainder in the same order). Introduced as an index-management stability fix (2017).
 
 ### Reindex Scripts
 
@@ -336,23 +344,23 @@ var results = await repository.FindAsync(q => q.Index("logs-last-7-days"));
 | `ElasticMappingResolver` field cache | Auto-refreshes ~60 seconds | `index.MappingResolver.RefreshMapping()` |
 | `_isEnsured` flag (Index/VersionedIndex) | Process lifetime | App restart or index deletion |
 | `_ensuredDates` (DailyIndex) | Process lifetime per-date | `DeleteAsync(name)` or `Dispose()` |
-| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed) | Expires automatically; pass explicit indexes to bypass the marker |
+| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed) | Expires automatically; or `ConfigureIndexesAsync(force: true)` |
 
 ## Index Operations
 
 ### ConfigureIndexesAsync
 
-Creates indexes and updates mappings. The all-index path is protected by a distributed lock and cache marker; passing explicit indexes bypasses both:
+Creates indexes and updates mappings. Protected by distributed lock + cache marker:
 
 ```csharp
 await configuration.ConfigureIndexesAsync();
 
-// Configure a specific index immediately, without enqueuing schema migration.
-// Coordinate callers: the explicit-index path bypasses the configuration lock and cache.
-await configuration.ConfigureIndexesAsync([myIndex], beginReindexingOutdated: false);
-```
+// Bypass cache marker (after structural changes)
+await configuration.ConfigureIndexesAsync(force: true);
 
-There is no `force` parameter on the current API. Compatibility upgrades remain a separate explicit operation.
+// Configure specific indexes (bypasses lock and cache)
+await configuration.ConfigureIndexesAsync([myIndex]);
+```
 
 ### MaintainIndexesAsync
 
@@ -365,10 +373,9 @@ await configuration.MaintainIndexesAsync();
 ### ReindexAsync
 
 ```csharp
-await configuration.ReindexAsync(progressCallbackAsync: (progress, message) =>
+await configuration.ReindexAsync(async (progress, message) =>
 {
     _logger.LogInformation("Reindex {Progress}%: {Message}", progress, message);
-    return Task.CompletedTask;
 });
 ```
 
@@ -409,7 +416,7 @@ Custom physical-name subclasses override both `GetCompatibilityIndexPattern()` a
 
 ### Crash Recovery
 
-Schema reindexing has best-effort copy resumption, not guaranteed crash recovery. A server-side task can outlive the client and lock. After an alias cutover, the version check can skip unfinished catch-up or source deletion on retry. Inspect tasks, both physical indexes, aliases, and document consistency before restarting or cleaning up. Compatibility upgrades use the separate evidence-based recovery API described above; never remove a block or marker just because the client timed out.
+If an instance crashes mid-reindex, the lock is never explicitly released — it expires 20 minutes after the last renewal, and another instance's `AcquireAsync` then proceeds. The Elasticsearch-side `_reindex` task runs server-side (`wait_for_completion=false`) and is unaffected by the client dying. A retried first pass resumes from the newest document already in the new index (`>=` range query) rather than recopying everything. `VersionedIndex.ReindexAsync()` — and the per-partition loop in `DailyIndex`/`MonthlyIndex` — are resume-safe for this reason. See "Recovering from a rolling restart mid-upgrade" above for the time-series specifics (orphaned already-swapped partitions, racing instances).
 
 ### Second-Pass Catch-Up
 

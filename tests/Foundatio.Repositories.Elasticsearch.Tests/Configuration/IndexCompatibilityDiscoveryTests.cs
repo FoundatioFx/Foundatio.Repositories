@@ -2,9 +2,12 @@ using System;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -12,6 +15,40 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
 {
     public IndexCompatibilityDiscoveryTests(ITestOutputHelper output) : base(output) { }
+
+    [Fact]
+    public async Task RetentionRemovesExpiredNativeAndCanonicalIndexesAndPreservesLookalikes()
+    {
+        // Arrange
+        string prefix = $"retention-{Guid.NewGuid():N}";
+        string native = $"{prefix}-2020.01.01";
+        string canonical = $"{prefix}-2020.01.02";
+        string replacement = $"reindexed-v9-{canonical}";
+        string foreign = $"reindexed-v9-{prefix}-2020.01.03";
+        await using AsyncDisposableAction cleanup = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{native},{replacement},{foreign}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+        Assert.True((await _client.Indices.CreateAsync(native, cancellationToken: TestCancellationToken)).IsValidResponse);
+        Assert.True((await _client.Indices.CreateAsync(replacement, d => d.Aliases(a => a.Add(canonical, new Alias())), TestCancellationToken)).IsValidResponse);
+        Assert.True((await _client.Indices.CreateAsync(foreign, cancellationToken: TestCancellationToken)).IsValidResponse);
+        var job = new RetentionJob(_client, _configuration.LockProvider, prefix);
+
+        // Act
+        await job.RunAsync(TestCancellationToken);
+
+        // Assert
+        Assert.False((await _client.Indices.ExistsAsync(native, cancellationToken: TestCancellationToken)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(replacement, cancellationToken: TestCancellationToken)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(foreign, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    private sealed class RetentionJob : CleanupIndexesJob
+    {
+        public RetentionJob(ElasticsearchClient client, ILockProvider locks, string prefix)
+            : base(client, locks, TimeProvider.System, NullLoggerFactory.Instance)
+        {
+            AddIndex(prefix, TimeSpan.FromDays(1));
+        }
+    }
 
     public override async ValueTask InitializeAsync()
     {

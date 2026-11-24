@@ -184,7 +184,7 @@ internal sealed class ElasticReindexTaskRunner
                 if (statusFailures > MaxStatusFailures)
                     throw new RepositoryException(status.GetErrorMessage($"Unable to track compatibility reindex task '{taskId.FullyQualifiedId}' after {statusFailures} attempts."), status.OriginalException());
 
-                await _timeProvider.Delay(ElasticReindexer.GetStatusRetryDelay(statusFailures), cancellationToken).AnyContext();
+                await Task.Delay(ElasticReindexer.GetStatusRetryDelay(statusFailures), _timeProvider, cancellationToken).AnyContext();
                 continue;
             }
 
@@ -222,7 +222,7 @@ internal sealed class ElasticReindexTaskRunner
                 throw new RepositoryException($"Compatibility reindex task '{taskId.FullyQualifiedId}' made no progress for {noProgressTimeout}.");
 
             var delay = taskStatus.Total < 100 ? TimeSpan.FromMilliseconds(100) : TimeSpan.FromSeconds(1);
-            await _timeProvider.Delay(delay, cancellationToken).AnyContext();
+            await Task.Delay(delay, _timeProvider, cancellationToken).AnyContext();
         }
     }
 
