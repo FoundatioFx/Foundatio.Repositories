@@ -19,14 +19,15 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
     public IndexCompatibilityDiscoveryTests(ITestOutputHelper output) : base(output) { }
 
     [Theory]
-    [InlineData("reindexed-v9-", false, true)]
-    [InlineData("reindexed-v9-", true, false)]
-    [InlineData("unrelated-", false, false)]
-    public async Task DeleteAsyncThroughAnAliasOnlyDeletesItsOwnReplacement(string prefix, bool registerPhysicalIndex, bool shouldDelete)
+    [InlineData("reindexed-v9-{name}", false, true)]
+    [InlineData("reindexed-v9-{name}", true, false)]
+    [InlineData("unrelated-{name}", false, false)]
+    [InlineData("{name}-v1", false, false)]
+    public async Task DeleteAsyncThroughAnAliasOnlyDeletesItsOwnReplacement(string physicalNamePattern, bool registerPhysicalIndex, bool shouldDelete)
     {
         // Arrange
         string name = $"compat-delete-{Guid.NewGuid():N}";
-        string physical = prefix + name;
+        string physical = physicalNamePattern.Replace("{name}", name, StringComparison.Ordinal);
         using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
         using var index = new Index<object>(configuration, name);
         using var sibling = new Index<object>(configuration, physical);
@@ -43,10 +44,10 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
         var error = await Record.ExceptionAsync(() => index.DeleteAsync());
 
         // Assert
-        if (shouldDelete)
-            Assert.Null(error);
-        else
+        if (registerPhysicalIndex)
             Assert.IsType<RepositoryException>(error);
+        else
+            Assert.Null(error);
         var exists = await _client.Indices.ExistsAsync(physical, cancellationToken: TestCancellationToken);
         Assert.Equal(!shouldDelete, exists.Exists);
     }
