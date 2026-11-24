@@ -384,24 +384,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
     protected internal override bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
     {
-        ReadOnlySpan<char> name = Name;
-        if (sourceIndex.Length <= name.Length + 2
-            || !sourceIndex.StartsWith(name, StringComparison.Ordinal)
-            || sourceIndex[name.Length] is not '-'
-            || sourceIndex[name.Length + 1] is not 'v')
-        {
-            return false;
-        }
-
-        int offset = name.Length + 2;
-        int versionStart = offset;
-        while (offset < sourceIndex.Length && sourceIndex[offset] is >= '0' and <= '9')
-            offset++;
-
-        if (offset == versionStart)
-            return false;
-
-        return HasMultipleIndexes || offset == sourceIndex.Length;
+        return CompatibilityIndexName.IsVersionedName(sourceIndex, Name, allowSuffix: HasMultipleIndexes);
     }
 
     internal override void ValidateCompatibilityUpgradeSource(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases)
