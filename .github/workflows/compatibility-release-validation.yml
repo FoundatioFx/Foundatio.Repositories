@@ -1,0 +1,74 @@
+name: Offline compatibility ES 9.5 full-suite recheck
+on:
+  push:
+    branches: [validation/pr307-offline-20261124]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+    working-directory: source
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  MINVERVERSIONOVERRIDE: 8.0.2-validation.pr307.${{ github.run_id }}
+  ReferenceFoundatioSource: 'false'
+  ReferenceFoundatioRepositoriesSource: 'false'
+jobs:
+  validate:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ES 9.5.0 two nodes, os: ubuntu-24.04, version: '9.5.0', kind: suite }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: validation
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          path: source
+          ref: 2f69335eaa79e46848c0e29cc24443dd259ef28a
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+      - name: Verify the revision and build Release
+        run: |
+          test "$(git rev-parse HEAD)" = 2f69335eaa79e46848c0e29cc24443dd259ef28a
+          mkdir -p .audit/results
+          dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/build.log
+      - name: Verify writer formatting
+        if: matrix.kind == 'chain'
+        run: |
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMR 0bdeb1fceb8ab56eff22383ae0992b7c5591feae...HEAD -- '*.cs')
+          dotnet format Foundatio.Repositories.slnx --no-restore --verify-no-changes --include "${files[@]}"
+      - name: Check both test projects on two nodes
+        if: matrix.kind == 'suite'
+        env:
+          ELASTICSEARCH_URL: http://127.0.0.1:9200
+          ELASTICSEARCH_VERSION: ${{ matrix.version }}
+        run: |
+          docker compose -f tests/docker-compose.elasticsearch.yml up -d --wait --wait-timeout 180
+          curl -fsS "$ELASTICSEARCH_URL/" | jq -e --arg version "$ELASTICSEARCH_VERSION" '.cluster_name == "foundatio-repositories-ci" and .version.number == $version'
+          curl -fsS "$ELASTICSEARCH_URL/_cluster/health" | jq -e '.number_of_data_nodes == 2'
+          dotnet test --solution Foundatio.Repositories.slnx -c Release --no-build | tee .audit/results/tests.log
+      - name: Exercise both persistent upgrades and all three snapshot restores
+        if: matrix.kind == 'chain'
+        run: bash ../validation/harness/chain.sh
+      - name: Execute external package consumers on .NET 10 and 11
+        if: matrix.kind == 'consumer'
+        run: bash ../validation/harness/consumer.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ strategy.job-index }}
+          path: source/.audit/results
+          retention-days: 14
