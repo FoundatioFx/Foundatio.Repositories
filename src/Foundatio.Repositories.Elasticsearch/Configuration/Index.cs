@@ -485,10 +485,18 @@ public class Index : IIndexCompatibility, IHaveLogger
 
             string concreteIndex = matches[0].Key;
             ThrowIfClaimedBySibling(concreteIndex.AsSpan());
-            ReadOnlySpan<char> canonicalName = ValidateCompatibilityDeleteTarget(concreteIndex, matches[0].Value?.Aliases);
-            // Elasticsearch ignores ordinary aliases on a concrete delete with ignore_unavailable.
+            var aliases = matches[0].Value?.Aliases;
+            ReadOnlySpan<char> canonicalName = ValidateCompatibilityDeleteTarget(concreteIndex, aliases);
             if (canonicalName.Length == concreteIndex.Length)
+            {
+                // A configured name can still point at a native schema version or a custom-named backing index.
+                if (String.Equals(name, Name, StringComparison.Ordinal) && aliases.HasCanonicalCompatibilityAlias(name)
+                    && (IsNativeIndexName(canonicalName) || CompatibilityIndexName.IsVersionedName(canonicalName, Name, allowSuffix: false)))
+                {
+                    resolvedIndexes.Add(concreteIndex);
+                }
                 continue;
+            }
 
             if (!canonicalName.Equals(name.AsSpan(), StringComparison.Ordinal))
             {

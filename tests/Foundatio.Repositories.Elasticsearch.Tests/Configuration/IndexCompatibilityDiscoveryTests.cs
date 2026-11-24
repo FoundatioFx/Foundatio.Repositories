@@ -22,8 +22,10 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
     [InlineData("reindexed-v9-{name}", false, true)]
     [InlineData("reindexed-v9-{name}", true, false)]
     [InlineData("unrelated-{name}", false, false)]
-    [InlineData("{name}-v1", false, false)]
-    public async Task DeleteAsyncThroughAnAliasOnlyDeletesItsOwnReplacement(string physicalNamePattern, bool registerPhysicalIndex, bool shouldDelete)
+    [InlineData("{name}-v1", false, true)]
+    [InlineData("{name}-v1-extra", false, false)]
+    [InlineData("{name}-v1", false, false, true)]
+    public async Task DeleteAsyncThroughAnAliasOnlyDeletesAnOwnedIndex(string physicalNamePattern, bool registerPhysicalIndex, bool shouldDelete, bool routed = false)
     {
         // Arrange
         string name = $"compat-delete-{Guid.NewGuid():N}";
@@ -37,7 +39,8 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction cleanup = new(async () =>
             await _client.Indices.DeleteAsync(physical, d => d.IgnoreUnavailable(), TestCancellationToken));
-        var create = await _client.Indices.CreateAsync(physical, d => d.Aliases(a => a.Add(name, new Alias())), TestCancellationToken);
+        var alias = routed ? new Alias { Routing = "tenant-a" } : new Alias();
+        var create = await _client.Indices.CreateAsync(physical, d => d.Aliases(a => a.Add(name, alias)), TestCancellationToken);
         Assert.True(create.IsValidResponse, create.GetErrorMessage());
 
         // Act
