@@ -1451,7 +1451,7 @@ The compatibility reindex request carries a deterministic `X-Opaque-Id`; operato
 
 ## Index Properties
 
-After an Elasticsearch compatibility upgrade, a physical index can be named `reindexed-v{major}-{originalName}`. Keep the canonical alias matching the original name. Repository schema discovery, mappings, and retention can then locate both original and replacement partitions. An exact name owned by another registered index stops deletion before Foundatio sends a delete request.
+After an Elasticsearch compatibility upgrade, a physical index can be named `reindexed-v{major}-{originalName}`. Keep the canonical alias matching the original name. Repository schema discovery, mappings, and retention can then locate both original and replacement partitions. An exact name owned by another registered index stops deletion before Foundatio sends a delete request. When an alias is supplied, deletion requires its matching replacement and checks that no other registration owns the physical index.
 
 ### IIndex Interface
 
