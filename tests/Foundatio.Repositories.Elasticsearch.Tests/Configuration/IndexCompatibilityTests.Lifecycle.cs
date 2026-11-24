@@ -47,4 +47,29 @@ public partial class IndexCompatibilityTests
         // Assert
         Assert.Single(invoker.Requests);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteAsyncChecksThePhysicalOwnerBeforeRetryingAnAlias(bool registerSiblingFirst)
+    {
+        // Arrange
+        var invoker = new SequenceRequestInvoker(
+            new(400, """{"error":{"type":"illegal_argument_exception","reason":"index [events] matches an alias"},"status":400}""", Request: "DELETE /events"),
+            new(200, """{"reindexed-v9-events":{"aliases":{"events":{}}}}""", Request: "GET /events"),
+            new(200, """{"acknowledged":true}""", Request: "DELETE /reindexed-v9-events"));
+        using var configuration = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new Index<object>(configuration, "events");
+        using var sibling = new Index<object>(configuration, "reindexed-v9-events");
+        configuration.AddIndex(registerSiblingFirst ? sibling : index);
+        configuration.AddIndex(registerSiblingFirst ? index : sibling);
+
+        // Act
+        var error = await Assert.ThrowsAsync<RepositoryException>(() => index.DeleteAsync());
+
+        // Assert
+        Assert.Contains(sibling.Name, error.Message, StringComparison.Ordinal);
+        Assert.Equal(["DELETE /events", "GET /events"], invoker.Requests);
+        Assert.Equal(1, invoker.RemainingResponses);
+    }
 }

@@ -6,6 +6,8 @@ using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -15,6 +17,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
 {
     public IndexCompatibilityDiscoveryTests(ITestOutputHelper output) : base(output) { }
+
+    [Theory]
+    [InlineData("reindexed-v9-", false, true)]
+    [InlineData("reindexed-v9-", true, false)]
+    [InlineData("unrelated-", false, false)]
+    public async Task DeleteAsyncThroughAnAliasOnlyDeletesItsOwnReplacement(string prefix, bool registerPhysicalIndex, bool shouldDelete)
+    {
+        // Arrange
+        string name = $"compat-delete-{Guid.NewGuid():N}";
+        string physical = prefix + name;
+        using var configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
+        using var index = new Index<object>(configuration, name);
+        using var sibling = new Index<object>(configuration, physical);
+        configuration.AddIndex(index);
+        if (registerPhysicalIndex)
+            configuration.AddIndex(sibling);
+
+        await using AsyncDisposableAction cleanup = new(async () =>
+            await _client.Indices.DeleteAsync(physical, d => d.IgnoreUnavailable(), TestCancellationToken));
+        var create = await _client.Indices.CreateAsync(physical, d => d.Aliases(a => a.Add(name, new Alias())), TestCancellationToken);
+        Assert.True(create.IsValidResponse, create.GetErrorMessage());
+
+        // Act
+        var error = await Record.ExceptionAsync(() => index.DeleteAsync());
+
+        // Assert
+        if (shouldDelete)
+            Assert.Null(error);
+        else
+            Assert.IsType<RepositoryException>(error);
+        var exists = await _client.Indices.ExistsAsync(physical, cancellationToken: TestCancellationToken);
+        Assert.Equal(!shouldDelete, exists.Exists);
+    }
 
     [Fact]
     public async Task RetentionRemovesExpiredNativeAndCanonicalIndexesAndPreservesLookalikes()
