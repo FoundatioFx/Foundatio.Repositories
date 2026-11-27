@@ -125,12 +125,27 @@ public class DailyIndex : VersionedIndex
 
     protected override DateTime GetIndexDate(string index)
     {
-        int version = GetIndexVersion(index);
-        if (version < 0)
-            version = Version;
+        ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(index, Name);
+        int offset = Name.Length + 2;
+        if (canonicalName.Length <= offset
+            || !canonicalName.StartsWith(Name.AsSpan(), StringComparison.Ordinal)
+            || canonicalName[Name.Length] is not '-'
+            || canonicalName[Name.Length + 1] is not 'v')
+        {
+            return DateTime.MaxValue;
+        }
 
-        if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out var result))
+        int versionStart = offset;
+        while (offset < canonicalName.Length && canonicalName[offset] is >= '0' and <= '9')
+            offset++;
+
+        if (offset > versionStart
+            && offset < canonicalName.Length - 1
+            && canonicalName[offset] is '-'
+            && DateTime.TryParseExact(canonicalName[(offset + 1)..], DateFormat.AsSpan(), EnUs, DateTimeStyles.AdjustToUniversal, out var result))
+        {
             return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
+        }
 
         return DateTime.MaxValue;
     }
@@ -472,7 +487,7 @@ public class DailyIndex : VersionedIndex
     protected TypeMapping? GetLatestIndexMapping()
     {
         string filter = $"{Name}-v{Version}-*";
-        var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases());
+        var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.Open, ExpandWildcard.Hidden).IgnoreUnavailable());
         if (!indicesResponse.IsValidResponse)
         {
             if (indicesResponse.ElasticsearchServerError?.Status == 404)
@@ -481,13 +496,14 @@ public class DailyIndex : VersionedIndex
             throw new RepositoryException(indicesResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), indicesResponse.OriginalException());
         }
 
-        var latestIndex = indicesResponse.Indices.Keys
-            .Where(i => GetIndexVersion(i.ToString()) == Version)
+        var latestIndex = indicesResponse.Indices
+            .Where(i => IsDiscoveryCandidate(i.Key, i.Value))
             .Select(i =>
             {
-                string indexName = i.ToString();
+                string indexName = i.Key;
                 return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
             })
+            .Where(i => i.Version == Version && i.DateUtc != DateTime.MaxValue)
             .OrderByDescending(i => i.DateUtc)
             .FirstOrDefault();
 

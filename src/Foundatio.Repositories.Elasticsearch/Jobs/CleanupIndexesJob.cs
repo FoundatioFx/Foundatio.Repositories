@@ -72,7 +72,7 @@ public class CleanupIndexesJob : IJob
 
         var indexes = new List<IndexDate>();
         if (result.IsValidResponse && result.Indices is not null)
-            indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).OfType<IndexDate>().ToList() ?? [];
+            indexes = result.Indices.Select(k => GetIndexDate(k.Key, k.Value?.Aliases)).OfType<IndexDate>().ToList();
 
         if (indexes.Count is 0)
             return JobResult.Success;
@@ -149,7 +149,7 @@ public class CleanupIndexesJob : IJob
         return Task.CompletedTask;
     }
 
-    private IndexDate? GetIndexDate(string name)
+    private IndexDate? GetIndexDate(string name, IReadOnlyDictionary<string, Alias>? aliases)
     {
         if (_indexes.Count is 0)
         {
@@ -157,16 +157,22 @@ public class CleanupIndexesJob : IJob
             AddIndex(".marvel", TimeSpan.FromDays(7));
         }
 
-        foreach (var index in _indexes)
+        IndexDate? Match(string candidate)
         {
-            var date = index.GetDate(name);
-            if (date == null)
-                continue;
-
-            return new IndexDate { Index = name, Date = date.Value, MaxAge = index.MaxAge };
+            foreach (var index in _indexes)
+            {
+                if (index.GetDate(candidate) is { } date)
+                    return new IndexDate { Index = name, Date = date, MaxAge = index.MaxAge };
+            }
+            return null;
         }
 
-        return null;
+        var native = Match(name);
+        if (native is not null || !Configuration.CompatibilityIndexName.TryRemovePrefix(name, out ReadOnlySpan<char> canonicalName))
+            return native;
+
+        string aliasName = canonicalName.ToString();
+        return aliases.HasCanonicalCompatibilityAlias(aliasName) ? Match(aliasName) : null;
     }
 
     private class IndexMaxAge

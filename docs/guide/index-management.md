@@ -1182,6 +1182,8 @@ foreach (var index in configuration.Indexes.OfType<IIndexCompatibility>())
 
 ## Index Properties
 
+After an Elasticsearch compatibility upgrade, a physical index can be named `reindexed-v{major}-{originalName}`. Keep the canonical alias matching the original name. Repository schema discovery, mappings, and retention can then locate both original and replacement partitions. A canonical alias can delete its matching replacement. An ordinary alias matching the registered name can delete a backing index that uses the native naming rule or the exact `{name}-v{version}` form. The alias must have no filter, routing, or write-index override. Unrelated targets are preserved. A sibling registration that owns the requested or physical name prevents deletion.
+
 ### IIndex Interface
 
 ```csharp

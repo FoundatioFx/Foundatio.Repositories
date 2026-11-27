@@ -1,5 +1,8 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Elastic.Clients.Elasticsearch.IndexManagement;
+using Foundatio.Repositories.Exceptions;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
@@ -31,5 +34,19 @@ internal static class ElasticIndexCompatibilityExtensions
             && alias.IndexRouting is null
             && alias.Routing is null
             && alias.SearchRouting is null;
+    }
+
+    internal static IndexState RequireSingleResolvedIndexState(this GetIndicesSettingsResponse response, string requestedName)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentException.ThrowIfNullOrEmpty(requestedName);
+
+        if (response.Settings.TryGetValue(requestedName, out var exactState) && exactState is not null)
+            return exactState;
+
+        if (response.Settings.Count is 1)
+            return response.Settings.Values.Single();
+
+        throw new RepositoryException($"Index expression '{requestedName}' must resolve to exactly one concrete index; found {response.Settings.Count}.");
     }
 }

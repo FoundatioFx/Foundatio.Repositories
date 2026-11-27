@@ -254,7 +254,8 @@ public class Index : IIndexCompatibility, IHaveLogger
             throw new RepositoryException(currentSettings.GetErrorMessage($"Error getting index settings for {name}"), currentSettings.OriginalException());
         }
 
-        var indexState = currentSettings.Settings.TryGetValue(name, out var indexSettings) ? indexSettings : null;
+        _logger.LogRequest(currentSettings);
+        var indexState = currentSettings.RequireSingleResolvedIndexState(name);
 
         // GetSettingsAsync nests analysis settings under the "index" key (Settings.Index.Analysis); the root
         // Settings.Analysis is the write-time shape used in create requests and is not populated on reads. Read
@@ -265,7 +266,9 @@ public class Index : IIndexCompatibility, IHaveLogger
         var createIndexRequestDescriptor = new CreateIndexRequestDescriptor((IndexName)name);
         ConfigureIndex(createIndexRequestDescriptor);
         CreateIndexRequest createRequest = createIndexRequestDescriptor;
-        var settings = createRequest.Settings!;
+        var settings = createRequest.Settings;
+        if (settings is null)
+            return;
 
         // strip off non-dynamic index settings
         settings.Store = null;
@@ -314,40 +317,91 @@ public class Index : IIndexCompatibility, IHaveLogger
         if (names == null || names.Length == 0)
             throw new ArgumentNullException(nameof(names));
 
-        // Resolve wildcards to actual index names; use GetAsync because ResolveIndexAsync is broken in ES 9.x client.
-        var indexNames = new List<string>();
-        foreach (var name in names)
+        var indexNames = new List<string>(names.Length);
+        foreach (string name in names)
         {
-            if (name.Contains("*") || name.Contains("?"))
+            if (name.AsSpan().IndexOfAny('*', '?') < 0)
             {
-                var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
-                if (getResponse.IsValidResponse && getResponse.Indices is not null)
+                ThrowIfClaimedBySibling(name.AsSpan());
+                indexNames.Add(name);
+                continue;
+            }
+
+            // ResolveIndexAsync sends a request body that Elasticsearch 9 rejects. Resolve wildcard expressions
+            // through the names-and-aliases index metadata response, matching the established implementation.
+            var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d
+                .LimitToNamesAndAliases()
+                .ExpandWildcards(ExpandWildcard.Open, ExpandWildcard.Hidden)
+                .IgnoreUnavailable()).AnyContext();
+            if (getResponse.IsValidResponse && getResponse.Indices is not null)
+            {
+                _logger.LogRequest(getResponse);
+                foreach (var resolvedIndex in getResponse.Indices)
                 {
-                    foreach (var kvp in getResponse.Indices)
-                        indexNames.Add(kvp.Key);
+                    // A broad wildcard can legitimately match physical names owned by another registered
+                    // index; skip those instead of deleting them, rather than treating the whole batch as unsafe.
+                    if (IsNativelyClaimedByOtherConfiguredIndex(resolvedIndex.Key.AsSpan()))
+                        continue;
+
+                    ValidateCompatibilityDeleteTarget(resolvedIndex.Key, resolvedIndex.Value?.Aliases);
+                    if (MatchesCompatibilitySource(resolvedIndex.Key, resolvedIndex.Value?.Aliases))
+                        indexNames.Add(resolvedIndex.Key);
                 }
-                else if (getResponse.ElasticsearchServerError?.Status is not 404)
-                {
-                    _logger.LogErrorRequest(getResponse, "Error resolving wildcard index pattern {Pattern}", name);
-                }
+            }
+            else if (getResponse.ElasticsearchServerError?.Status is not 404)
+            {
+                _logger.LogErrorRequest(getResponse, "Error resolving wildcard index pattern {Pattern}", name);
             }
             else
             {
-                indexNames.Add(name);
+                _logger.LogRequest(getResponse);
             }
         }
 
         if (indexNames.Count == 0)
             return;
 
+        bool containsExactName = names.Any(name => name.AsSpan().IndexOfAny('*', '?') < 0);
+        await DeleteResolvedIndexesAsync(
+            indexNames,
+            allowAliasResolution: containsExactName,
+            ignoreUnavailable: !containsExactName).AnyContext();
+    }
+
+    private async Task DeleteResolvedIndexesAsync(
+        IReadOnlyCollection<string> indexNames,
+        bool allowAliasResolution,
+        bool ignoreUnavailable)
+    {
         // Batch delete to avoid HTTP line too long errors (ES default max is 4096 bytes)
         // Each index name is roughly 30-50 bytes, so we batch in groups of 50
         const int batchSize = 50;
         foreach (var batch in indexNames.Chunk(batchSize))
         {
-            var response = await Configuration.Client.Indices.DeleteAsync(Indices.Parse(String.Join(",", batch)), i => i.IgnoreUnavailable()).AnyContext();
+            var response = await Configuration.Client.Indices.DeleteAsync(
+                Indices.Parse(String.Join(',', batch)),
+                d => d.IgnoreUnavailable(ignoreUnavailable)).AnyContext();
 
             if (response.IsValidResponse)
+            {
+                _logger.LogRequest(response);
+                continue;
+            }
+
+            if (allowAliasResolution && ShouldResolveDeleteFailure(response))
+            {
+                var resolvedIndexes = await ResolveSafeDeleteTargetsAsync(batch).AnyContext();
+                if (resolvedIndexes.Count > 0)
+                {
+                    await DeleteResolvedIndexesAsync(
+                        resolvedIndexes,
+                        allowAliasResolution: false,
+                        ignoreUnavailable: true).AnyContext();
+                }
+                continue;
+            }
+
+            if (!allowAliasResolution && response.ElasticsearchServerError?.Status is 404)
             {
                 _logger.LogRequest(response);
                 continue;
@@ -356,6 +410,105 @@ public class Index : IIndexCompatibility, IHaveLogger
             _logger.LogErrorRequest(response, "Error deleting the index {Indexes}", String.Join(",", batch));
             throw new RepositoryException(response.GetErrorMessage($"Error deleting the index {String.Join(",", batch)}"), response.OriginalException());
         }
+    }
+
+    private static bool ShouldResolveDeleteFailure(DeleteIndexResponse response)
+    {
+        return response.ApiCallDetails.HttpStatusCode is 404
+            || response.ElasticsearchServerError?.Status is 404
+            || response.ElasticsearchServerError?.Error?.Type is "illegal_argument_exception"
+            && response.ElasticsearchServerError.Error.Reason?.Contains("matches an alias", StringComparison.OrdinalIgnoreCase) is true;
+    }
+
+    private async Task<IReadOnlyCollection<string>> ResolveSafeDeleteTargetsAsync(IReadOnlyCollection<string> names)
+    {
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(String.Join(',', names)), d => d
+            .LimitToNamesAndAliases()
+            .AllowNoIndices()
+            .ExpandWildcards(ExpandWildcard.All)
+            .IgnoreUnavailable()).AnyContext();
+        if (!response.IsValidResponse)
+        {
+            if (response.ElasticsearchServerError?.Status is 404)
+            {
+                _logger.LogRequest(response);
+                return [];
+            }
+
+            _logger.LogErrorRequest(response, "Error resolving compatibility index aliases {Names}", String.Join(", ", names));
+            throw new RepositoryException(response.GetErrorMessage($"Error resolving compatibility index aliases {String.Join(",", names)}"), response.OriginalException());
+        }
+
+        _logger.LogRequest(response);
+        if (response.Indices is null || response.Indices.Count is 0)
+            return [];
+
+        var resolvedIndexes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string name in names)
+        {
+            if (response.Indices.ContainsKey(name))
+            {
+                ThrowIfClaimedBySibling(name.AsSpan());
+                resolvedIndexes.Add(name);
+                continue;
+            }
+
+            var matches = response.Indices
+                .Where(index => index.Value?.Aliases?.ContainsKey(name) is true)
+                .ToArray();
+            if (matches.Length is 0)
+                continue;
+            if (matches.Length is not 1)
+                throw new RepositoryException($"Compatibility alias '{name}' resolves to {matches.Length} concrete indexes and cannot be deleted safely.");
+
+            string concreteIndex = matches[0].Key;
+            ThrowIfClaimedBySibling(concreteIndex.AsSpan());
+            var aliases = matches[0].Value?.Aliases;
+            ReadOnlySpan<char> canonicalName = ValidateCompatibilityDeleteTarget(concreteIndex, aliases);
+            if (canonicalName.Length == concreteIndex.Length)
+            {
+                // A configured name can still point at a native schema version or a custom-named backing index.
+                if (String.Equals(name, Name, StringComparison.Ordinal) && aliases.HasCanonicalCompatibilityAlias(name)
+                    && (IsNativeIndexName(canonicalName) || CompatibilityIndexName.IsVersionedName(canonicalName, Name, allowSuffix: false)))
+                {
+                    resolvedIndexes.Add(concreteIndex);
+                }
+                continue;
+            }
+
+            if (!canonicalName.Equals(name.AsSpan(), StringComparison.Ordinal))
+            {
+                throw new RepositoryException($"Alias '{name}' does not identify the canonical name of compatibility index '{concreteIndex}' and cannot be deleted safely.");
+            }
+
+            resolvedIndexes.Add(concreteIndex);
+        }
+
+        return resolvedIndexes;
+    }
+
+    private ReadOnlySpan<char> ValidateCompatibilityDeleteTarget(string concreteIndex, IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        ReadOnlySpan<char> canonicalName = CompatibilityIndexName.GetCanonicalNameSpan(concreteIndex, Name);
+        ThrowIfClaimedBySibling(canonicalName);
+
+        if (canonicalName.Length == concreteIndex.Length)
+            return canonicalName;
+
+        string canonicalAlias = canonicalName.ToString();
+        if (!aliases.HasCanonicalCompatibilityAlias(canonicalAlias))
+        {
+            throw new RepositoryException(
+                $"Compatibility index '{concreteIndex}' does not have the exact canonical alias '{canonicalAlias}' and cannot be deleted safely.");
+        }
+
+        return canonicalName;
+    }
+
+    private protected void ThrowIfClaimedBySibling(ReadOnlySpan<char> name)
+    {
+        if (IsNativelyClaimedByOtherConfiguredIndex(name))
+            throw new RepositoryException($"Index '{name}' belongs to another registered index and cannot be managed through '{Name}'.");
     }
 
     protected async Task<bool> IndexExistsAsync(string name)
@@ -502,6 +655,12 @@ public class Index : IIndexCompatibility, IHaveLogger
     protected internal virtual bool IsNativeIndexName(ReadOnlySpan<char> sourceIndex)
     {
         return sourceIndex.Equals(Name.AsSpan(), StringComparison.Ordinal);
+    }
+
+    internal bool MatchesCompatibilitySource(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        return MatchesCompatibilitySourceStructure(sourceIndex, aliases, out bool isErrorIndex)
+            && (!isErrorIndex || aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
     }
 
     private protected bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate, bool rejectAmbiguousOwnership = false)
