@@ -100,8 +100,28 @@ public partial class IndexCompatibilityTests
         Assert.Equal(2, invoker.Requests.Count);
     }
 
-    [Fact]
-    public async Task PreflightYieldsToExactRegisteredSibling()
+    [Theory]
+    [InlineData("events-v1", """{"events":{}}""", 1)]
+    [InlineData("reindexed-v9-events-v1", """{"events":{},"events-v1":{}}""", 1)]
+    [InlineData("reindexed-v9-events-v1", """{"events":{}}""", 0)]
+    [InlineData("events-v1", """{"events":{"routing":"tenant"}}""", 0)]
+    public async Task PreflightRecognizesOwnedSchemaBacking(string physical, string aliases, int expected)
+    {
+        string metadata = """{"PHYSICAL":{"aliases":ALIASES,"settings":{"index":{"version":{"created":"8000099"}}}}}"""
+            .Replace("PHYSICAL", physical, StringComparison.Ordinal).Replace("ALIASES", aliases, StringComparison.Ordinal);
+        var invoker = new SequenceRequestInvoker(new(200, ServerInfo), new(200, metadata));
+        using var config = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new Index<object>(config, "events");
+        var rows = await index.GetIndexCompatibilityAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(expected, rows.Count);
+        Assert.All(rows, row => Assert.Equal(IndexCompatibilityState.RequiresReindex, row.State));
+        Assert.Equal(2, invoker.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PreflightYieldsToExactRegisteredSibling(bool versionedSibling)
     {
         // Arrange
         var invoker = new SequenceRequestInvoker(new(200, ServerInfo), new(200, """
@@ -110,7 +130,7 @@ public partial class IndexCompatibilityTests
             """));
         using var config = new RequestInvokerElasticConfiguration(invoker);
         using var index = new VersionedIndex<object>(config, "events", 1);
-        using var sibling = new Index<object>(config, "events-v2");
+        using Configuration.Index sibling = versionedSibling ? new VersionedIndex<object>(config, "events-v2") : new Index<object>(config, "events-v2");
         config.AddIndex(index);
         config.AddIndex(sibling);
 
@@ -119,6 +139,18 @@ public partial class IndexCompatibilityTests
 
         // Assert
         Assert.Equal(["events-v1"], result.Select(item => item.Name));
+    }
+
+    [Fact]
+    public async Task PreflightRejectsMultipleBackingsOfAnOrdinarySchemaAlias()
+    {
+        var invoker = new SequenceRequestInvoker(new(200, ServerInfo), new(200, """
+            {"events-v1":{"aliases":{"events":{}}},"foreign":{"aliases":{"events":{}}}}
+            """));
+        using var config = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new Index<object>(config, "events");
+        var error = await Assert.ThrowsAsync<RepositoryException>(() => index.GetIndexCompatibilityAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("multiple", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

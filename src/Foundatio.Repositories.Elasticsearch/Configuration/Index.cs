@@ -611,6 +611,9 @@ public class Index : IIndexCompatibility, IHaveLogger
         if (response.Indices is null || response.Indices.Count is 0)
             return [];
 
+        if (this is not IVersionedIndex && response.Indices.Values.Count(state => state?.Aliases?.ContainsKey(Name) is true) > 1)
+            throw new RepositoryException($"Configured alias '{Name}' resolves to multiple physical indexes. Verify ownership before checking compatibility.");
+
         var infos = new List<IndexCompatibilityInfo>(response.Indices.Count);
         foreach (var kvp in response.Indices)
         {
@@ -669,18 +672,10 @@ public class Index : IIndexCompatibility, IHaveLogger
             if (ReferenceEquals(other, this) || String.Equals(other.Name, Name, StringComparison.Ordinal))
                 continue;
 
-            bool otherIsExact = candidate.Equals(other.Name.AsSpan(), StringComparison.Ordinal);
-            if (other is not Index otherIndex)
-            {
-                if (otherIsExact)
-                    return true;
-                continue;
-            }
-
-            if (!otherIndex.IsNativeCompatibilityName(candidate, out _))
-                continue;
-            if (otherIsExact)
+            if (candidate.Equals(other.Name.AsSpan(), StringComparison.Ordinal))
                 return true;
+            if (other is not Index otherIndex || !otherIndex.IsNativeCompatibilityName(candidate, out _))
+                continue;
             if (!mineIsExact)
                 competingOwner = other;
         }
@@ -694,13 +689,13 @@ public class Index : IIndexCompatibility, IHaveLogger
     private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex, bool rejectAmbiguousOwnership = false)
     {
         ReadOnlySpan<char> candidate = sourceIndex;
-        if (!IsNativeCompatibilityName(candidate, out isErrorIndex))
+        if (!MatchesUnwrappedCompatibilitySource(candidate, aliases, out isErrorIndex))
         {
             if (IsNativelyClaimedByOtherConfiguredIndex(candidate))
                 return false;
 
             if (!CompatibilityIndexName.TryRemovePrefix(sourceIndex, out candidate)
-                || !IsNativeCompatibilityName(candidate, out isErrorIndex))
+                || !MatchesUnwrappedCompatibilitySource(candidate, aliases, out isErrorIndex))
                 return false;
 
             string canonicalName = candidate.ToString();
@@ -711,6 +706,13 @@ public class Index : IIndexCompatibility, IHaveLogger
         }
 
         return !IsNativelyClaimedByOtherConfiguredIndex(candidate, rejectAmbiguousOwnership);
+    }
+
+    private bool MatchesUnwrappedCompatibilitySource(ReadOnlySpan<char> candidate, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex)
+    {
+        return IsNativeCompatibilityName(candidate, out isErrorIndex)
+            || (this is not IVersionedIndex && aliases.HasCanonicalCompatibilityAlias(Name)
+                && CompatibilityIndexName.IsVersionedName(candidate, Name, allowSuffix: false));
     }
 
     private bool IsNativeCompatibilityName(ReadOnlySpan<char> sourceIndex, out bool isErrorIndex)
