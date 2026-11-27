@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           path: source
-          ref: 267e53e3f2090734673d0e463a6ff3d359505de0
+          ref: 63306c0227927b26cffc01a9a39d0eb410d41c32
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-dotnet@v5
@@ -46,7 +46,7 @@ jobs:
             11.0.x
       - name: Verify the revision and build Release
         run: |
-          test "$(git rev-parse HEAD)" = 267e53e3f2090734673d0e463a6ff3d359505de0
+          test "$(git rev-parse HEAD)" = 63306c0227927b26cffc01a9a39d0eb410d41c32
           mkdir -p .audit/results
           dotnet build Foundatio.Repositories.slnx -c Release | tee .audit/results/build.log
       - name: Verify writer formatting
