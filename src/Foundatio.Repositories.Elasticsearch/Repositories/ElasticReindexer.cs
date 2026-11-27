@@ -25,6 +25,8 @@ namespace Foundatio.Repositories.Elasticsearch;
 
 public class ElasticReindexer
 {
+    internal const string ErrorIndexOwnershipAlias = ".foundatio-reindex-error";
+
     private readonly ElasticsearchClient _client;
     private readonly ITextSerializer _serializer;
     private readonly TimeProvider _timeProvider;
