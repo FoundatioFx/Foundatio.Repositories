@@ -85,5 +85,15 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase
         }
     }
 
+    protected Task AssertIndexExistsAsync(string index, bool expected) => AssertIndexExistsAsync(_client, index, expected);
+
+    protected async Task AssertIndexExistsAsync(ElasticsearchClient client, string index, bool expected)
+    {
+        var response = await client.Indices.ExistsAsync(index, cancellationToken: TestCancellationToken);
+        Assert.True(expected ? response.Exists : !response.Exists, response.DebugInformation);
+    }
+
+    protected MyAppElasticConfiguration CreateConfiguration() => new(_workItemQueue, _cache, _messageBus, Log);
+
     public override ValueTask DisposeAsync() => base.DisposeAsync();
 }

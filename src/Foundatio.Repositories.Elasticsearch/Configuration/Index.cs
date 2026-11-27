@@ -204,6 +204,13 @@ public class Index : IIndexCompatibility, IHaveLogger
     /// </summary>
     public float? ReindexRequestsPerSecond { get; set; }
 
+    /// <summary>
+    /// Maximum time to wait for the compatibility destination's configured replicas before destructive cutover.
+    /// Defaults to 30 minutes. Must be positive. Short health polls renew the migration lease while waiting.
+    /// A destination with zero configured replicas can be green; this preserves, rather than increases, the source policy.
+    /// </summary>
+    public TimeSpan CompatibilityUpgradeHealthTimeout { get; set; } = TimeSpan.FromMinutes(30);
+
     public virtual async Task DeleteAsync()
     {
         using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())
@@ -663,6 +670,23 @@ public class Index : IIndexCompatibility, IHaveLogger
             && (!isErrorIndex || aliases.HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias));
     }
 
+    internal bool IsPotentialCompatibilitySourceName(string sourceIndex)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
+        ReadOnlySpan<char> candidate = sourceIndex;
+        if (IsNativeCompatibilityName(candidate, out _) || IsOrdinarySchemaBackingName(candidate))
+            return !IsNativelyClaimedByOtherConfiguredIndex(candidate);
+
+        // A configured sibling's native name takes precedence over interpreting the same text as this
+        // index's compatibility wrapper.
+        if (IsNativelyClaimedByOtherConfiguredIndex(candidate))
+            return false;
+
+        return CompatibilityIndexName.TryRemovePrefix(sourceIndex, out candidate)
+            && (IsNativeCompatibilityName(candidate, out _) || IsOrdinarySchemaBackingName(candidate))
+            && !IsNativelyClaimedByOtherConfiguredIndex(candidate);
+    }
+
     private protected bool IsNativelyClaimedByOtherConfiguredIndex(ReadOnlySpan<char> candidate, bool rejectAmbiguousOwnership = false)
     {
         bool mineIsExact = candidate.Equals(Name.AsSpan(), StringComparison.Ordinal);
@@ -684,6 +708,17 @@ public class Index : IIndexCompatibility, IHaveLogger
             throw new RepositoryException($"Physical index '{candidate}' is claimed by both '{Name}' and '{competingOwner.Name}'. Use distinct ownership rules before checking compatibility.");
 
         return competingOwner is not null;
+    }
+
+    internal bool IsPotentialCompatibilityErrorName(string sourceIndex)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
+        if (IsNativeCompatibilityName(sourceIndex, out bool isErrorIndex))
+            return isErrorIndex;
+
+        return CompatibilityIndexName.TryRemovePrefix(sourceIndex, out ReadOnlySpan<char> canonicalName)
+            && IsNativeCompatibilityName(canonicalName, out isErrorIndex)
+            && isErrorIndex;
     }
 
     private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex, bool rejectAmbiguousOwnership = false, bool ambiguousAlias = false)
@@ -712,11 +747,16 @@ public class Index : IIndexCompatibility, IHaveLogger
     {
         if (IsNativeCompatibilityName(candidate, out isErrorIndex))
             return true;
-        if (this is IVersionedIndex || !aliases.HasCanonicalCompatibilityAlias(Name) || !CompatibilityIndexName.IsVersionedName(candidate, Name, allowSuffix: false))
+        if (!aliases.HasCanonicalCompatibilityAlias(Name) || !IsOrdinarySchemaBackingName(candidate))
             return false;
         if (ambiguousAlias)
             throw new RepositoryException($"Configured alias '{Name}' resolves to multiple physical indexes. Verify ownership before checking compatibility.");
         return true;
+    }
+
+    private bool IsOrdinarySchemaBackingName(ReadOnlySpan<char> candidate)
+    {
+        return this is not IVersionedIndex && CompatibilityIndexName.IsVersionedName(candidate, Name, allowSuffix: false);
     }
 
     private bool IsNativeCompatibilityName(ReadOnlySpan<char> sourceIndex, out bool isErrorIndex)
@@ -731,6 +771,12 @@ public class Index : IIndexCompatibility, IHaveLogger
 
         isErrorIndex = IsNativeIndexName(sourceIndex[..^suffix.Length]);
         return isErrorIndex;
+    }
+
+    internal virtual void ValidateCompatibilityUpgradeSource(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        if (!MatchesCompatibilitySource(sourceIndex, aliases))
+            throw new RepositoryException($"Index '{sourceIndex}' does not belong to configured index '{Name}'.");
     }
 
     private async Task<(int Major, string Version)> GetServerVersionAsync(CancellationToken cancellationToken)

@@ -396,6 +396,14 @@ public class VersionedIndex : Index, IVersionedIndex
         return CompatibilityIndexName.IsVersionedName(sourceIndex, Name, allowSuffix: HasMultipleIndexes);
     }
 
+    internal override void ValidateCompatibilityUpgradeSource(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        base.ValidateCompatibilityUpgradeSource(sourceIndex, aliases);
+        int sourceVersion = GetIndexVersion(sourceIndex);
+        if (sourceVersion != Version && aliases?.ContainsKey(Name) is true)
+            throw new RepositoryException($"Index '{sourceIndex}' uses schema version {sourceVersion}, but '{Name}' is configured for version {Version}. Run the schema reindex before upgrading Elasticsearch index compatibility.");
+    }
+
     protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1)
     {
         string filter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";

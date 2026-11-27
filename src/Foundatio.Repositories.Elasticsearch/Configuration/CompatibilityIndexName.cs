@@ -1,4 +1,6 @@
 using System;
+using System.Text;
+using Foundatio.Repositories.Exceptions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -22,6 +24,49 @@ internal static class CompatibilityIndexName
             offset++;
 
         return offset > versionStart && (allowSuffix || offset == sourceIndex.Length);
+    }
+
+    public static string Create(string sourceIndex, int serverMajor)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(serverMajor);
+
+        return CreateValidatedName(GetCanonicalName(sourceIndex), serverMajor);
+    }
+
+    public static string Create(string sourceIndex, int serverMajor, string configuredIndexName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
+        ArgumentException.ThrowIfNullOrEmpty(configuredIndexName);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(serverMajor);
+
+        return CreateValidatedName(GetCanonicalName(sourceIndex, configuredIndexName), serverMajor);
+    }
+
+    private static string CreateValidatedName(string canonicalName, int serverMajor)
+    {
+        string targetIndex = $"{Prefix}{serverMajor}-{canonicalName}";
+        int byteCount = Encoding.UTF8.GetByteCount(targetIndex);
+        if (byteCount > 255)
+            throw new RepositoryException($"Compatibility destination '{targetIndex}' is {byteCount} UTF-8 bytes and exceeds Elasticsearch's 255-byte index name limit. No compatibility upgrade can be started for this source name.");
+
+        return targetIndex;
+    }
+
+    public static string GetCanonicalName(string index, string configuredIndexName)
+    {
+        ReadOnlySpan<char> canonicalName = GetCanonicalNameSpan(index, configuredIndexName);
+        return canonicalName.Length == index.Length ? index : canonicalName.ToString();
+    }
+
+    public static string GetCanonicalName(string index)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(index);
+
+        if (!TryRemovePrefix(index, out ReadOnlySpan<char> canonicalName))
+            return index;
+
+        return canonicalName.ToString();
     }
 
     internal static ReadOnlySpan<char> GetCanonicalNameSpan(string index, string configuredIndexName)

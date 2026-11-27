@@ -690,8 +690,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     private async Task<long> GetCurrentScrollCountAsync()
     {
         var stats = await _client.Nodes.StatsAsync();
-        var nodeStats = stats.Nodes!.First().Value;
-        return nodeStats.Indices!.Search!.ScrollCurrent;
+        return stats.Nodes!.Values.Sum(node => node.Indices!.Search!.ScrollCurrent);
     }
 
     [Fact]

@@ -12,6 +12,7 @@ using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
@@ -114,6 +115,14 @@ public class ElasticReindexer
         if (workItem.OldIndex != workItem.NewIndex)
         {
             var aliases = await GetIndexAliasesAsync(workItem.OldIndex).AnyContext();
+            // A replacement keeps its old physical name as an alias. It belongs to the retired schema.
+            if (!String.IsNullOrEmpty(workItem.Alias))
+            {
+                string canonical = CompatibilityIndexName.GetCanonicalName(workItem.OldIndex, workItem.Alias);
+                if (!String.Equals(canonical, workItem.OldIndex, StringComparison.Ordinal)
+                    && canonical.StartsWith($"{workItem.Alias}-", StringComparison.Ordinal))
+                    aliases.Remove(canonical);
+            }
             if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.Contains(workItem.Alias))
                 aliases.Add(workItem.Alias);
 
@@ -431,19 +440,42 @@ public class ElasticReindexer
     private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem)
     {
         string errorIndex = $"{workItem.NewIndex}-error";
-        var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
-        _logger.LogRequest(existsResponse);
-
-        if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.Exists)
-            return true;
-
-        if (!existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.ApiCallDetails.HttpStatusCode is not 404)
+        var existingResponse = await _client.Indices.GetAsync((Indices)errorIndex, d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        if (existingResponse.IsValidResponse)
         {
-            _logger.LogErrorRequest(existsResponse, "Error checking if error index exists");
+            _logger.LogRequest(existingResponse);
+            if (existingResponse.Indices is not { Count: > 0 } existingIndices)
+                return await CreateFailureIndexAsync(errorIndex).AnyContext();
+
+            if (existingIndices.Count is not 1)
+            {
+                _logger.LogError("Refusing to write reindex failures through {ErrorIndex} because it resolves to {IndexCount} indexes", errorIndex, existingIndices.Count);
+                return false;
+            }
+
+            var existingState = existingIndices.Values.Single();
+            if (existingState.Aliases.HasExactHiddenAlias(ErrorIndexOwnershipAlias))
+                return true;
+
+            _logger.LogError("Refusing to write reindex failures to existing index {ErrorIndex} because it does not have the Foundatio ownership marker", errorIndex);
             return false;
         }
 
-        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Mappings(md => md.Dynamic(DynamicMapping.False))).AnyContext();
+        if (!existingResponse.IsValidResponse && existingResponse.ElasticsearchServerError?.Status is not 404)
+        {
+            _logger.LogErrorRequest(existingResponse, "Error checking if error index exists");
+            return false;
+        }
+
+        _logger.LogRequest(existingResponse);
+        return await CreateFailureIndexAsync(errorIndex).AnyContext();
+    }
+
+    private async Task<bool> CreateFailureIndexAsync(string errorIndex)
+    {
+        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d
+            .Mappings(md => md.Dynamic(DynamicMapping.False))
+            .Aliases(a => a.Add(ErrorIndexOwnershipAlias, new Alias { IsHidden = true }))).AnyContext();
         if (!createResponse.IsValidResponse)
         {
             _logger.LogErrorRequest(createResponse, "Unable to create error index");
