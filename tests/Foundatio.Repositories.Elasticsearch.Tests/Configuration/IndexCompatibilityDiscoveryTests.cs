@@ -80,12 +80,32 @@ public sealed class IndexCompatibilityDiscoveryTests : ElasticRepositoryTestBase
         Assert.True((await _client.Indices.ExistsAsync(foreign, cancellationToken: TestCancellationToken)).Exists);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RetentionHonorsNativePolicyBeforeCanonicalAlias(bool nativeFirst)
+    {
+        string prefix = $"retention-{Guid.NewGuid():N}";
+        string nativePrefix = $"reindexed-v9-{prefix}";
+        string date = DateTime.UtcNow.AddDays(-30).ToString("yyyy.MM.dd", System.Globalization.CultureInfo.InvariantCulture);
+        string physical = $"{nativePrefix}-{date}";
+        await using AsyncDisposableAction cleanup = new(async () => await _client.Indices.DeleteAsync(physical, TestCancellationToken));
+        var created = await _client.Indices.CreateAsync(physical, d => d.Aliases(a => a.Add($"{prefix}-{date}", new Alias())), TestCancellationToken);
+        Assert.True(created.IsValidResponse);
+        var job = new RetentionJob(_client, _configuration.LockProvider, nativeFirst ? nativePrefix : prefix, nativeFirst ? 365 : 7);
+        job.Register(nativeFirst ? prefix : nativePrefix, nativeFirst ? 7 : 365);
+        await job.RunAsync(TestCancellationToken);
+        Assert.True((await _client.Indices.ExistsAsync(physical, TestCancellationToken)).Exists);
+    }
+
     private sealed class RetentionJob : CleanupIndexesJob
     {
-        public RetentionJob(ElasticsearchClient client, ILockProvider locks, string prefix)
+        public void Register(string prefix, int days) => AddIndex(prefix, TimeSpan.FromDays(days));
+
+        public RetentionJob(ElasticsearchClient client, ILockProvider locks, string prefix, int days = 1)
             : base(client, locks, TimeProvider.System, NullLoggerFactory.Instance)
         {
-            AddIndex(prefix, TimeSpan.FromDays(1));
+            Register(prefix, days);
         }
     }
 
