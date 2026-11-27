@@ -157,24 +157,22 @@ public class CleanupIndexesJob : IJob
             AddIndex(".marvel", TimeSpan.FromDays(7));
         }
 
-        foreach (var index in _indexes)
+        IndexDate? Match(string candidate)
         {
-            var date = index.GetDate(name);
-            if (date is null
-                && Configuration.CompatibilityIndexName.TryRemovePrefix(name, out ReadOnlySpan<char> canonicalName))
+            foreach (var index in _indexes)
             {
-                string aliasName = canonicalName.ToString();
-                if (aliases.HasCanonicalCompatibilityAlias(aliasName))
-                    date = index.GetDate(aliasName);
+                if (index.GetDate(candidate) is { } date)
+                    return new IndexDate { Index = name, Date = date, MaxAge = index.MaxAge };
             }
-
-            if (date == null)
-                continue;
-
-            return new IndexDate { Index = name, Date = date.Value, MaxAge = index.MaxAge };
+            return null;
         }
 
-        return null;
+        var native = Match(name);
+        if (native is not null || !Configuration.CompatibilityIndexName.TryRemovePrefix(name, out ReadOnlySpan<char> canonicalName))
+            return native;
+
+        string aliasName = canonicalName.ToString();
+        return aliases.HasCanonicalCompatibilityAlias(aliasName) ? Match(aliasName) : null;
     }
 
     private class IndexMaxAge
