@@ -659,13 +659,12 @@ public class Index : IIndexCompatibility, IHaveLogger
         if (response.Indices is null || response.Indices.Count is 0)
             return [];
 
-        if (this is not IVersionedIndex && response.Indices.Values.Count(state => state?.Aliases?.ContainsKey(Name) is true) > 1)
-            throw new RepositoryException($"Configured alias '{Name}' resolves to multiple physical indexes. Verify ownership before checking compatibility.");
+        bool ambiguousAlias = this is not IVersionedIndex && response.Indices.Values.Count(state => state?.Aliases?.ContainsKey(Name) is true) > 1;
 
         var infos = new List<IndexCompatibilityInfo>(response.Indices.Count);
         foreach (var kvp in response.Indices)
         {
-            if (!MatchesCompatibilitySourceStructure(kvp.Key, kvp.Value?.Aliases, out bool isErrorIndex, rejectAmbiguousOwnership: true))
+            if (!MatchesCompatibilitySourceStructure(kvp.Key, kvp.Value?.Aliases, out bool isErrorIndex, rejectAmbiguousOwnership: true, ambiguousAlias: ambiguousAlias))
                 continue;
 
             if (isErrorIndex && !(kvp.Value?.Aliases).HasExactHiddenAlias(ElasticReindexer.ErrorIndexOwnershipAlias))
@@ -762,16 +761,16 @@ public class Index : IIndexCompatibility, IHaveLogger
             && isErrorIndex;
     }
 
-    private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex, bool rejectAmbiguousOwnership = false)
+    private bool MatchesCompatibilitySourceStructure(string sourceIndex, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex, bool rejectAmbiguousOwnership = false, bool ambiguousAlias = false)
     {
         ReadOnlySpan<char> candidate = sourceIndex;
-        if (!MatchesUnwrappedCompatibilitySource(candidate, aliases, out isErrorIndex))
+        if (!MatchesUnwrappedCompatibilitySource(candidate, aliases, ambiguousAlias, out isErrorIndex))
         {
             if (IsNativelyClaimedByOtherConfiguredIndex(candidate))
                 return false;
 
             if (!CompatibilityIndexName.TryRemovePrefix(sourceIndex, out candidate)
-                || !MatchesUnwrappedCompatibilitySource(candidate, aliases, out isErrorIndex))
+                || !MatchesUnwrappedCompatibilitySource(candidate, aliases, ambiguousAlias, out isErrorIndex))
                 return false;
 
             string canonicalName = candidate.ToString();
@@ -784,10 +783,15 @@ public class Index : IIndexCompatibility, IHaveLogger
         return !IsNativelyClaimedByOtherConfiguredIndex(candidate, rejectAmbiguousOwnership);
     }
 
-    private bool MatchesUnwrappedCompatibilitySource(ReadOnlySpan<char> candidate, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex)
+    private bool MatchesUnwrappedCompatibilitySource(ReadOnlySpan<char> candidate, IReadOnlyDictionary<string, Alias>? aliases, bool ambiguousAlias, out bool isErrorIndex)
     {
-        return IsNativeCompatibilityName(candidate, out isErrorIndex)
-            || (aliases.HasCanonicalCompatibilityAlias(Name) && IsOrdinarySchemaBackingName(candidate));
+        if (IsNativeCompatibilityName(candidate, out isErrorIndex))
+            return true;
+        if (!aliases.HasCanonicalCompatibilityAlias(Name) || !IsOrdinarySchemaBackingName(candidate))
+            return false;
+        if (ambiguousAlias)
+            throw new RepositoryException($"Configured alias '{Name}' resolves to multiple physical indexes. Verify ownership before checking compatibility.");
+        return true;
     }
 
     private bool IsOrdinarySchemaBackingName(ReadOnlySpan<char> candidate)

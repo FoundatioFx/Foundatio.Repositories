@@ -142,6 +142,19 @@ public partial class IndexCompatibilityTests
     }
 
     [Fact]
+    public async Task PreflightHonorsCustomOwnershipWhenSeveralIndexesShareAnAlias()
+    {
+        var invoker = new SequenceRequestInvoker(new(200, ServerInfo), new(200, """
+            {"tenant-a":{"aliases":{"tenants":{}},"settings":{"index":{"version":{"created":"8000099"}}}},
+             "tenant-b":{"aliases":{"tenants":{}},"settings":{"index":{"version":{"created":"8000099"}}}}}
+            """));
+        using var config = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new PreflightTenantIndex(config);
+        var rows = await index.GetIndexCompatibilityAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("tenant-a", Assert.Single(rows).Name);
+    }
+
+    [Fact]
     public async Task PreflightRejectsMultipleBackingsOfAnOrdinarySchemaAlias()
     {
         var invoker = new SequenceRequestInvoker(new(200, ServerInfo), new(200, """
