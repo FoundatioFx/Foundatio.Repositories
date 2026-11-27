@@ -9,17 +9,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public partial class IndexCompatibilityTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task DeleteAsyncRejectsAnExactSiblingBeforeDispatchingAnyBatch(bool registerSiblingFirst)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task DeleteAsyncRejectsAnExactSiblingBeforeDispatchingAnyBatch(bool registerSiblingFirst, bool versionedSibling)
     {
         // Arrange
         var invoker = new SequenceRequestInvoker(
-            new(200, """{"events-v1":{"aliases":{"events":{}}}}""", Request: "GET /_alias/events"),
+            new(200, """{"events-v1":{"aliases":{"events":{}}}}""", Request: "GET /events"),
             new(200, """{"acknowledged":true}"""));
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
         using var index = new VersionedIndex<object>(configuration, "events", 2);
-        using var sibling = new Index<object>(configuration, "events-v2");
+        using Configuration.Index sibling = versionedSibling ? new VersionedIndex<object>(configuration, "events-v2") : new Index<object>(configuration, "events-v2");
         configuration.AddIndex(registerSiblingFirst ? sibling : index);
         configuration.AddIndex(registerSiblingFirst ? index : sibling);
 
@@ -28,8 +30,31 @@ public partial class IndexCompatibilityTests
 
         // Assert
         Assert.Contains("events-v2", error.Message, StringComparison.Ordinal);
-        Assert.Equal(["GET /_alias/events"], invoker.Requests);
+        Assert.Equal(["GET /events"], invoker.Requests);
         Assert.Equal(1, invoker.RemainingResponses);
+    }
+
+    [Fact]
+    public async Task DeleteAsyncDoesNotDeleteForeignIndexMatchedByHiddenAlias()
+    {
+        var invoker = new SequenceRequestInvoker(new(200, """
+            {"foreign":{"aliases":{"events-v1-2020.01.01":{"is_hidden":true}}},"events-v1-2020.01.02":{"aliases":{}}}
+            """), new(200, """{"acknowledged":true}""", Request: "DELETE /events-v1-2020.01.02"));
+        using var config = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new DailyIndex<object>(config, "events");
+        await index.DeleteAsync();
+        Assert.Equal(0, invoker.RemainingResponses);
+    }
+
+    [Theory]
+    [InlineData("""{"reindexed-v9-events-v42":{"aliases":{"events":{}}}}""", "{}")]
+    [InlineData("{}", """{"events-v99-archive":{"aliases":{}}}""")]
+    public async Task GetCurrentVersionAsyncIgnoresUnownedLookalikes(string direct, string wildcard)
+    {
+        var invoker = new SequenceRequestInvoker(new(200, direct), new(200, wildcard));
+        using var config = new RequestInvokerElasticConfiguration(invoker);
+        using var index = new VersionedIndex<object>(config, "events", 1);
+        Assert.Equal(1, await index.GetCurrentVersionAsync());
     }
 
     [Fact]

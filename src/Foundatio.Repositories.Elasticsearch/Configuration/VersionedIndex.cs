@@ -330,19 +330,28 @@ public class VersionedIndex : Index, IVersionedIndex
 
     protected virtual async Task<int> GetVersionFromAliasAsync(string alias)
     {
-        var response = await Configuration.Client.Indices.GetAliasAsync(a => a.Name(Names.Parse(alias))).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync((Indices)alias, d => d.LimitToNamesAndAliases()).AnyContext();
         if (!response.IsValidResponse && response.ElasticsearchServerError?.Status == 404)
             return -1;
 
-#if ELASTICSEARCH9
-        var indices = response.Aliases;
-#else
-        var indices = response.Values;
-#endif
-        if (response.IsValidResponse && indices != null && indices.Count > 0)
+        if (response.IsValidResponse && response.Indices is not null)
         {
             _logger.LogRequest(response);
-            return indices.Keys.Select(i => GetIndexVersion(i.ToString())).OrderBy(v => v).First();
+            int version = -1;
+            foreach (var entry in response.Indices)
+            {
+                if (entry.Value?.Aliases?.ContainsKey(alias) is not true)
+                    continue;
+
+                ThrowIfClaimedBySibling(CompatibilityIndexName.GetCanonicalNameSpan(entry.Key, Name));
+                if (!IsDiscoveryCandidate(entry.Key, entry.Value))
+                    continue;
+
+                int candidate = GetIndexVersion(entry.Key);
+                if (candidate >= 0 && (version < 0 || candidate < version))
+                    version = candidate;
+            }
+            return version;
         }
 
         _logger.LogErrorRequest(response, "Error getting index version from alias");
@@ -442,7 +451,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
         ReadOnlySpan<char> name = indexName;
         bool looksNative = name.StartsWith(Name.AsSpan(), StringComparison.Ordinal) && name[Name.Length..].StartsWith("-v", StringComparison.Ordinal);
-        if (looksNative)
+        if (HasMultipleIndexes && looksNative)
             return !IsNativelyClaimedByOtherConfiguredIndex(name);
 
         return MatchesCompatibilitySource(indexName, state.Aliases);

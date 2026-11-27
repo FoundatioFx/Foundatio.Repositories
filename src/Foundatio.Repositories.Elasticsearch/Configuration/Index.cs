@@ -344,7 +344,8 @@ public class Index : IIndexCompatibility, IHaveLogger
                         continue;
 
                     ValidateCompatibilityDeleteTarget(resolvedIndex.Key, resolvedIndex.Value?.Aliases);
-                    indexNames.Add(resolvedIndex.Key);
+                    if (MatchesCompatibilitySource(resolvedIndex.Key, resolvedIndex.Value?.Aliases))
+                        indexNames.Add(resolvedIndex.Key);
                 }
             }
             else if (getResponse.ElasticsearchServerError?.Status is not 404)
@@ -504,10 +505,10 @@ public class Index : IIndexCompatibility, IHaveLogger
         return canonicalName;
     }
 
-    private void ThrowIfClaimedBySibling(ReadOnlySpan<char> name)
+    private protected void ThrowIfClaimedBySibling(ReadOnlySpan<char> name)
     {
         if (IsNativelyClaimedByOtherConfiguredIndex(name))
-            throw new RepositoryException($"Index '{name}' belongs to another registered index and cannot be deleted through '{Name}'.");
+            throw new RepositoryException($"Index '{name}' belongs to another registered index and cannot be managed through '{Name}'.");
     }
 
     protected async Task<bool> IndexExistsAsync(string name)

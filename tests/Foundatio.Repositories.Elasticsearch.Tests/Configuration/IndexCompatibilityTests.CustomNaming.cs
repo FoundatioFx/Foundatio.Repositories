@@ -68,7 +68,7 @@ public partial class IndexCompatibilityTests
     {
         // Arrange
         var invoker = new SequenceRequestInvoker(
-            new StubResponse(200, """{"reindexed-v9-events-v2":{"aliases":{"events":{},"events-v2":{}}}}""", Request: "GET /_alias/events"));
+            new StubResponse(200, """{"reindexed-v9-events-v2":{"aliases":{"events":{},"events-v2":{}}}}""", Request: "GET /events"));
         using var configuration = new RequestInvokerElasticConfiguration(invoker);
         using var events = new VersionedIndex<object>(configuration, "events", 2);
         using var sibling = new Index<object>(configuration, "events-v2");
@@ -80,7 +80,7 @@ public partial class IndexCompatibilityTests
 
         // Assert
         Assert.Contains("belongs to another registered index", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(["GET /_alias/events"], invoker.Requests);
+        Assert.Equal(["GET /events"], invoker.Requests);
         Assert.Equal(0, invoker.RemainingResponses);
     }
 
