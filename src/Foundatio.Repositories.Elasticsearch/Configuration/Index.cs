@@ -675,7 +675,7 @@ public class Index : IIndexCompatibility, IHaveLogger
     {
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
         ReadOnlySpan<char> candidate = sourceIndex;
-        if (IsNativeCompatibilityName(candidate, out _))
+        if (IsNativeCompatibilityName(candidate, out _) || IsOrdinarySchemaBackingName(candidate))
             return !IsNativelyClaimedByOtherConfiguredIndex(candidate);
 
         // A configured sibling's native name takes precedence over interpreting the same text as this
@@ -684,7 +684,7 @@ public class Index : IIndexCompatibility, IHaveLogger
             return false;
 
         return CompatibilityIndexName.TryRemovePrefix(sourceIndex, out candidate)
-            && IsNativeCompatibilityName(candidate, out _)
+            && (IsNativeCompatibilityName(candidate, out _) || IsOrdinarySchemaBackingName(candidate))
             && !IsNativelyClaimedByOtherConfiguredIndex(candidate);
     }
 
@@ -747,8 +747,12 @@ public class Index : IIndexCompatibility, IHaveLogger
     private bool MatchesUnwrappedCompatibilitySource(ReadOnlySpan<char> candidate, IReadOnlyDictionary<string, Alias>? aliases, out bool isErrorIndex)
     {
         return IsNativeCompatibilityName(candidate, out isErrorIndex)
-            || (this is not IVersionedIndex && aliases.HasCanonicalCompatibilityAlias(Name)
-                && CompatibilityIndexName.IsVersionedName(candidate, Name, allowSuffix: false));
+            || (aliases.HasCanonicalCompatibilityAlias(Name) && IsOrdinarySchemaBackingName(candidate));
+    }
+
+    private bool IsOrdinarySchemaBackingName(ReadOnlySpan<char> candidate)
+    {
+        return this is not IVersionedIndex && CompatibilityIndexName.IsVersionedName(candidate, Name, allowSuffix: false);
     }
 
     private bool IsNativeCompatibilityName(ReadOnlySpan<char> sourceIndex, out bool isErrorIndex)

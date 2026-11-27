@@ -209,6 +209,11 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 index.CompatibilityUpgradeHealthTimeout, RenewLeaseAsync, cancellationToken).AnyContext();
             await ReportProgressAsync(92, $"Validated {reindexResult.Total:N0} documents and restored index settings").AnyContext();
             targetState = await GetIndexStateAsync(targetIndex, cancellationToken).AnyContext();
+            if (!targetState.WasWriteBlocked)
+            {
+                canResetCurrentAttempt = false;
+                throw new RepositoryException($"Compatibility destination '{targetIndex}' lost its write block after copy validation. Inspect both indexes before resuming.");
+            }
             if (!String.Equals(targetUuid, targetState.Settings.Uuid, StringComparison.Ordinal)
                 || !JsonDefinitionsMatch(sourceState.Mapping, targetState.Mapping)
                 || !String.Equals(sourceState.RestorableSettingsSignature, targetState.RestorableSettingsSignature, StringComparison.Ordinal))

@@ -318,8 +318,10 @@ public sealed partial class IndexCompatibilityUpgradeTests
         Assert.DoesNotContain(CompatibilityIndexName.Create(name, 8), allIndexesResponse.Indices.Keys.Select(k => k.ToString()));
     }
 
-    [Fact]
-    public async Task UpgradeIndexCompatibilityAsync_WhenSourceWriteBlockIsRemovedDuringReindex_FailsBeforeCutover()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpgradeIndexCompatibilityAsync_WhenWriteBlockIsRemoved_FailsBeforeCutover(bool unblockTarget)
     {
         // Arrange
         string name = $"compat-source-unblocked-{Guid.NewGuid():N}";
@@ -332,30 +334,32 @@ public sealed partial class IndexCompatibilityUpgradeTests
         string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
         await using AsyncDisposableAction _ = new(async () =>
             await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
-        bool sourceUnblocked = false;
+        bool blockRemoved = false;
         RegisterCompatibilityIndex(index);
 
-        // Act: an external actor removes the source write block mid-reindex, which must be detected before cutover
+        // Act
         var exception = await Assert.ThrowsAsync<RepositoryException>(() => _configuration.UpgradeIndexCompatibilityAsync(
             [index],
-            async (progress, message) =>
+            async (progress, _) =>
             {
-                if (progress is not 90 || sourceUnblocked || message?.Contains("Total:", StringComparison.Ordinal) is not true)
+                if (progress != (unblockTarget ? 92 : 90) || blockRemoved)
                     return;
 
-                var unblockResponse = await _client.Indices.PutSettingsAsync(name,
+                var unblockResponse = await _client.Indices.PutSettingsAsync(unblockTarget ? targetIndex : name,
                     d => d.Settings(s => s.Blocks(b => b.Write(false))), TestCancellationToken);
                 Assert.True(unblockResponse.IsValidResponse, unblockResponse.GetErrorMessage());
-                sourceUnblocked = true;
+                blockRemoved = true;
             },
             TestCancellationToken));
 
         // Assert
-        Assert.True(sourceUnblocked);
+        Assert.True(blockRemoved);
         Assert.Contains("lost its write block", exception.ToString());
         await AssertIndexExistsAsync(name, true);
         await AssertIndexExistsAsync(targetIndex, true);
         var recoveryStatus = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+        Assert.True(recoveryStatus.SourceExists);
+        Assert.True(recoveryStatus.TargetExists);
         Assert.Equal(IndexCompatibilityRecoveryAction.ManualIntervention, recoveryStatus.Action);
     }
 
@@ -399,6 +403,31 @@ public sealed partial class IndexCompatibilityUpgradeTests
         Assert.Contains("explicit settings", exception.ToString(), StringComparison.OrdinalIgnoreCase);
         await AssertIndexExistsAsync(name, true);
         await AssertIndexExistsAsync(targetIndex, false);
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_PreservesOrdinarySchemaAlias()
+    {
+        string name = $"compat-schema-backing-{Guid.NewGuid():N}";
+        string source = $"{name}-v1";
+        using var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        RegisterCompatibilityIndex(index);
+        var create = await _client.Indices.CreateAsync(source, d => d.Aliases(a => a.Add(name, new Alias())), TestCancellationToken);
+        Assert.True(create.IsValidResponse);
+        var before = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string target = CompatibilityIndexName.Create(source, before.ServerMajor);
+        await using AsyncDisposableAction cleanup = new(async () =>
+        {
+            await _client.Indices.DeleteAsync(target, d => d.IgnoreUnavailable(), TestCancellationToken);
+            await _client.Indices.DeleteAsync(source, d => d.IgnoreUnavailable(), TestCancellationToken);
+        });
+        await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
+        var after = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        Assert.Equal(target, after.Name);
+        Assert.Equal(IndexCompatibilityState.Current, after.State);
+        var status = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, source, TestCancellationToken);
+        Assert.False(status.SourceExists);
+        Assert.True(status.TargetHasCanonicalSourceAlias);
     }
 
     [Fact]
